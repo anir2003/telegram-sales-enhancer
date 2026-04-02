@@ -18,3 +18,11 @@ export function isSupabaseConfigured() {
 export function isBotSecretConfigured() {
   return Boolean(process.env.TELEGRAM_WEBHOOK_SECRET);
 }
+
+export function isTeamAccessConfigured() {
+  return Boolean(process.env.TEAM_ACCESS_CODE);
+}
+
+export function getTeamAccessCode() {
+  return process.env.TEAM_ACCESS_CODE?.trim() ?? '';
+}

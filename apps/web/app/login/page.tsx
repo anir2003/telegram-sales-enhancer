@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getBrowserSupabaseClient } from '@/lib/supabase/browser';
+import { fetchJson } from '@/lib/web/fetch-json';
 
 export default function LoginPage() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [teamAccessRequired, setTeamAccessRequired] = useState(false);
+  const [teamAccessCode, setTeamAccessCode] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -12,6 +15,16 @@ export default function LoginPage() {
   const [message, setMessage] = useState('Sign in with your workspace email and password.');
   const [messageTone, setMessageTone] = useState<'neutral' | 'success' | 'danger'>('neutral');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    void fetchJson('/api/me')
+      .then((response) => {
+        setTeamAccessRequired(Boolean(response.teamAccessConfigured));
+      })
+      .catch(() => {
+        setTeamAccessRequired(false);
+      });
+  }, []);
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -23,6 +36,27 @@ export default function LoginPage() {
       setMessage('Supabase is not configured yet. Add the env vars from .env.example to enable login.');
       setIsSubmitting(false);
       return;
+    }
+
+    if (teamAccessRequired) {
+      if (!teamAccessCode.trim()) {
+        setMessageTone('danger');
+        setMessage('Enter the shared team access code to continue.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      try {
+        await fetchJson('/api/team-access', {
+          method: 'POST',
+          body: JSON.stringify({ code: teamAccessCode }),
+        });
+      } catch (error) {
+        setMessageTone('danger');
+        setMessage(error instanceof Error ? error.message : 'Team access check failed.');
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     if (mode === 'signup' && password !== confirmPassword) {
@@ -86,7 +120,7 @@ export default function LoginPage() {
       <p>
         Internal workspace for reusable leads, modular campaigns, Telegram account pools, and bot-assisted manual sending.
       </p>
-      <form onSubmit={handleLogin} className="card" style={{ maxWidth: 520, margin: '0 auto', textAlign: 'left' }}>
+      <form onSubmit={handleLogin} className="card login-card" style={{ maxWidth: 520, margin: '0 auto', textAlign: 'left' }}>
         <div className="card-header">
           <div>
             <div className="card-title">Team Login</div>
@@ -97,6 +131,14 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
+        {teamAccessRequired ? (
+          <div className="setup-item">
+            <div className="card-title">Team Mode</div>
+            <div className="card-subtitle" style={{ marginTop: 8 }}>
+              This workspace uses a shared team access code before personal login details are accepted.
+            </div>
+          </div>
+        ) : null}
         <div className="theme-options" style={{ width: 'fit-content' }}>
           <button
             className={`theme-option ${mode === 'signin' ? 'active' : ''}`}
@@ -104,7 +146,7 @@ export default function LoginPage() {
             onClick={() => {
               setMode('signin');
               setMessageTone('neutral');
-              setMessage('Sign in with your workspace email and password.');
+              setMessage(teamAccessRequired ? 'Enter the team access code, then sign in.' : 'Sign in with your workspace email and password.');
             }}
           >
             Sign In
@@ -115,13 +157,23 @@ export default function LoginPage() {
             onClick={() => {
               setMode('signup');
               setMessageTone('neutral');
-              setMessage('Create an account for your internal workspace.');
+              setMessage(teamAccessRequired ? 'Enter the team access code, then create your account.' : 'Create an account for your internal workspace.');
             }}
           >
             Create Account
           </button>
         </div>
         <div className="form-grid">
+          {teamAccessRequired ? (
+            <input
+              className="input"
+              type="password"
+              placeholder="Team access code"
+              value={teamAccessCode}
+              required
+              onChange={(event) => setTeamAccessCode(event.target.value)}
+            />
+          ) : null}
           {mode === 'signup' ? (
             <input
               className="input"

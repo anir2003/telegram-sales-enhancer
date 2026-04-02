@@ -16,6 +16,35 @@ function commandMenu() {
   return new Keyboard().text('Next task').resized();
 }
 
+async function handleLinkCode(ctx: Context, code: string) {
+  if (!ctx.from) {
+    await ctx.reply('Telegram user not found for this session.');
+    return;
+  }
+
+  const trimmedCode = code.trim().toUpperCase();
+  if (!trimmedCode) {
+    await ctx.reply('Send /link CODE using the one-time code from Settings.');
+    return;
+  }
+
+  try {
+    const response = await api.linkTelegramUser({
+      code: trimmedCode,
+      telegramUserId: ctx.from.id,
+      telegramUsername: ctx.from.username ?? null,
+    });
+
+    await ctx.reply(
+      `Linked successfully${response.profile?.email ? ` for ${response.profile.email}` : ''}. Use /next to get the next task.`,
+      { reply_markup: commandMenu() },
+    );
+  } catch (error) {
+    console.error(error);
+    await ctx.reply('That link code is invalid or expired. Generate a fresh code in Settings and try again.');
+  }
+}
+
 async function sendTaskCard(ctx: Context, task: BotTask) {
   await ctx.reply(buildTaskMessage(task), {
     parse_mode: 'HTML',
@@ -73,36 +102,24 @@ bot.command('start', async (ctx) => {
 });
 
 bot.command('link', async (ctx) => {
-  if (!ctx.from) {
-    await ctx.reply('Telegram user not found for this session.');
-    return;
-  }
-
   const code = ctx.message?.text.split(/\s+/)[1]?.trim();
   if (!code) {
-    await ctx.reply('Send /link CODE using the one-time code from Settings.');
+    await ctx.reply('Send /link CODE using the one-time code from Settings, or just paste the six-character code directly.');
     return;
   }
 
-  try {
-    const response = await api.linkTelegramUser({
-      code,
-      telegramUserId: ctx.from.id,
-      telegramUsername: ctx.from.username ?? null,
-    });
-
-    await ctx.reply(
-      `Linked successfully${response.profile?.email ? ` for ${response.profile.email}` : ''}. Use /next to get the next task.`,
-      { reply_markup: commandMenu() },
-    );
-  } catch (error) {
-    console.error(error);
-    await ctx.reply('That link code is invalid or expired. Generate a fresh code in Settings and try again.');
-  }
+  await handleLinkCode(ctx, code);
 });
 
 bot.command('next', sendNextTask);
 bot.hears(/^next task$/i, sendNextTask);
+bot.hears(/^[A-Z0-9]{6}$/i, async (ctx) => {
+  const code = ctx.message?.text;
+  if (!code) {
+    return;
+  }
+  await handleLinkCode(ctx, code);
+});
 bot.callbackQuery('noop', async (ctx) => {
   await ctx.answerCallbackQuery();
 });

@@ -7,6 +7,7 @@ import { fetchJson } from '@/lib/web/fetch-json';
 export default function SettingsPage() {
   const [me, setMe] = useState<any>(null);
   const [linkCode, setLinkCode] = useState<string>('');
+  const linkedTelegram = me?.profile?.telegram_username ? `@${me.profile.telegram_username}` : null;
 
   useEffect(() => {
     void fetchJson('/api/me').then(setMe);
@@ -35,17 +36,26 @@ export default function SettingsPage() {
           <div className="card-title">Current Session</div>
           <div className="kv"><span className="muted">Configured</span><span>{me?.configured ? 'Yes' : 'Demo mode'}</span></div>
           <div className="kv"><span className="muted">Workspace</span><span>{me?.workspace?.name ?? 'Primary Workspace'}</span></div>
+          <div className="kv"><span className="muted">Team mode</span><span>{me?.teamAccessConfigured ? 'Shared access code enabled' : 'Open sign-in'}</span></div>
           <div className="kv"><span className="muted">User</span><span>{me?.profile?.email ?? 'demo@workspace.local'}</span></div>
           <div className="kv"><span className="muted">Role</span><span>{me?.profile?.role ?? 'admin'}</span></div>
+          <div className="kv"><span className="muted">Telegram linked</span><span>{linkedTelegram ?? 'Not linked yet'}</span></div>
         </div>
 
         <div className="card">
           <div className="card-title">Telegram Bot Linking</div>
-          <div className="card-subtitle" style={{ marginTop: 8 }}>Generate a one-time code, then DM <code>/link CODE</code> to your internal task bot.</div>
+          <div className="card-subtitle" style={{ marginTop: 8 }}>
+            Generate a one-time code, then DM <code>/link CODE</code> to your internal task bot. Pasting the raw six-character code now works too.
+          </div>
           <div className="btn-row" style={{ marginTop: 14 }}>
             <button className="btn" onClick={generateCode}>Generate Link Code</button>
             {linkCode && <span className="badge">{linkCode}</span>}
           </div>
+          {linkCode ? (
+            <div className="status-callout success" style={{ marginTop: 14 }}>
+              Send <code>/link {linkCode}</code> or just paste <code>{linkCode}</code> directly into Telegram.
+            </div>
+          ) : null}
         </div>
       </div>
 
