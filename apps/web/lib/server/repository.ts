@@ -317,7 +317,15 @@ export async function importLeadsCsv(csvText: string, context?: WorkspaceContext
     throw new Error(parsed.errors[0]?.message || 'CSV parsing failed');
   }
 
-  const records = parsed.data.map((row, index) => {
+  const validRows = parsed.data.filter((row) => {
+    const first = (row['First Name'] ?? row.first_name ?? '').trim();
+    const handle = (row['Telegram Username'] ?? row.telegram_username ?? '').trim();
+    // Only process rows that have at least one character in the required fields.
+    // This allows us to silently ignore empty/ghost rows at the bottom of Excel sheets.
+    return first.length > 0 || handle.length > 0;
+  });
+
+  const records = validRows.map((row, index) => {
     try {
       return leadInputSchema.parse({
         first_name: row['First Name'] ?? row.first_name ?? '',
