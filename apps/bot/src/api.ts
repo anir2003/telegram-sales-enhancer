@@ -64,6 +64,10 @@ export class AppApiClient {
     });
   }
 
+  connectAccount(input: { code: string; telegramUserId: number; telegramUsername: string }) {
+    return this.post<{ account: { id: string; label: string; telegram_username: string } | null }>('/api/bot/connect-account', input);
+  }
+
   runScheduler() {
     return this.post<{ result: { created: number; blocked: number; dueTasks: number } }>('/api/bot/scheduler');
   }

@@ -8,14 +8,13 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [details, setDetails] = useState<CampaignDetail[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({
-    label: '',
-    telegram_username: '',
-    daily_limit: 20,
-    is_active: true,
-  });
+
+  const [showConnect, setShowConnect] = useState(false);
+  const [connectLabel, setConnectLabel] = useState('');
+  const [connectDailyLimit, setConnectDailyLimit] = useState(20);
+  const [connectCode, setConnectCode] = useState('');
+  const [connectError, setConnectError] = useState('');
+  const [generating, setGenerating] = useState(false);
 
   const load = async () => {
     const [accountResponse, campaignResponse] = await Promise.all([
@@ -36,24 +35,31 @@ export default function AccountsPage() {
     void load();
   }, []);
 
-  const handleCreate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setFormError('');
-    if (!form.label.trim() || !form.telegram_username.trim()) {
-      setFormError('Label and Telegram username are required.');
+  const generateConnectCode = async () => {
+    setConnectError('');
+    if (!connectLabel.trim()) {
+      setConnectError('Give this account a label (e.g. "Sales Account 1").');
       return;
     }
+    setGenerating(true);
     try {
-      await fetchJson('/api/accounts', {
+      const response = await fetchJson('/api/accounts/link-code', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({ label: connectLabel.trim(), dailyLimit: connectDailyLimit }),
       });
-      setForm({ label: '', telegram_username: '', daily_limit: 20, is_active: true });
-      setShowForm(false);
-      await load();
+      setConnectCode(response.linkCode?.code ?? '');
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to add account.');
+      setConnectError(err instanceof Error ? err.message : 'Failed to generate code.');
     }
+    setGenerating(false);
+  };
+
+  const resetConnect = () => {
+    setShowConnect(false);
+    setConnectLabel('');
+    setConnectDailyLimit(20);
+    setConnectCode('');
+    setConnectError('');
   };
 
   const accountInsights = useMemo(() => buildAccountInsights(accounts, details), [accounts, details]);
@@ -66,42 +72,81 @@ export default function AccountsPage() {
           <div>
             <div className="card-title">Telegram Sender Accounts</div>
             <div className="card-subtitle" style={{ marginTop: 8 }}>
-              Manage the Telegram accounts your team uses to send outreach messages. Each account can be assigned to multiple campaigns and has a configurable daily message limit.
+              Connect your Telegram accounts through the bot. Each account you want to send messages from needs to be registered here. Generate a code, then send <code>/connect CODE</code> from that Telegram account in the bot.
             </div>
           </div>
-          <button className="btn" onClick={() => setShowForm(!showForm)}>
-            {showForm ? 'Cancel' : '+ Add Account'}
+          <button className="btn" onClick={() => { setShowConnect(!showConnect); if (showConnect) resetConnect(); }}>
+            {showConnect ? 'Cancel' : '+ Connect Account'}
           </button>
         </div>
       </div>
 
-      {showForm && (
-        <form className="card form-grid" onSubmit={handleCreate} style={{ marginTop: 16 }}>
-          <div className="card-title">Connect New Telegram Account</div>
-          <div className="card-subtitle">Register a sender account so campaigns can assign outreach to it. This is the Telegram account your team member will use to send messages.</div>
-          <div className="form-grid columns-3" style={{ marginTop: 8 }}>
-            <div className="form-grid">
-              <label className="dim" style={{ fontSize: 11 }}>Account Label</label>
-              <input className="input" placeholder="e.g. My Business Account" value={form.label} onChange={(e) => setForm((c) => ({ ...c, label: e.target.value }))} />
-            </div>
-            <div className="form-grid">
-              <label className="dim" style={{ fontSize: 11 }}>Telegram Username</label>
-              <input className="input" placeholder="e.g. johndoe" value={form.telegram_username} onChange={(e) => setForm((c) => ({ ...c, telegram_username: e.target.value }))} />
-            </div>
-            <div className="form-grid">
-              <label className="dim" style={{ fontSize: 11 }}>Daily Message Limit</label>
-              <input className="input" type="number" min={1} max={500} value={form.daily_limit} onChange={(e) => setForm((c) => ({ ...c, daily_limit: Number(e.target.value) }))} />
-            </div>
+      {showConnect && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title">Connect a Telegram Account via Bot</div>
+          <div className="card-subtitle" style={{ marginTop: 8, marginBottom: 16 }}>
+            Step 1: Name this account and set its daily limit. Step 2: Generate a code. Step 3: Open Telegram with the account you want to connect, message the bot, and send <code>/connect CODE</code>.
           </div>
-          {formError && <div className="status-callout danger">{formError}</div>}
-          <div className="btn-row">
-            <button className="btn" type="submit">Save Account</button>
-          </div>
-        </form>
+
+          {!connectCode ? (
+            <div className="form-grid">
+              <div className="form-grid columns-2">
+                <div className="form-grid">
+                  <label className="dim" style={{ fontSize: 11 }}>Account Label</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Sales Account 1"
+                    value={connectLabel}
+                    onChange={(e) => setConnectLabel(e.target.value)}
+                  />
+                </div>
+                <div className="form-grid">
+                  <label className="dim" style={{ fontSize: 11 }}>Daily Message Limit</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={connectDailyLimit}
+                    onChange={(e) => setConnectDailyLimit(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+              {connectError && <div className="status-callout danger">{connectError}</div>}
+              <div className="btn-row">
+                <button className="btn" onClick={generateConnectCode} disabled={generating}>
+                  {generating ? 'Generating...' : 'Generate Connect Code'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="form-grid">
+              <div className="status-callout success" style={{ fontSize: 13, lineHeight: 1.8 }}>
+                <strong>Code generated: <code style={{ fontSize: 16, letterSpacing: '0.15em' }}>{connectCode}</code></strong>
+                <br />
+                <br />
+                Now open Telegram with the account you want to connect and send this to the bot:
+                <br />
+                <code>/connect {connectCode}</code>
+                <br />
+                <br />
+                The code expires in 15 minutes.
+              </div>
+              <div className="btn-row">
+                <button className="btn-secondary" onClick={() => { resetConnect(); void load(); }}>
+                  Done
+                </button>
+                <button className="btn-secondary" onClick={() => setConnectCode('')}>
+                  Generate Another
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="grid grid-4" style={{ marginTop: 16 }}>
-        <div className="card"><div className="card-title">Accounts</div><div className="card-value">{accountInsights.length}</div><div className="card-subtitle">Total sender accounts registered.</div></div>
+        <div className="card"><div className="card-title">Accounts</div><div className="card-value">{accountInsights.length}</div><div className="card-subtitle">Connected sender accounts.</div></div>
         <div className="card"><div className="card-title">Active</div><div className="card-value">{accountInsights.filter((a) => a.is_active).length}</div><div className="card-subtitle">Ready for campaign assignment.</div></div>
         <div className="card"><div className="card-title">Messages Today</div><div className="card-value">{accountInsights.reduce((s, a) => s + a.sentToday, 0)}</div><div className="card-subtitle">Across all campaigns.</div></div>
         <div className="card"><div className="card-title">Messages Yesterday</div><div className="card-value">{accountInsights.reduce((s, a) => s + a.sentYesterday, 0)}</div><div className="card-subtitle">Previous day baseline.</div></div>
@@ -162,7 +207,7 @@ export default function AccountsPage() {
             </div>
             <div className="card-subtitle" style={{ marginTop: 10 }}>{account.activeLeads} active leads tied to this account.</div>
           </button>
-        )) : <div className="empty-state">No Telegram accounts yet. Click "+ Add Account" above to connect your first sender account.</div>}
+        )) : <div className="empty-state">No Telegram accounts connected yet. Click "+ Connect Account" above and follow the bot linking flow to register your first sender account.</div>}
       </div>
     </div>
   );

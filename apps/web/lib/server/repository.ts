@@ -897,6 +897,117 @@ export async function consumeBotLinkCode(input: { code: string; telegramUserId: 
   return profile;
 }
 
+export async function createAccountLinkCode(
+  input: { label: string; dailyLimit: number },
+  context?: WorkspaceContext,
+) {
+  const active = resolveWorkspaceContext(context);
+  const code = createOneTimeCode();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
+
+  if (!isSupabaseConfigured()) {
+    const record = {
+      id: demoId('code'),
+      workspace_id: active.workspaceId,
+      profile_id: active.profileId ?? demoProfile.id,
+      code,
+      expires_at: expiresAt,
+      consumed_at: null,
+      created_at: nowIso(),
+      purpose: 'account',
+      metadata: { label: input.label, daily_limit: input.dailyLimit },
+    };
+    demoState.botCodes.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('bot_link_codes')
+    .insert({
+      workspace_id: active.workspaceId,
+      profile_id: active.profileId,
+      code,
+      expires_at: expiresAt,
+      purpose: 'account',
+      metadata: { label: input.label, daily_limit: input.dailyLimit },
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function consumeAccountLinkCode(input: {
+  code: string;
+  telegramUserId: number;
+  telegramUsername: string;
+}) {
+  if (!isSupabaseConfigured()) {
+    const match = demoState.botCodes.find(
+      (item) => item.code === input.code && !item.consumed_at && (item as any).purpose === 'account',
+    );
+    if (!match) return null;
+    match.consumed_at = nowIso();
+    const meta = (match as any).metadata ?? {};
+    const record: TelegramAccountRecord = {
+      id: demoId('account'),
+      workspace_id: match.workspace_id,
+      label: meta.label || input.telegramUsername,
+      telegram_username: normalizeTelegramUsername(input.telegramUsername),
+      daily_limit: meta.daily_limit ?? 20,
+      is_active: true,
+      owner_id: match.profile_id,
+      created_at: nowIso(),
+    };
+    demoState.accounts.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: codeRow } = await supabase!
+    .from('bot_link_codes')
+    .select('*')
+    .eq('code', input.code)
+    .eq('purpose', 'account')
+    .is('consumed_at', null)
+    .gt('expires_at', nowIso())
+    .maybeSingle();
+
+  if (!codeRow) return null;
+
+  await supabase!
+    .from('bot_link_codes')
+    .update({ consumed_at: nowIso() })
+    .eq('id', codeRow.id);
+
+  const meta = codeRow.metadata ?? {};
+  const { data: account, error } = await supabase!
+    .from('telegram_accounts')
+    .insert({
+      workspace_id: codeRow.workspace_id,
+      label: (meta as any).label || input.telegramUsername,
+      telegram_username: normalizeTelegramUsername(input.telegramUsername),
+      daily_limit: (meta as any).daily_limit ?? 20,
+      is_active: true,
+      owner_id: codeRow.profile_id,
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: codeRow.workspace_id,
+    profileId: codeRow.profile_id,
+    event_type: 'account.connected',
+    event_label: `Account @${input.telegramUsername} connected via bot`,
+    payload: { account_id: account.id, telegram_username: input.telegramUsername },
+  });
+
+  return account;
+}
+
 export async function getNextBotTask(telegramUserId: number) {
   if (!isSupabaseConfigured()) {
     const claimedTask = demoState.sendTasks.find(

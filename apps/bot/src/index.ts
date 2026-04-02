@@ -94,8 +94,11 @@ bot.command('start', async (ctx) => {
     [
       'This is your internal Telegram sales task bot.',
       '',
-      'Use /link CODE once from Settings to connect your Telegram identity.',
-      'Then use /next any time to pull the next due outreach task.',
+      '/link CODE — Link your identity (from Settings page)',
+      '/connect CODE — Register this account as a sender (from Accounts page)',
+      '/next — Pull the next due outreach task',
+      '',
+      'Each Telegram account you want to use for sending needs its own /connect code.',
     ].join('\n'),
     { reply_markup: commandMenu() },
   );
@@ -109,6 +112,40 @@ bot.command('link', async (ctx) => {
   }
 
   await handleLinkCode(ctx, code);
+});
+
+bot.command('connect', async (ctx) => {
+  const code = ctx.message?.text.split(/\s+/)[1]?.trim()?.toUpperCase();
+  if (!code) {
+    await ctx.reply(
+      'Send /connect CODE using the code generated on the Accounts page to register this Telegram account as a sender.',
+    );
+    return;
+  }
+
+  if (!ctx.from) {
+    await ctx.reply('Telegram user not found for this session.');
+    return;
+  }
+
+  try {
+    const response = await api.connectAccount({
+      code,
+      telegramUserId: ctx.from.id,
+      telegramUsername: ctx.from.username ?? `user_${ctx.from.id}`,
+    });
+
+    const account = response.account;
+    await ctx.reply(
+      `Telegram account connected as sender.\n\nLabel: ${account?.label ?? 'Account'}\nUsername: @${account?.telegram_username ?? ctx.from.username}\n\nThis account can now be assigned to campaigns. Use /next to pull tasks.`,
+      { reply_markup: commandMenu() },
+    );
+  } catch (error) {
+    console.error(error);
+    await ctx.reply(
+      'That account link code is invalid or expired. Generate a fresh code on the Accounts page and try again.',
+    );
+  }
 });
 
 bot.command('next', sendNextTask);
@@ -195,6 +232,7 @@ async function startWebhookMode() {
   await bot.api.setMyCommands([
     { command: 'start', description: 'Open the internal bot guide' },
     { command: 'link', description: 'Link your Telegram user to the CRM' },
+    { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
   ]);
 
@@ -225,6 +263,7 @@ async function startPollingMode() {
   await bot.api.setMyCommands([
     { command: 'start', description: 'Open the internal bot guide' },
     { command: 'link', description: 'Link your Telegram user to the CRM' },
+    { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
   ]);
   await bot.start({
