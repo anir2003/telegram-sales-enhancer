@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { IconAccounts, IconActivity, IconCampaigns, IconLeads, IconSettings } from '@/components/icons';
+import { IconAccounts, IconActivity, IconCampaigns, IconDashboard, IconLeads, IconSettings } from '@/components/icons';
 
 const items = [
+  { href: '/dashboard', label: 'Dashboard', icon: IconDashboard },
   { href: '/leads', label: 'Leads', icon: IconLeads },
   { href: '/campaigns', label: 'Campaigns', icon: IconCampaigns },
   { href: '/accounts', label: 'Accounts', icon: IconAccounts },

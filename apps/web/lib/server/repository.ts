@@ -262,6 +262,36 @@ export async function createCampaign(input: unknown, context?: WorkspaceContext)
   return data as CampaignRecord;
 }
 
+export async function updateCampaign(campaignId: string, input: unknown, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const parsed = campaignInputSchema.parse(input);
+  const payload = {
+    name: parsed.name,
+    description: parsed.description ?? null,
+    timezone: parsed.timezone,
+    send_window_start: parsed.send_window_start,
+    send_window_end: parsed.send_window_end,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const campaign = demoState.campaigns.find((item) => item.id === campaignId);
+    if (!campaign) return null;
+    Object.assign(campaign, payload);
+    return campaign;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaigns')
+    .update(payload)
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', campaignId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CampaignRecord;
+}
+
 export async function getCampaignDetail(campaignId: string, context?: WorkspaceContext) {
   const active = context ?? getDemoContext();
   if (!isSupabaseConfigured()) {
