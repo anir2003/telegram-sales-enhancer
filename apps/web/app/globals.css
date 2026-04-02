@@ -266,6 +266,25 @@ button, input, textarea, select {
   line-height: 1.7;
 }
 
+.status-callout {
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--panel-alt);
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.status-callout.success {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.status-callout.danger {
+  border-color: #8f4b4b;
+  color: #f2a6a6;
+}
+
 .card-value {
   font-size: 32px;
   margin: 10px 0 6px;
