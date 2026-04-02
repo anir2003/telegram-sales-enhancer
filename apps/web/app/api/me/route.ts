@@ -11,5 +11,6 @@ export async function GET() {
     profile: context?.profile ?? null,
     workspace: context?.workspace ?? null,
     authenticated: Boolean(context?.profile),
+    needsOrganization: Boolean(context?.configured && context?.profile && !context?.workspace),
   });
 }

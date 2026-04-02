@@ -25,7 +25,7 @@ export function Sidebar() {
           <div className="sidebar-logo-sub">Manual-send CRM</div>
         </div>
       </div>
-      <div className="sidebar-section-label">Workspace</div>
+      <div className="sidebar-section-label">Organization</div>
       <nav className="sidebar-nav">
         {items.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);

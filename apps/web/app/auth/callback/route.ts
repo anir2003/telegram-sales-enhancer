@@ -4,7 +4,7 @@ import { getServerSupabaseClient } from '@/lib/supabase/server';
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
-  const redirectTo = url.searchParams.get('next') ?? '/campaigns';
+  const redirectTo = url.searchParams.get('next') ?? '/';
   const supabase = await getServerSupabaseClient();
 
   if (code && supabase) {

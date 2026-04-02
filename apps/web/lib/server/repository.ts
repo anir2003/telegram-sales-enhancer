@@ -16,6 +16,7 @@ import {
   type TelegramAccountRecord,
 } from '@telegram-enhancer/shared';
 import Papa from 'papaparse';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { getAdminSupabaseClient } from '@/lib/supabase/server';
 import { demoId, demoProfile, demoState, demoWorkspace } from '@/lib/server/demo-store';
 import { isSupabaseConfigured } from '@/lib/env';
@@ -47,8 +48,211 @@ function getDemoContext(): WorkspaceContext {
   };
 }
 
+function resolveWorkspaceContext(context?: WorkspaceContext) {
+  if (context) {
+    return context;
+  }
+
+  if (!isSupabaseConfigured()) {
+    return getDemoContext();
+  }
+
+  throw new Error('Join or create an organization before using the CRM.');
+}
+
+function normalizeOrganizationSlug(input: string) {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+function hashOrganizationPassword(password: string) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyOrganizationPassword(password: string, stored: string | null | undefined) {
+  if (!stored) return false;
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const derived = scryptSync(password, salt, 64);
+  return timingSafeEqual(Buffer.from(hash, 'hex'), derived);
+}
+
+export async function createOrganizationForProfile(input: {
+  profileId: string;
+  name: string;
+  slug?: string | null;
+  timezone?: string | null;
+  password: string;
+}) {
+  const name = input.name.trim();
+  const slug = normalizeOrganizationSlug(input.slug?.trim() || input.name);
+  const password = input.password.trim();
+
+  if (!name) {
+    throw new Error('Enter an organization name.');
+  }
+  if (!slug) {
+    throw new Error('Choose a valid organization slug.');
+  }
+  if (password.length < 8) {
+    throw new Error('Use an organization password with at least 8 characters.');
+  }
+
+  if (!isSupabaseConfigured()) {
+    demoWorkspace.name = name;
+    demoWorkspace.slug = slug;
+    demoWorkspace.timezone = input.timezone?.trim() || 'UTC';
+    demoProfile.workspace_id = demoWorkspace.id;
+    demoProfile.role = 'admin';
+    return {
+      workspace: demoWorkspace,
+      profile: demoProfile,
+    };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: profile } = await supabase!
+    .from('profiles')
+    .select('*')
+    .eq('id', input.profileId)
+    .single();
+
+  if (profile.workspace_id) {
+    throw new Error('This user is already attached to an organization.');
+  }
+
+  const { data: existing } = await supabase!
+    .from('workspaces')
+    .select('id')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (existing) {
+    throw new Error('That organization slug is already in use.');
+  }
+
+  const { data: workspace, error: workspaceError } = await supabase!
+    .from('workspaces')
+    .insert({
+      name,
+      slug,
+      timezone: input.timezone?.trim() || 'UTC',
+      join_password_hash: hashOrganizationPassword(password),
+    })
+    .select('*')
+    .single();
+
+  if (workspaceError) throw workspaceError;
+
+  const { data: updatedProfile, error: profileError } = await supabase!
+    .from('profiles')
+    .update({
+      workspace_id: workspace.id,
+      role: 'admin',
+    })
+    .eq('id', input.profileId)
+    .select('*')
+    .single();
+
+  if (profileError) throw profileError;
+
+  await logActivity({
+    workspaceId: workspace.id,
+    profileId: input.profileId,
+    event_type: 'organization.created',
+    event_label: `${workspace.name} created`,
+    payload: { workspace_id: workspace.id, slug: workspace.slug },
+  });
+
+  return {
+    workspace,
+    profile: updatedProfile,
+  };
+}
+
+export async function joinOrganizationForProfile(input: {
+  profileId: string;
+  slug: string;
+  password: string;
+}) {
+  const slug = normalizeOrganizationSlug(input.slug);
+  const password = input.password.trim();
+
+  if (!slug) {
+    throw new Error('Enter the organization slug.');
+  }
+  if (!password) {
+    throw new Error('Enter the organization password.');
+  }
+
+  if (!isSupabaseConfigured()) {
+    demoProfile.workspace_id = demoWorkspace.id;
+    demoProfile.role = 'member';
+    return {
+      workspace: demoWorkspace,
+      profile: demoProfile,
+    };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: profile } = await supabase!
+    .from('profiles')
+    .select('*')
+    .eq('id', input.profileId)
+    .single();
+
+  if (profile.workspace_id) {
+    throw new Error('This user is already attached to an organization.');
+  }
+
+  const { data: workspace } = await supabase!
+    .from('workspaces')
+    .select('*')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (!workspace) {
+    throw new Error('Organization not found.');
+  }
+
+  if (!verifyOrganizationPassword(password, workspace.join_password_hash)) {
+    throw new Error('Organization password is incorrect.');
+  }
+
+  const { data: updatedProfile, error } = await supabase!
+    .from('profiles')
+    .update({
+      workspace_id: workspace.id,
+      role: 'member',
+    })
+    .eq('id', input.profileId)
+    .select('*')
+    .single();
+
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: workspace.id,
+    profileId: input.profileId,
+    event_type: 'organization.joined',
+    event_label: `${profile.email ?? 'User'} joined ${workspace.name}`,
+    payload: { workspace_id: workspace.id, slug: workspace.slug },
+  });
+
+  return {
+    workspace,
+    profile: updatedProfile,
+  };
+}
+
 export async function listLeads(context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     return [...demoState.leads];
   }
@@ -65,7 +269,7 @@ export async function listLeads(context?: WorkspaceContext) {
 }
 
 export async function createLead(input: unknown, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   assertWorkspace(active);
   const parsed = leadInputSchema.parse(input);
   const payload = {
@@ -102,7 +306,7 @@ export async function createLead(input: unknown, context?: WorkspaceContext) {
 }
 
 export async function importLeadsCsv(csvText: string, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const parsed = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: true,
@@ -165,7 +369,7 @@ export async function importLeadsCsv(csvText: string, context?: WorkspaceContext
 }
 
 export async function listAccounts(context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     return [...demoState.accounts];
   }
@@ -180,7 +384,7 @@ export async function listAccounts(context?: WorkspaceContext) {
 }
 
 export async function createAccount(input: unknown, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const parsed = telegramAccountInputSchema.parse(input);
   const payload = {
     ...parsed,
@@ -217,7 +421,7 @@ export async function createAccount(input: unknown, context?: WorkspaceContext) 
 }
 
 export async function listCampaigns(context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     return [...demoState.campaigns];
   }
@@ -232,7 +436,7 @@ export async function listCampaigns(context?: WorkspaceContext) {
 }
 
 export async function createCampaign(input: unknown, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const parsed = campaignInputSchema.parse(input);
   const payload = {
     ...parsed,
@@ -263,7 +467,7 @@ export async function createCampaign(input: unknown, context?: WorkspaceContext)
 }
 
 export async function updateCampaign(campaignId: string, input: unknown, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const parsed = campaignInputSchema.parse(input);
   const payload = {
     name: parsed.name,
@@ -293,7 +497,7 @@ export async function updateCampaign(campaignId: string, input: unknown, context
 }
 
 export async function getCampaignDetail(campaignId: string, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     const campaign = demoState.campaigns.find((item) => item.id === campaignId) ?? null;
     return {
@@ -329,7 +533,7 @@ export async function getCampaignDetail(campaignId: string, context?: WorkspaceC
 }
 
 export async function addSequenceStep(campaignId: string, input: unknown, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const parsed = sequenceStepInputSchema.parse(input);
   const payload = {
     ...parsed,
@@ -358,7 +562,7 @@ export async function addSequenceStep(campaignId: string, input: unknown, contex
 }
 
 export async function attachLeadToCampaign(campaignId: string, leadId: string, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const payload = {
     workspace_id: active.workspaceId,
     campaign_id: campaignId,
@@ -403,7 +607,7 @@ export async function attachLeadToCampaign(campaignId: string, leadId: string, c
 }
 
 export async function setCampaignAccounts(campaignId: string, accountIds: string[], context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     demoState.assignments = demoState.assignments.filter((item) => item.campaign_id !== campaignId);
     accountIds.forEach((accountId) => {
@@ -444,7 +648,7 @@ function distributeAccounts(accounts: TelegramAccountRecord[], total: number) {
 }
 
 export async function launchCampaign(campaignId: string, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const detail = await getCampaignDetail(campaignId, active);
   if (!detail.campaign) throw new Error('Campaign not found');
   if (!detail.steps.length) throw new Error('Add at least one sequence step before launch');
@@ -531,7 +735,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
 }
 
 export async function pauseCampaign(campaignId: string, context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     const campaign = demoState.campaigns.find((item) => item.id === campaignId);
     if (campaign) {
@@ -605,7 +809,7 @@ async function createSendTask(payload: Omit<SendTaskRecord, 'id' | 'claimed_by_p
 }
 
 export async function listActivity(context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     return [...demoState.activity].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }
@@ -621,7 +825,7 @@ export async function listActivity(context?: WorkspaceContext) {
 }
 
 export async function createBotLinkCode(context?: WorkspaceContext) {
-  const active = context ?? getDemoContext();
+  const active = resolveWorkspaceContext(context);
   const code = createOneTimeCode();
   const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
 

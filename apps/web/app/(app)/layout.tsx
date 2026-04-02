@@ -9,5 +9,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect('/login');
   }
 
-  return <AppShell profile={context?.profile}>{children}</AppShell>;
+  if (context?.configured && context.profile && !context.workspace) {
+    redirect('/organization');
+  }
+
+  return <AppShell profile={context?.profile} workspace={context?.workspace}>{children}</AppShell>;
 }

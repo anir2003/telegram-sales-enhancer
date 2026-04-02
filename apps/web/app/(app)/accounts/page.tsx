@@ -49,6 +49,17 @@ export default function AccountsPage() {
 
   return (
     <div className="page-content">
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <div className="card-title">Connected Telegram Accounts</div>
+            <div className="card-subtitle" style={{ marginTop: 8 }}>
+              This panel tracks the sender accounts shared by your organization. Linking yourself to the internal bot in Settings is separate and only connects your teammate identity.
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-4">
         <div className="card"><div className="card-title">Accounts</div><div className="card-value">{accountInsights.length}</div><div className="card-subtitle">Telegram sender identities in your outbound pool.</div></div>
         <div className="card"><div className="card-title">Active</div><div className="card-value">{accountInsights.filter((account) => account.is_active).length}</div><div className="card-subtitle">Accounts ready to be assigned right now.</div></div>
@@ -61,13 +72,13 @@ export default function AccountsPage() {
           <div className="card-header">
             <div>
               <div className="card-title">Add Telegram Account</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>These are your sender accounts, not the internal task bot identity.</div>
+              <div className="card-subtitle" style={{ marginTop: 8 }}>Register a sender account so campaigns can assign workload to it. This does not replace each teammate linking the internal bot.</div>
             </div>
           </div>
           <input className="input" placeholder="Label" value={form.label} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} />
           <input className="input" placeholder="Telegram username" value={form.telegram_username} onChange={(event) => setForm((current) => ({ ...current, telegram_username: event.target.value }))} />
           <input className="input" type="number" placeholder="Daily limit" value={form.daily_limit} onChange={(event) => setForm((current) => ({ ...current, daily_limit: Number(event.target.value) }))} />
-          <button className="btn" type="submit">Add Account</button>
+          <button className="btn" type="submit">Connect New Account</button>
         </form>
 
         <div className="card">

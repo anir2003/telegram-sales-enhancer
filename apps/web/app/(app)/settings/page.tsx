@@ -30,13 +30,13 @@ export default function SettingsPage() {
         <ThemeToggle />
       </div>
 
-      <div className="section-label">Workspace</div>
+      <div className="section-label">Organization</div>
       <div className="grid grid-2">
         <div className="card">
           <div className="card-title">Current Session</div>
           <div className="kv"><span className="muted">Configured</span><span>{me?.configured ? 'Yes' : 'Demo mode'}</span></div>
-          <div className="kv"><span className="muted">Workspace</span><span>{me?.workspace?.name ?? 'Primary Workspace'}</span></div>
-          <div className="kv"><span className="muted">Team mode</span><span>{me?.teamAccessConfigured ? 'Shared access code enabled' : 'Open sign-in'}</span></div>
+          <div className="kv"><span className="muted">Organization</span><span>{me?.workspace?.name ?? 'Not joined yet'}</span></div>
+          <div className="kv"><span className="muted">Slug</span><span>{me?.workspace?.slug ?? 'Set during organization onboarding'}</span></div>
           <div className="kv"><span className="muted">User</span><span>{me?.profile?.email ?? 'demo@workspace.local'}</span></div>
           <div className="kv"><span className="muted">Role</span><span>{me?.profile?.role ?? 'admin'}</span></div>
           <div className="kv"><span className="muted">Telegram linked</span><span>{linkedTelegram ?? 'Not linked yet'}</span></div>
@@ -45,7 +45,7 @@ export default function SettingsPage() {
         <div className="card">
           <div className="card-title">Telegram Bot Linking</div>
           <div className="card-subtitle" style={{ marginTop: 8 }}>
-            Generate a one-time code, then DM <code>/link CODE</code> to your internal task bot. Pasting the raw six-character code now works too.
+            This links your teammate identity to the task bot. Sender accounts for campaigns are managed separately on the Accounts page.
           </div>
           <div className="btn-row" style={{ marginTop: 14 }}>
             <button className="btn" onClick={generateCode}>Generate Link Code</button>
@@ -63,7 +63,7 @@ export default function SettingsPage() {
       <div className="grid grid-2">
         <div className="card setup-list">
           <div className="setup-item">Create one Supabase project and enable email auth.</div>
-          <div className="setup-item">Run the SQL in <code>supabase/migrations</code>, then seed the default workspace.</div>
+          <div className="setup-item">Run the SQL in <code>supabase/migrations</code>, then create your first organization inside the app.</div>
           <div className="setup-item">Set the env vars from <code>.env.example</code> in Railway for both services.</div>
           <div className="setup-item">Deploy <code>apps/web</code> and <code>apps/bot</code> as separate Railway services.</div>
         </div>

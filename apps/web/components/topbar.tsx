@@ -11,7 +11,13 @@ const labels: Record<string, { title: string; subtitle: string }> = {
   '/settings': { title: 'Settings', subtitle: 'Appearance, bot linking, and setup checklist' },
 };
 
-export function TopBar({ profile }: { profile?: { email?: string | null } | null }) {
+export function TopBar({
+  profile,
+  workspace,
+}: {
+  profile?: { email?: string | null } | null;
+  workspace?: { name?: string | null } | null;
+}) {
   const pathname = usePathname();
   const basePath = pathname.startsWith('/campaigns/') ? '/campaigns' : pathname;
   const page = labels[basePath] ?? labels['/dashboard'];
@@ -23,7 +29,10 @@ export function TopBar({ profile }: { profile?: { email?: string | null } | null
         <span className="topbar-subtitle">{page.subtitle}</span>
       </div>
       <div className="topbar-right">
-        <span className="topbar-user">{profile?.email ?? 'Demo workspace'}</span>
+        <span className="topbar-user">
+          {workspace?.name ? `${workspace.name} · ` : ''}
+          {profile?.email ?? 'Demo workspace'}
+        </span>
       </div>
     </header>
   );

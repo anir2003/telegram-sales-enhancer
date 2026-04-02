@@ -8,5 +8,9 @@ export default async function HomePage() {
     redirect('/login');
   }
 
+  if (context?.configured && context.profile && !context.workspace) {
+    redirect('/organization');
+  }
+
   redirect('/dashboard');
 }
