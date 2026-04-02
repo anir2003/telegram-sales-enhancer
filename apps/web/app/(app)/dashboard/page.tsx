@@ -116,12 +116,12 @@ export default function DashboardPage() {
             ))}
           </div>
           <div className="gh-heatmap-body">
-            <div className="gh-heatmap-months">
+            <div className="gh-heatmap-months" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 13px)` }}>
               {metrics.heatmap.weekLabels.map((label, i) => (
                 <div key={i} className="gh-heatmap-month-label">{label}</div>
               ))}
             </div>
-            <div className="gh-heatmap-grid" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 1fr)` }}>
+            <div className="gh-heatmap-grid" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 13px)` }}>
               {metrics.heatmap.days.map((day) => (
                 <div
                   key={day.iso}
