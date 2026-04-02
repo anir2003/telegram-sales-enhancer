@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "sales-dashboard",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev:web"],
       "port": 3000
     }
   ]

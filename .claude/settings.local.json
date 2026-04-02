@@ -8,7 +8,15 @@
       "Bash(cp /Users/anir/Desktop/salessystem-app/.gitignore /Users/anir/Desktop/salessystem/)",
       "Bash(npm start:*)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(ls -la /Users/anir/Desktop/salessystem/*.*)",
+      "Bash(pnpm build:*)",
+      "Bash(kill 9729)",
+      "Bash(kill -9 9729)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(rm -f /Users/anir/Desktop/salessystem/.git/index.lock)"
     ]
   }
 }

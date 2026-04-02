@@ -1370,9 +1370,21 @@ export async function runBotScheduler() {
       .eq('campaign_lead_id', campaignLead.id)
       .eq('step_order', campaignLead.next_step_order)
       .in('status', ['pending', 'claimed'])
+      .limit(1)
       .maybeSingle();
 
     if (existingTask) {
+      continue;
+    }
+
+    // Protect against race conditions if completeBotTask shifted the lead forward.
+    const { data: freshLead } = await supabase!
+      .from('campaign_leads')
+      .select('status, next_step_order')
+      .eq('id', campaignLead.id)
+      .single();
+
+    if (!freshLead || freshLead.status !== campaignLead.status || freshLead.next_step_order !== campaignLead.next_step_order) {
       continue;
     }
 
