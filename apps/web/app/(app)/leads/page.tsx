@@ -151,8 +151,8 @@ export default function LeadsPage() {
               <div className="card-title">Import CSV</div>
               <div className="card-subtitle" style={{ marginTop: 8 }}>Upload a CSV file. Duplicates (same Telegram username) are automatically merged.</div>
               <div className="dim" style={{ fontSize: 13, marginTop: 12, lineHeight: 1.5 }}>
-                <strong>Required columns:</strong> First Name, Last Name, Company, Telegram Username.<br />
-                <strong>Optional columns:</strong> Tags (comma separated), Notes, Source.
+                <strong>Required columns:</strong> First Name, Telegram Username.<br />
+                <strong>Optional columns:</strong> Last Name, Company, Tags (comma separated), Notes, Source.
               </div>
             </div>
           </div>

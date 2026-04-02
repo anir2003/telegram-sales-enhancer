@@ -332,7 +332,7 @@ export async function importLeadsCsv(csvText: string, context?: WorkspaceContext
         source: row.Source ?? 'CSV import',
       });
     } catch (err: any) {
-      throw new Error(`Row ${index + 2}: Missing or invalid fields. Please ensure First Name, Last Name, Company, and Telegram Username are provided.`);
+      throw new Error(`Row ${index + 2}: Missing or invalid fields. Please ensure First Name and Telegram Username are provided.`);
     }
   });
 

@@ -111,8 +111,8 @@ export interface ActivityLogRecord {
 
 export const leadInputSchema = z.object({
   first_name: z.string().trim().min(1),
-  last_name: z.string().trim().min(1),
-  company_name: z.string().trim().min(1),
+  last_name: z.string().trim().default(''),
+  company_name: z.string().trim().default(''),
   telegram_username: z.string().trim().min(1),
   tags: z.array(z.string().trim()).default([]),
   notes: z.string().trim().nullish(),
