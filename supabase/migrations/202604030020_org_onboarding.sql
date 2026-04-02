@@ -24,3 +24,7 @@ begin
   return new;
 end;
 $$;
+
+alter table public.bot_link_codes
+add column if not exists purpose text not null default 'profile' check (purpose in ('profile', 'account')),
+add column if not exists metadata jsonb not null default '{}'::jsonb;
