@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0a0a0a;
+  --app-shell: #0d0d0d;
+  --card: #1a1a1a;
+  --card-hover: #222222;
+  --panel: #1a1a1a;
+  --panel-alt: #141414;
+  --panel-strong: #1f1f1f;
+  --text: #ffffff;
+  --text-muted: #888888;
+  --text-dim: #555555;
+  --bar-light: #e0e0e0;
+  --bar-mid: #666666;
+  --bar-dark: #333333;
+  --accent: #ffffff;
+  --accent-contrast: #000000;
+  --tag-bg: #1a1a1a;
+  --tag-border: #333333;
+  --border: #1a1a1a;
+  --border-strong: #333333;
+  --border-soft: #2a2a2a;
+  --border-focus: #444444;
+  --track: #1a1a1a;
+  --fill-strong: #ffffff;
+  --fill-mid: #888888;
+  --fill-dim: #666666;
+  --fill-soft: #444444;
+  --tooltip-bg: #111111;
+  --tooltip-border: #333333;
+  --tooltip-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  --scroll-thumb: #333333;
+  --logo-filter: brightness(0) invert(1);
+  --heat-0: #1a1a1a;
+  --heat-1: #333333;
+  --heat-2: #444444;
+  --heat-3: #777777;
+  --heat-4: #aaaaaa;
+  --heat-5: #ffffff;
+  --status-strong: #ffffff;
+  --status-mid: #bbbbbb;
+  --status-dim: #888888;
+  --status-soft: #666666;
+  --status-muted: #444444;
+  --status-quiet: #333333;
+  --surface-contrast: #111111;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #f4efe6;
+  --app-shell: #fbf7f0;
+  --card: #fffdfa;
+  --card-hover: #f7f1e8;
+  --panel: #f3ede3;
+  --panel-alt: #efe8dd;
+  --panel-strong: #e5dccf;
+  --text: #171411;
+  --text-muted: #5c554c;
+  --text-dim: #8f867a;
+  --bar-light: #171411;
+  --bar-mid: #8f867a;
+  --bar-dark: #d8cfc2;
+  --accent: #171411;
+  --accent-contrast: #fffdfa;
+  --tag-bg: #f6f0e7;
+  --tag-border: #d2c5b4;
+  --border: #e5dccf;
+  --border-strong: #cdbfaa;
+  --border-soft: #d9ccbb;
+  --border-focus: #8f7d65;
+  --track: #e7ddd0;
+  --fill-strong: #171411;
+  --fill-mid: #72685b;
+  --fill-dim: #9b9081;
+  --fill-soft: #c4b6a4;
+  --tooltip-bg: #1f1a14;
+  --tooltip-border: #4e4235;
+  --tooltip-shadow: 0 10px 24px rgba(71, 54, 33, 0.18);
+  --scroll-thumb: #bfb19c;
+  --logo-filter: brightness(0) saturate(100%);
+  --heat-0: #efe7dc;
+  --heat-1: #d9ccbb;
+  --heat-2: #bca890;
+  --heat-3: #8f775d;
+  --heat-4: #5f4c39;
+  --heat-5: #171411;
+  --status-strong: #171411;
+  --status-mid: #5f4c39;
+  --status-dim: #8f775d;
+  --status-soft: #bca890;
+  --status-muted: #cdbfaa;
+  --status-quiet: #d9ccbb;
+  --surface-contrast: #171411;
+  color-scheme: light;
+}
+
+body {
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 2px; }

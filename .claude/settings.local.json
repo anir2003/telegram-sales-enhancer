@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-react-app@latest . --template default)",
+      "Read(//Users/anir/Desktop/**)",
+      "Bash(npx create-react-app:*)",
+      "Bash(cp -r /Users/anir/Desktop/salessystem-app/* /Users/anir/Desktop/salessystem/)",
+      "Bash(cp /Users/anir/Desktop/salessystem-app/.gitignore /Users/anir/Desktop/salessystem/)",
+      "Bash(npm start:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm install:*)"
+    ]
+  }
+}

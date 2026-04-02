@@ -1,0 +1,1163 @@
+import {
+  buildTelegramProfileUrl,
+  campaignInputSchema,
+  createOneTimeCode,
+  leadInputSchema,
+  normalizeTelegramUsername,
+  renderMessageTemplate,
+  sequenceStepInputSchema,
+  telegramAccountInputSchema,
+  type ActivityLogRecord,
+  type CampaignLeadRecord,
+  type CampaignRecord,
+  type LeadRecord,
+  type SendTaskRecord,
+  type SequenceStepRecord,
+  type TelegramAccountRecord,
+} from '@telegram-enhancer/shared';
+import Papa from 'papaparse';
+import { getAdminSupabaseClient } from '@/lib/supabase/server';
+import { demoId, demoProfile, demoState, demoWorkspace } from '@/lib/server/demo-store';
+import { isSupabaseConfigured } from '@/lib/env';
+
+type WorkspaceContext = {
+  workspaceId: string;
+  profileId: string | null;
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function isDue(value: string | null | undefined) {
+  if (!value) return false;
+  return new Date(value).getTime() <= Date.now();
+}
+
+function assertWorkspace(context: WorkspaceContext) {
+  if (!context.workspaceId) {
+    throw new Error('Workspace is required');
+  }
+}
+
+function getDemoContext(): WorkspaceContext {
+  return {
+    workspaceId: demoWorkspace.id,
+    profileId: demoProfile.id,
+  };
+}
+
+export async function listLeads(context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    return [...demoState.leads];
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('leads')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data as LeadRecord[];
+}
+
+export async function createLead(input: unknown, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  assertWorkspace(active);
+  const parsed = leadInputSchema.parse(input);
+  const payload = {
+    ...parsed,
+    telegram_username: normalizeTelegramUsername(parsed.telegram_username),
+    workspace_id: active.workspaceId,
+    created_by: active.profileId,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const record: LeadRecord = {
+      id: demoId('lead'),
+      created_at: nowIso(),
+      ...payload,
+      owner_id: payload.owner_id ?? null,
+      notes: payload.notes ?? null,
+      source: payload.source ?? null,
+    };
+    demoState.leads.unshift(record);
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'lead.created',
+      event_label: `Lead ${record.first_name} ${record.last_name} added`,
+      payload: { lead_id: record.id },
+    });
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!.from('leads').insert(payload).select('*').single();
+  if (error) throw error;
+  return data as LeadRecord;
+}
+
+export async function importLeadsCsv(csvText: string, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const parsed = Papa.parse<Record<string, string>>(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (header) => header.trim(),
+  });
+
+  if (parsed.errors.length) {
+    throw new Error(parsed.errors[0]?.message || 'CSV parsing failed');
+  }
+
+  const records = parsed.data.map((row) =>
+    leadInputSchema.parse({
+      first_name: row['First Name'] ?? row.first_name ?? '',
+      last_name: row['Last Name'] ?? row.last_name ?? '',
+      company_name: row.Company ?? row.company_name ?? row['Company Name'] ?? '',
+      telegram_username: row['Telegram Username'] ?? row.telegram_username ?? '',
+      tags: (row.Tags ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      notes: row.Notes ?? null,
+      source: row.Source ?? 'CSV import',
+    }),
+  );
+
+  if (!isSupabaseConfigured()) {
+    const imported = await Promise.all(records.map((record) => createLead(record, active)));
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'leads.imported',
+      event_label: `${imported.length} leads imported`,
+      payload: { count: imported.length },
+    });
+    return imported;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const payload = records.map((record) => ({
+    ...record,
+    telegram_username: normalizeTelegramUsername(record.telegram_username),
+    workspace_id: active.workspaceId,
+    created_by: active.profileId,
+  }));
+
+  const { data, error } = await supabase!
+    .from('leads')
+    .upsert(payload, { onConflict: 'workspace_id,telegram_username' })
+    .select('*');
+
+  if (error) throw error;
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'leads.imported',
+    event_label: `${data.length} leads imported`,
+    payload: { count: data.length },
+  });
+  return data as LeadRecord[];
+}
+
+export async function listAccounts(context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    return [...demoState.accounts];
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_accounts')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data as TelegramAccountRecord[];
+}
+
+export async function createAccount(input: unknown, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const parsed = telegramAccountInputSchema.parse(input);
+  const payload = {
+    ...parsed,
+    telegram_username: normalizeTelegramUsername(parsed.telegram_username),
+    owner_id: parsed.owner_id ?? null,
+    workspace_id: active.workspaceId,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const record: TelegramAccountRecord = {
+      id: demoId('account'),
+      created_at: nowIso(),
+      ...payload,
+    };
+    demoState.accounts.unshift(record);
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'account.created',
+      event_label: `Account ${record.label} added`,
+      payload: { account_id: record.id },
+    });
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_accounts')
+    .insert(payload)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as TelegramAccountRecord;
+}
+
+export async function listCampaigns(context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    return [...demoState.campaigns];
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaigns')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data as CampaignRecord[];
+}
+
+export async function createCampaign(input: unknown, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const parsed = campaignInputSchema.parse(input);
+  const payload = {
+    ...parsed,
+    description: parsed.description ?? null,
+    workspace_id: active.workspaceId,
+    created_by: active.profileId,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const record: CampaignRecord = {
+      id: demoId('campaign'),
+      status: 'draft',
+      created_at: nowIso(),
+      ...payload,
+    };
+    demoState.campaigns.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaigns')
+    .insert(payload)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CampaignRecord;
+}
+
+export async function getCampaignDetail(campaignId: string, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    const campaign = demoState.campaigns.find((item) => item.id === campaignId) ?? null;
+    return {
+      campaign,
+      steps: demoState.steps.filter((item) => item.campaign_id === campaignId).sort((a, b) => a.step_order - b.step_order),
+      attachedLeads: demoState.campaignLeads.filter((item) => item.campaign_id === campaignId),
+      accounts: demoState.accounts,
+      assignedAccountIds: demoState.assignments
+        .filter((item) => item.campaign_id === campaignId)
+        .map((item) => item.telegram_account_id),
+      leads: demoState.leads,
+    };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const [{ data: campaign }, { data: steps }, { data: attachedLeads }, { data: accounts }, { data: assignments }, { data: leads }] = await Promise.all([
+    supabase!.from('campaigns').select('*').eq('workspace_id', active.workspaceId).eq('id', campaignId).maybeSingle(),
+    supabase!.from('campaign_sequence_steps').select('*').eq('workspace_id', active.workspaceId).eq('campaign_id', campaignId).order('step_order'),
+    supabase!.from('campaign_leads').select('*').eq('workspace_id', active.workspaceId).eq('campaign_id', campaignId).order('created_at'),
+    supabase!.from('telegram_accounts').select('*').eq('workspace_id', active.workspaceId).order('created_at'),
+    supabase!.from('campaign_account_assignments').select('*').eq('workspace_id', active.workspaceId).eq('campaign_id', campaignId),
+    supabase!.from('leads').select('*').eq('workspace_id', active.workspaceId).order('company_name'),
+  ]);
+
+  return {
+    campaign: (campaign as CampaignRecord | null) ?? null,
+    steps: (steps as SequenceStepRecord[]) ?? [],
+    attachedLeads: (attachedLeads as CampaignLeadRecord[]) ?? [],
+    accounts: (accounts as TelegramAccountRecord[]) ?? [],
+    assignedAccountIds: assignments?.map((item) => item.telegram_account_id) ?? [],
+    leads: (leads as LeadRecord[]) ?? [],
+  };
+}
+
+export async function addSequenceStep(campaignId: string, input: unknown, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const parsed = sequenceStepInputSchema.parse(input);
+  const payload = {
+    ...parsed,
+    workspace_id: active.workspaceId,
+    campaign_id: campaignId,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const record: SequenceStepRecord = {
+      id: demoId('step'),
+      ...payload,
+    };
+    demoState.steps.push(record);
+    demoState.steps.sort((a, b) => a.step_order - b.step_order);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaign_sequence_steps')
+    .insert(payload)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as SequenceStepRecord;
+}
+
+export async function attachLeadToCampaign(campaignId: string, leadId: string, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const payload = {
+    workspace_id: active.workspaceId,
+    campaign_id: campaignId,
+    lead_id: leadId,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const existing = demoState.campaignLeads.find((item) => item.campaign_id === campaignId && item.lead_id === leadId);
+    if (existing) return existing;
+    const record: CampaignLeadRecord = {
+      id: demoId('campaign-lead'),
+      ...payload,
+      status: 'queued',
+      assigned_account_id: null,
+      current_step_order: 0,
+      next_step_order: 1,
+      next_due_at: null,
+      last_sent_at: null,
+      last_reply_at: null,
+      stop_reason: null,
+      notes: null,
+    };
+    demoState.campaignLeads.push(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaign_leads')
+    .upsert(
+      {
+        ...payload,
+        status: 'queued',
+        next_step_order: 1,
+      },
+      { onConflict: 'campaign_id,lead_id' },
+    )
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CampaignLeadRecord;
+}
+
+export async function setCampaignAccounts(campaignId: string, accountIds: string[], context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    demoState.assignments = demoState.assignments.filter((item) => item.campaign_id !== campaignId);
+    accountIds.forEach((accountId) => {
+      demoState.assignments.push({
+        id: demoId('assignment'),
+        workspace_id: active.workspaceId,
+        campaign_id: campaignId,
+        telegram_account_id: accountId,
+        created_at: nowIso(),
+      });
+    });
+    return accountIds;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  await supabase!.from('campaign_account_assignments').delete().eq('workspace_id', active.workspaceId).eq('campaign_id', campaignId);
+  if (!accountIds.length) return [];
+
+  const payload = accountIds.map((accountId) => ({
+    workspace_id: active.workspaceId,
+    campaign_id: campaignId,
+    telegram_account_id: accountId,
+  }));
+  const { error } = await supabase!.from('campaign_account_assignments').insert(payload);
+  if (error) throw error;
+  return accountIds;
+}
+
+function distributeAccounts(accounts: TelegramAccountRecord[], total: number) {
+  const slots: string[] = [];
+  accounts.forEach((account) => {
+    for (let count = 0; count < account.daily_limit; count += 1) {
+      slots.push(account.id);
+      if (slots.length >= total) break;
+    }
+  });
+  return slots;
+}
+
+export async function launchCampaign(campaignId: string, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const detail = await getCampaignDetail(campaignId, active);
+  if (!detail.campaign) throw new Error('Campaign not found');
+  if (!detail.steps.length) throw new Error('Add at least one sequence step before launch');
+  if (!detail.attachedLeads.length) throw new Error('Attach at least one lead before launch');
+
+  const assignedAccounts = detail.accounts.filter((account) => detail.assignedAccountIds.includes(account.id) && account.is_active);
+  if (!assignedAccounts.length) throw new Error('Assign at least one active account before launch');
+
+  const slots = distributeAccounts(assignedAccounts, detail.attachedLeads.length);
+  const leadById = new Map(detail.leads.map((lead) => [lead.id, lead]));
+  const firstStep = detail.steps[0];
+  const createdTasks: SendTaskRecord[] = [];
+
+  for (const [index, campaignLead] of detail.attachedLeads.entries()) {
+    const lead = leadById.get(campaignLead.lead_id);
+    if (!lead) continue;
+    const assignedAccountId = slots[index] ?? null;
+
+    if (!assignedAccountId) {
+      await updateCampaignLead(campaignLead.id, {
+        status: 'blocked',
+        stop_reason: 'Daily cap reached before launch',
+      }, active);
+      continue;
+    }
+
+    const dueAt = nowIso();
+    await updateCampaignLead(campaignLead.id, {
+      assigned_account_id: assignedAccountId,
+      status: 'due',
+      next_due_at: dueAt,
+      next_step_order: 1,
+    }, active);
+
+    const task = await createSendTask({
+      workspace_id: active.workspaceId,
+      campaign_id: campaignId,
+      campaign_lead_id: campaignLead.id,
+      lead_id: campaignLead.lead_id,
+      sequence_step_id: firstStep.id,
+      assigned_account_id: assignedAccountId,
+      step_order: firstStep.step_order,
+      due_at: dueAt,
+      rendered_message: renderMessageTemplate(firstStep.message_template, lead),
+      lead_snapshot: {
+        first_name: lead.first_name,
+        company_name: lead.company_name,
+        telegram_username: lead.telegram_username,
+        profile_url: buildTelegramProfileUrl(lead.telegram_username),
+      },
+    }, active);
+    createdTasks.push(task);
+  }
+
+  if (!isSupabaseConfigured()) {
+    const campaign = demoState.campaigns.find((item) => item.id === campaignId)!;
+    campaign.status = 'active';
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'campaign.launched',
+      event_label: `${campaign.name} launched`,
+      payload: { campaign_id: campaignId, created_tasks: createdTasks.length },
+    });
+    return createdTasks;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  await supabase!
+    .from('campaigns')
+    .update({ status: 'active', launched_at: nowIso() })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', campaignId);
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'campaign.launched',
+    event_label: `${detail.campaign.name} launched`,
+    payload: { campaign_id: campaignId, created_tasks: createdTasks.length },
+  });
+
+  return createdTasks;
+}
+
+export async function pauseCampaign(campaignId: string, context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    const campaign = demoState.campaigns.find((item) => item.id === campaignId);
+    if (campaign) {
+      campaign.status = 'paused';
+    }
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'campaign.paused',
+      event_label: `${campaign?.name ?? 'Campaign'} paused`,
+      payload: { campaign_id: campaignId },
+    });
+    return campaign;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaigns')
+    .update({ status: 'paused', paused_at: nowIso() })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', campaignId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CampaignRecord;
+}
+
+async function updateCampaignLead(id: string, patch: Partial<CampaignLeadRecord>, context: WorkspaceContext) {
+  if (!isSupabaseConfigured()) {
+    const record = demoState.campaignLeads.find((item) => item.id === id);
+    if (record) Object.assign(record, patch);
+    return record ?? null;
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaign_leads')
+    .update(patch)
+    .eq('workspace_id', context.workspaceId)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CampaignLeadRecord;
+}
+
+async function createSendTask(payload: Omit<SendTaskRecord, 'id' | 'claimed_by_profile_id' | 'status'> & { lead_snapshot?: Record<string, unknown> }, context: WorkspaceContext) {
+  if (!isSupabaseConfigured()) {
+    const task: SendTaskRecord = {
+      id: demoId('task'),
+      claimed_by_profile_id: null,
+      status: 'pending',
+      ...payload,
+    };
+    demoState.sendTasks.push(task);
+    return task;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('send_tasks')
+    .insert({
+      ...payload,
+      status: 'pending',
+      claimed_by_profile_id: null,
+      lead_snapshot: payload.lead_snapshot ?? {},
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as SendTaskRecord;
+}
+
+export async function listActivity(context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  if (!isSupabaseConfigured()) {
+    return [...demoState.activity].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('activity_log')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return data as ActivityLogRecord[];
+}
+
+export async function createBotLinkCode(context?: WorkspaceContext) {
+  const active = context ?? getDemoContext();
+  const code = createOneTimeCode();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
+
+  if (!isSupabaseConfigured()) {
+    const record = {
+      id: demoId('code'),
+      workspace_id: active.workspaceId,
+      profile_id: active.profileId ?? demoProfile.id,
+      code,
+      expires_at: expiresAt,
+      consumed_at: null,
+      created_at: nowIso(),
+    };
+    demoState.botCodes.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('bot_link_codes')
+    .insert({
+      workspace_id: active.workspaceId,
+      profile_id: active.profileId,
+      code,
+      expires_at: expiresAt,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function consumeBotLinkCode(input: { code: string; telegramUserId: number; telegramUsername?: string | null }) {
+  if (!isSupabaseConfigured()) {
+    const match = demoState.botCodes.find((item) => item.code === input.code && !item.consumed_at);
+    if (!match) return null;
+    match.consumed_at = nowIso();
+    demoProfile.telegram_user_id = input.telegramUserId;
+    demoProfile.telegram_username = input.telegramUsername ?? null;
+    return demoProfile;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: codeRow } = await supabase!
+    .from('bot_link_codes')
+    .select('*')
+    .eq('code', input.code)
+    .is('consumed_at', null)
+    .gt('expires_at', nowIso())
+    .maybeSingle();
+
+  if (!codeRow) return null;
+
+  await supabase!
+    .from('bot_link_codes')
+    .update({ consumed_at: nowIso() })
+    .eq('id', codeRow.id);
+
+  const { data: profile } = await supabase!
+    .from('profiles')
+    .update({
+      telegram_user_id: input.telegramUserId,
+      telegram_username: input.telegramUsername ?? null,
+    })
+    .eq('id', codeRow.profile_id)
+    .select('*')
+    .single();
+
+  return profile;
+}
+
+export async function getNextBotTask(telegramUserId: number) {
+  if (!isSupabaseConfigured()) {
+    const claimedTask = demoState.sendTasks.find(
+      (item) => item.status === 'claimed' && item.claimed_by_profile_id === demoProfile.id && isDue(item.due_at),
+    );
+    if (claimedTask) {
+      return buildBotTaskPayload(claimedTask);
+    }
+
+    const task = demoState.sendTasks.find((item) => item.status === 'pending' && isDue(item.due_at));
+    if (!task) return null;
+    task.status = 'claimed';
+    task.claimed_by_profile_id = demoProfile.id;
+    return buildBotTaskPayload(task);
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: profile } = await supabase!
+    .from('profiles')
+    .select('*')
+    .eq('telegram_user_id', telegramUserId)
+    .maybeSingle();
+
+  if (!profile) return null;
+
+  const dueNow = nowIso();
+
+  const { data: claimedTask } = await supabase!
+    .from('send_tasks')
+    .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
+    .eq('workspace_id', profile.workspace_id)
+    .eq('status', 'claimed')
+    .eq('claimed_by_profile_id', profile.id)
+    .lte('due_at', dueNow)
+    .order('due_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (claimedTask) {
+    return buildBotTaskPayload(claimedTask);
+  }
+
+  const { data: pendingTask } = await supabase!
+    .from('send_tasks')
+    .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
+    .eq('workspace_id', profile.workspace_id)
+    .eq('status', 'pending')
+    .lte('due_at', dueNow)
+    .order('due_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!pendingTask) return null;
+
+  const { data: claimed } = await supabase!
+    .from('send_tasks')
+    .update({
+      status: 'claimed',
+      claimed_by_profile_id: profile.id,
+      claimed_at: dueNow,
+    })
+    .eq('id', pendingTask.id)
+    .eq('status', 'pending')
+    .select('*')
+    .maybeSingle();
+
+  if (!claimed) return null;
+
+  const { data: hydratedTask } = await supabase!
+    .from('send_tasks')
+    .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
+    .eq('id', claimed.id)
+    .maybeSingle();
+
+  if (!hydratedTask) return null;
+  return buildBotTaskPayload(hydratedTask);
+}
+
+function buildBotTaskPayload(task: any) {
+  const leadSnapshot = task.lead_snapshot ?? {};
+  return {
+    taskId: task.id,
+    campaignId: task.campaign_id,
+    campaignLeadId: task.campaign_lead_id,
+    assignedAccountId: task.assigned_account_id,
+    dueAt: task.due_at,
+    renderedMessage: task.rendered_message,
+    campaignName: task.campaigns?.name ?? 'Campaign',
+    accountLabel: task.telegram_accounts?.label ?? task.assigned_account_id,
+    accountUsername: task.telegram_accounts?.telegram_username ?? '',
+    leadName: [leadSnapshot.first_name, leadSnapshot.last_name].filter(Boolean).join(' ') || task.leads?.first_name || 'Lead',
+    companyName: leadSnapshot.company_name ?? task.leads?.company_name ?? 'Company',
+    telegramUsername: leadSnapshot.telegram_username ?? task.leads?.telegram_username ?? '',
+    profileUrl: leadSnapshot.profile_url ?? buildTelegramProfileUrl(leadSnapshot.telegram_username ?? task.leads?.telegram_username ?? ''),
+  };
+}
+
+export async function markTaskSent(taskId: string, telegramUserId: number) {
+  return completeBotTask(taskId, telegramUserId, { taskStatus: 'sent', replyStatus: null });
+}
+
+export async function markTaskSkipped(taskId: string, telegramUserId: number) {
+  return completeBotTask(taskId, telegramUserId, { taskStatus: 'skipped', replyStatus: null });
+}
+
+export async function markTaskReply(taskId: string, telegramUserId: number, replyStatus: 'interested' | 'not_interested' | 'replied') {
+  return completeBotTask(taskId, telegramUserId, { taskStatus: 'sent', replyStatus });
+}
+
+async function completeBotTask(
+  taskId: string,
+  telegramUserId: number,
+  options: { taskStatus: 'sent' | 'skipped'; replyStatus: 'interested' | 'not_interested' | 'replied' | null },
+) {
+  const active = getDemoContext();
+
+  if (!isSupabaseConfigured()) {
+    const task = demoState.sendTasks.find((item) => item.id === taskId);
+    if (!task) return null;
+    task.status = options.taskStatus;
+    const campaignLead = demoState.campaignLeads.find((item) => item.id === task.campaign_lead_id);
+    const campaign = demoState.campaigns.find((item) => item.id === task.campaign_id);
+    const steps = demoState.steps.filter((item) => item.campaign_id === task.campaign_id).sort((a, b) => a.step_order - b.step_order);
+    const nextStep = steps.find((item) => item.step_order === task.step_order + 1);
+    if (campaignLead) {
+      if (options.replyStatus) {
+        campaignLead.status = 'replied';
+        campaignLead.stop_reason = options.replyStatus;
+        campaignLead.last_reply_at = nowIso();
+      } else if (options.taskStatus === 'skipped') {
+        campaignLead.status = 'skipped';
+        campaignLead.stop_reason = 'Skipped manually';
+      } else if (nextStep) {
+        campaignLead.status = 'sent_waiting_followup';
+        campaignLead.current_step_order = task.step_order;
+        campaignLead.next_step_order = nextStep.step_order;
+        campaignLead.next_due_at = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
+        campaignLead.last_sent_at = nowIso();
+      } else {
+        campaignLead.status = 'completed';
+        campaignLead.current_step_order = task.step_order;
+        campaignLead.next_step_order = null;
+        campaignLead.next_due_at = null;
+      }
+    }
+
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: `task.${options.taskStatus}`,
+      event_label: `${campaign?.name ?? 'Campaign'} task ${options.taskStatus}`,
+      payload: { task_id: taskId, reply_status: options.replyStatus },
+    });
+
+    return task;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: profile } = await supabase!
+    .from('profiles')
+    .select('*')
+    .eq('telegram_user_id', telegramUserId)
+    .maybeSingle();
+  if (!profile) return null;
+
+  const { data: task } = await supabase!
+    .from('send_tasks')
+    .select('*')
+    .eq('workspace_id', profile.workspace_id)
+    .eq('id', taskId)
+    .maybeSingle();
+  if (!task) return null;
+
+  await supabase!
+    .from('send_tasks')
+    .update({
+      status: options.taskStatus,
+      completed_at: nowIso(),
+      claimed_by_profile_id: profile.id,
+      claimed_at: nowIso(),
+    })
+    .eq('id', task.id);
+
+  const { data: campaignLead } = await supabase!
+    .from('campaign_leads')
+    .select('*')
+    .eq('id', task.campaign_lead_id)
+    .single();
+
+  if (!campaignLead) return task;
+
+  if (options.replyStatus) {
+    await supabase!
+      .from('campaign_leads')
+      .update({
+        status: 'replied',
+        stop_reason: options.replyStatus,
+        last_reply_at: nowIso(),
+      })
+      .eq('id', campaignLead.id);
+  } else if (options.taskStatus === 'skipped') {
+    await supabase!
+      .from('campaign_leads')
+      .update({
+        status: 'skipped',
+        stop_reason: 'Skipped manually',
+      })
+      .eq('id', campaignLead.id);
+  } else {
+    const { data: nextStep } = await supabase!
+      .from('campaign_sequence_steps')
+      .select('*')
+      .eq('campaign_id', task.campaign_id)
+      .eq('step_order', task.step_order + 1)
+      .maybeSingle();
+
+    if (nextStep) {
+      const nextDueAt = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
+      await supabase!
+        .from('campaign_leads')
+        .update({
+          status: 'sent_waiting_followup',
+          current_step_order: task.step_order,
+          next_step_order: nextStep.step_order,
+          next_due_at: nextDueAt,
+          last_sent_at: nowIso(),
+        })
+        .eq('id', campaignLead.id);
+    } else {
+      await supabase!
+        .from('campaign_leads')
+        .update({
+          status: 'completed',
+          current_step_order: task.step_order,
+          next_step_order: null,
+          next_due_at: null,
+          last_sent_at: nowIso(),
+        })
+        .eq('id', campaignLead.id);
+    }
+  }
+
+  await logActivity({
+    workspaceId: task.workspace_id,
+    profileId: profile.id,
+    event_type: `task.${options.taskStatus}`,
+    event_label: `Task ${options.taskStatus}`,
+    payload: { task_id: taskId, reply_status: options.replyStatus },
+  });
+
+  return task;
+}
+
+export async function runBotScheduler() {
+  if (!isSupabaseConfigured()) {
+    const active = getDemoContext();
+    let created = 0;
+    let blocked = 0;
+
+    for (const campaignLead of demoState.campaignLeads) {
+      if (!campaignLead.next_step_order || !isDue(campaignLead.next_due_at)) {
+        continue;
+      }
+
+      const hasExistingTask = demoState.sendTasks.some(
+        (task) =>
+          task.campaign_lead_id === campaignLead.id &&
+          task.step_order === campaignLead.next_step_order &&
+          (task.status === 'pending' || task.status === 'claimed'),
+      );
+
+      if (hasExistingTask) {
+        continue;
+      }
+
+      const assignedAccount = demoState.accounts.find((account) => account.id === campaignLead.assigned_account_id);
+      if (!assignedAccount?.is_active) {
+        campaignLead.status = 'blocked';
+        campaignLead.stop_reason = 'Assigned account unavailable at follow-up time';
+        blocked += 1;
+        continue;
+      }
+
+      const lead = demoState.leads.find((item) => item.id === campaignLead.lead_id);
+      const step = demoState.steps.find(
+        (item) => item.campaign_id === campaignLead.campaign_id && item.step_order === campaignLead.next_step_order,
+      );
+
+      if (!lead || !step || !campaignLead.assigned_account_id || !campaignLead.next_due_at) {
+        continue;
+      }
+
+      await createSendTask({
+        workspace_id: campaignLead.workspace_id,
+        campaign_id: campaignLead.campaign_id,
+        campaign_lead_id: campaignLead.id,
+        lead_id: campaignLead.lead_id,
+        sequence_step_id: step.id,
+        assigned_account_id: campaignLead.assigned_account_id,
+        step_order: step.step_order,
+        due_at: campaignLead.next_due_at,
+        rendered_message: renderMessageTemplate(step.message_template, lead),
+        lead_snapshot: {
+          first_name: lead.first_name,
+          last_name: lead.last_name,
+          company_name: lead.company_name,
+          telegram_username: lead.telegram_username,
+          profile_url: buildTelegramProfileUrl(lead.telegram_username),
+        },
+      }, active);
+      campaignLead.status = 'due';
+      created += 1;
+    }
+
+    for (const task of demoState.sendTasks) {
+      if (!isDue(task.due_at) || (task.status !== 'pending' && task.status !== 'claimed')) {
+        continue;
+      }
+      const account = demoState.accounts.find((item) => item.id === task.assigned_account_id);
+      if (account?.is_active) {
+        continue;
+      }
+      task.status = 'expired';
+      const campaignLead = demoState.campaignLeads.find((item) => item.id === task.campaign_lead_id);
+      if (campaignLead) {
+        campaignLead.status = 'blocked';
+        campaignLead.stop_reason = 'Assigned account unavailable at follow-up time';
+      }
+      blocked += 1;
+    }
+
+    return {
+      created,
+      blocked,
+      dueTasks: demoState.sendTasks.filter((task) => isDue(task.due_at) && (task.status === 'pending' || task.status === 'claimed')).length,
+    };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const dueNow = nowIso();
+  let created = 0;
+  let blocked = 0;
+
+  const { data: dueCampaignLeads } = await supabase!
+    .from('campaign_leads')
+    .select('*')
+    .in('status', ['queued', 'sent_waiting_followup', 'due'])
+    .not('next_step_order', 'is', null)
+    .not('next_due_at', 'is', null)
+    .lte('next_due_at', dueNow);
+
+  for (const campaignLead of dueCampaignLeads ?? []) {
+    const { data: existingTask } = await supabase!
+      .from('send_tasks')
+      .select('id')
+      .eq('campaign_lead_id', campaignLead.id)
+      .eq('step_order', campaignLead.next_step_order)
+      .in('status', ['pending', 'claimed'])
+      .maybeSingle();
+
+    if (existingTask) {
+      continue;
+    }
+
+    const [{ data: account }, { data: lead }, { data: step }] = await Promise.all([
+      supabase!.from('telegram_accounts').select('*').eq('id', campaignLead.assigned_account_id).maybeSingle(),
+      supabase!.from('leads').select('*').eq('id', campaignLead.lead_id).maybeSingle(),
+      supabase!
+        .from('campaign_sequence_steps')
+        .select('*')
+        .eq('campaign_id', campaignLead.campaign_id)
+        .eq('step_order', campaignLead.next_step_order)
+        .maybeSingle(),
+    ]);
+
+    if (!account?.is_active) {
+      await supabase!
+        .from('campaign_leads')
+        .update({
+          status: 'blocked',
+          stop_reason: 'Assigned account unavailable at follow-up time',
+        })
+        .eq('id', campaignLead.id);
+      blocked += 1;
+      continue;
+    }
+
+    if (!lead || !step || !campaignLead.assigned_account_id || !campaignLead.next_due_at) {
+      continue;
+    }
+
+    await createSendTask({
+      workspace_id: campaignLead.workspace_id,
+      campaign_id: campaignLead.campaign_id,
+      campaign_lead_id: campaignLead.id,
+      lead_id: campaignLead.lead_id,
+      sequence_step_id: step.id,
+      assigned_account_id: campaignLead.assigned_account_id,
+      step_order: step.step_order,
+      due_at: campaignLead.next_due_at,
+      rendered_message: renderMessageTemplate(step.message_template, lead),
+      lead_snapshot: {
+        first_name: lead.first_name,
+        last_name: lead.last_name,
+        company_name: lead.company_name,
+        telegram_username: lead.telegram_username,
+        profile_url: buildTelegramProfileUrl(lead.telegram_username),
+      },
+    }, {
+      workspaceId: campaignLead.workspace_id,
+      profileId: null,
+    });
+
+    await supabase!
+      .from('campaign_leads')
+      .update({ status: 'due' })
+      .eq('id', campaignLead.id);
+    created += 1;
+  }
+
+  const { data: dueTasks } = await supabase!
+    .from('send_tasks')
+    .select('*')
+    .in('status', ['pending', 'claimed'])
+    .lte('due_at', dueNow);
+
+  for (const task of dueTasks ?? []) {
+    const { data: account } = await supabase!
+      .from('telegram_accounts')
+      .select('*')
+      .eq('id', task.assigned_account_id)
+      .maybeSingle();
+
+    if (account?.is_active) {
+      continue;
+    }
+
+    await supabase!
+      .from('send_tasks')
+      .update({
+        status: 'expired',
+        completed_at: dueNow,
+      })
+      .eq('id', task.id);
+
+    await supabase!
+      .from('campaign_leads')
+      .update({
+        status: 'blocked',
+        stop_reason: 'Assigned account unavailable at follow-up time',
+      })
+      .eq('id', task.campaign_lead_id);
+
+    blocked += 1;
+  }
+
+  return {
+    created,
+    blocked,
+    dueTasks: (dueTasks ?? []).filter((task) => task.status === 'pending' || task.status === 'claimed').length,
+  };
+}
+
+export async function logActivity(input: {
+  workspaceId: string;
+  profileId: string | null;
+  event_type: string;
+  event_label: string;
+  payload: Record<string, unknown>;
+}) {
+  if (!isSupabaseConfigured()) {
+    const record: ActivityLogRecord = {
+      id: demoId('activity'),
+      workspace_id: input.workspaceId,
+      event_type: input.event_type,
+      event_label: input.event_label,
+      payload: input.payload,
+      created_at: nowIso(),
+    };
+    demoState.activity.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('activity_log')
+    .insert({
+      workspace_id: input.workspaceId,
+      actor_profile_id: input.profileId,
+      event_type: input.event_type,
+      event_label: input.event_label,
+      payload: input.payload,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as ActivityLogRecord;
+}
