@@ -136,17 +136,22 @@ export default function CampaignDetailPage() {
         <div className="card">
           <div className="card-title">Telegram Accounts In Use</div>
           <div className="list-stack" style={{ marginTop: 12 }}>
-            {metrics.assignedAccounts.length ? metrics.assignedAccounts.map((account: any) => (
-              <div key={account.id} className="metric-row">
-                <div>
-                  <div>{account.label}</div>
-                  <div className="dim">@{account.telegram_username} · cap {account.daily_limit}/day</div>
+            {metrics.assignedAccounts.length ? metrics.assignedAccounts.map((account: any) => {
+              const accountLeads = (detail?.attachedLeads ?? []).filter((l: any) => l.assigned_account_id === account.id);
+              const sentFromAccount = accountLeads.filter((l: any) => l.last_sent_at).length;
+              const repliesFromAccount = accountLeads.filter((l: any) => l.status === 'replied').length;
+              return (
+                <div key={account.id} className="metric-row">
+                  <div>
+                    <div>{account.label}</div>
+                    <div className="dim">@{account.telegram_username} · {sentFromAccount} sent · {repliesFromAccount} replies · cap {account.daily_limit}/day</div>
+                  </div>
+                  <div className="metric-row-side">
+                    <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
+                  </div>
                 </div>
-                <div className="metric-row-side">
-                  <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
-                </div>
-              </div>
-            )) : <div className="empty-state">No accounts assigned yet.</div>}
+              );
+            }) : <div className="empty-state">No accounts assigned yet.</div>}
           </div>
         </div>
       </div>

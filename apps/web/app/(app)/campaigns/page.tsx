@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
-import { buildAccountInsights, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
+import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 
 type SequenceDraft = {
   step_order: number;
@@ -17,6 +17,8 @@ const emptyStep = (stepOrder: number): SequenceDraft => ({
   message_template: '',
 });
 
+type WizardStep = 'setup' | 'accounts' | 'timing' | 'leads' | 'sequence' | 'review';
+
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [details, setDetails] = useState<CampaignDetail[]>([]);
@@ -27,6 +29,9 @@ export default function CampaignsPage() {
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [leadSearch, setLeadSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardStep, setWizardStep] = useState<WizardStep>('setup');
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -78,14 +83,18 @@ export default function CampaignsPage() {
   }, [leadSearch, leads]);
 
   const campaignRows = useMemo(() => {
-    return details.map((detail) => ({
-      detail,
-      stats: summariseCampaign(detail),
-    }));
-  }, [details]);
+    return details
+      .map((detail) => ({
+        detail,
+        stats: summariseCampaign(detail),
+      }))
+      .filter(({ detail }) => {
+        if (statusFilter === 'all') return true;
+        return detail.campaign?.status === statusFilter;
+      });
+  }, [details, statusFilter]);
 
-  const handleCreate = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleCreate = async () => {
     setIsSubmitting(true);
     setBuilderMessage('');
 
@@ -121,18 +130,14 @@ export default function CampaignsPage() {
         });
       }
 
-      setForm({
-        name: '',
-        description: '',
-        timezone: 'UTC',
-        send_window_start: '09:00',
-        send_window_end: '18:00',
-      });
+      setForm({ name: '', description: '', timezone: 'UTC', send_window_start: '09:00', send_window_end: '18:00' });
       setSelectedLeadIds([]);
       setSelectedAccountIds([]);
       setLeadSearch('');
       setSteps([emptyStep(1), emptyStep(2), emptyStep(3)]);
-      setBuilderMessage('Campaign created. Open it from the library to review metrics, edit details, or launch.');
+      setShowWizard(false);
+      setWizardStep('setup');
+      setBuilderMessage('Campaign created successfully.');
       await load();
     } finally {
       setIsSubmitting(false);
@@ -159,110 +164,199 @@ export default function CampaignsPage() {
     setSteps((current) => [...current, emptyStep(current.length + 1)]);
   };
 
+  const wizardSteps: { key: WizardStep; label: string }[] = [
+    { key: 'setup', label: '1. Name & Details' },
+    { key: 'accounts', label: '2. Telegram Accounts' },
+    { key: 'timing', label: '3. Timing' },
+    { key: 'leads', label: '4. Leads' },
+    { key: 'sequence', label: '5. Message Sequence' },
+    { key: 'review', label: '6. Review & Create' },
+  ];
+
+  const wizardStepIndex = wizardSteps.findIndex((s) => s.key === wizardStep);
+  const canGoNext = wizardStepIndex < wizardSteps.length - 1;
+  const canGoBack = wizardStepIndex > 0;
+
+  const completionRate = (stats: ReturnType<typeof summariseCampaign>) => {
+    if (!stats.totalLeads) return 0;
+    return Math.round(((stats.completed + stats.replies) / stats.totalLeads) * 100);
+  };
+
   return (
     <div className="page-content">
       <div className="grid grid-4">
-        <div className="card"><div className="card-title">Campaigns</div><div className="card-value">{campaigns.length}</div><div className="card-subtitle">Reusable sequences layered over shared leads.</div></div>
-        <div className="card"><div className="card-title">Live</div><div className="card-value">{campaigns.filter((campaign) => campaign.status === 'active').length}</div><div className="card-subtitle">Manual send tasks currently running.</div></div>
-        <div className="card"><div className="card-title">Drafts</div><div className="card-value">{campaigns.filter((campaign) => campaign.status === 'draft').length}</div><div className="card-subtitle">Ready for builder completion and launch.</div></div>
-        <div className="card"><div className="card-title">Paused</div><div className="card-value">{campaigns.filter((campaign) => campaign.status === 'paused').length}</div><div className="card-subtitle">Stopped while preserving all campaign state.</div></div>
+        <div className="card"><div className="card-title">Campaigns</div><div className="card-value">{campaigns.length}</div><div className="card-subtitle">Total campaigns created.</div></div>
+        <div className="card"><div className="card-title">Live</div><div className="card-value">{campaigns.filter((c) => c.status === 'active').length}</div><div className="card-subtitle">Currently sending tasks to the team.</div></div>
+        <div className="card"><div className="card-title">Drafts</div><div className="card-value">{campaigns.filter((c) => c.status === 'draft').length}</div><div className="card-subtitle">Ready for completion and launch.</div></div>
+        <div className="card"><div className="card-title">Paused / Completed</div><div className="card-value">{campaigns.filter((c) => c.status === 'paused' || c.status === 'completed').length}</div><div className="card-subtitle">Stopped or finished campaigns.</div></div>
       </div>
 
-      <div className="section-label">Create</div>
-      <form className="campaign-builder" onSubmit={handleCreate}>
-        <div className="card form-grid">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Campaign Setup</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>Define the name, timezone, and delivery window before you assign anything else.</div>
-            </div>
-          </div>
-          <input className="input" placeholder="Campaign name" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-          <textarea className="textarea" placeholder="What is this campaign trying to achieve?" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
-          <div className="form-grid columns-3">
-            <input className="input" placeholder="Timezone (e.g. UTC)" value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} />
-            <input className="input" placeholder="Window start" value={form.send_window_start} onChange={(event) => setForm((current) => ({ ...current, send_window_start: event.target.value }))} />
-            <input className="input" placeholder="Window end" value={form.send_window_end} onChange={(event) => setForm((current) => ({ ...current, send_window_end: event.target.value }))} />
-          </div>
+      {!showWizard ? (
+        <div style={{ marginTop: 24 }}>
+          <button className="btn" onClick={() => setShowWizard(true)} style={{ padding: '12px 24px', fontSize: 13 }}>
+            + Create New Campaign
+          </button>
+          {builderMessage ? <div className="status-callout success" style={{ marginTop: 12 }}>{builderMessage}</div> : null}
         </div>
-
-        <div className="card form-grid">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Leads In Campaign</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>{selectedLeadIds.length} selected. Search the CRM and attach only the leads you want in this sequence.</div>
+      ) : (
+        <>
+          <div className="section-label">New Campaign Wizard</div>
+          <div className="card" style={{ padding: 0 }}>
+            <div className="wizard-steps">
+              {wizardSteps.map((s, i) => (
+                <button
+                  key={s.key}
+                  className={`wizard-step-btn ${wizardStep === s.key ? 'active' : ''} ${i < wizardStepIndex ? 'done' : ''}`}
+                  onClick={() => setWizardStep(s.key)}
+                  type="button"
+                >
+                  {s.label}
+                </button>
+              ))}
             </div>
-          </div>
-          <input className="input" placeholder="Search leads by company, name, or Telegram username" value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} />
-          <div className="selection-list">
-            {filteredLeads.map((lead) => (
-              <label key={lead.id} className={`selection-row ${selectedLeadIds.includes(lead.id) ? 'active' : ''}`}>
-                <div>
-                  <div>{lead.first_name} {lead.last_name}</div>
-                  <div className="dim">{lead.company_name} · @{lead.telegram_username}</div>
+
+            <div style={{ padding: 20 }}>
+              {wizardStep === 'setup' && (
+                <div className="form-grid">
+                  <div className="card-title" style={{ marginBottom: 4 }}>Campaign Details</div>
+                  <input className="input" placeholder="Campaign name" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} required />
+                  <textarea className="textarea" placeholder="What is this campaign trying to achieve?" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} />
                 </div>
-                <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} />
-              </label>
-            ))}
-          </div>
-        </div>
+              )}
 
-        <div className="card form-grid">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Telegram Accounts</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>See which sender accounts are already busy before you allocate them to this campaign.</div>
-            </div>
-          </div>
-          <div className="selection-list">
-            {accountInsights.map((account) => (
-              <label key={account.id} className={`selection-row ${selectedAccountIds.includes(account.id) ? 'active' : ''}`}>
-                <div>
-                  <div>{account.label}</div>
-                  <div className="dim">
-                    @{account.telegram_username} · {account.campaignCount} campaigns · {account.sentToday}/{account.daily_limit} today
+              {wizardStep === 'accounts' && (
+                <div className="form-grid">
+                  <div className="card-title" style={{ marginBottom: 4 }}>Select Telegram Accounts</div>
+                  <div className="card-subtitle">{selectedAccountIds.length} accounts selected. These sender accounts will be used for this campaign.</div>
+                  <div className="selection-list">
+                    {accountInsights.length ? accountInsights.map((account) => (
+                      <label key={account.id} className={`selection-row ${selectedAccountIds.includes(account.id) ? 'active' : ''}`}>
+                        <div>
+                          <div>{account.label}</div>
+                          <div className="dim">@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentToday}/{account.daily_limit} today</div>
+                        </div>
+                        <div className="metric-row-side">
+                          <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
+                          <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => toggleAccount(account.id)} />
+                        </div>
+                      </label>
+                    )) : <div className="empty-state">No Telegram accounts. Add them in the Accounts page first.</div>}
                   </div>
                 </div>
-                <div className="metric-row-side">
-                  <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
-                  <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => toggleAccount(account.id)} />
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
+              )}
 
-        <div className="card form-grid">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Sequence Builder</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>Draft the intro, follow-up, and later touches before you launch.</div>
+              {wizardStep === 'timing' && (
+                <div className="form-grid">
+                  <div className="card-title" style={{ marginBottom: 4 }}>Timing & Send Window</div>
+                  <div className="form-grid columns-3">
+                    <div className="form-grid">
+                      <label className="dim" style={{ fontSize: 11 }}>Timezone</label>
+                      <input className="input" placeholder="e.g. UTC" value={form.timezone} onChange={(e) => setForm((c) => ({ ...c, timezone: e.target.value }))} />
+                    </div>
+                    <div className="form-grid">
+                      <label className="dim" style={{ fontSize: 11 }}>Window Start</label>
+                      <input className="input" type="time" value={form.send_window_start} onChange={(e) => setForm((c) => ({ ...c, send_window_start: e.target.value }))} />
+                    </div>
+                    <div className="form-grid">
+                      <label className="dim" style={{ fontSize: 11 }}>Window End</label>
+                      <input className="input" type="time" value={form.send_window_end} onChange={(e) => setForm((c) => ({ ...c, send_window_end: e.target.value }))} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 'leads' && (
+                <div className="form-grid">
+                  <div className="card-title" style={{ marginBottom: 4 }}>Attach Leads</div>
+                  <div className="card-subtitle">{selectedLeadIds.length} leads selected from {leads.length} available.</div>
+                  <input className="input" placeholder="Search leads by company, name, or Telegram username" value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+                  <div className="selection-list">
+                    {filteredLeads.map((lead) => (
+                      <label key={lead.id} className={`selection-row ${selectedLeadIds.includes(lead.id) ? 'active' : ''}`}>
+                        <div>
+                          <div>{lead.first_name} {lead.last_name}</div>
+                          <div className="dim">{lead.company_name} · @{lead.telegram_username}</div>
+                        </div>
+                        <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 'sequence' && (
+                <div className="form-grid">
+                  <div className="card-title" style={{ marginBottom: 4 }}>Message Sequence</div>
+                  <div className="card-subtitle">Draft the messages for each step. Use {'{'}{`First Name`}{'}'}, {'{'}{`Last Name`}{'}'}, {'{'}{`Company`}{'}'}, {'{'}{`Telegram Username`}{'}'} as placeholders.</div>
+                  <div className="sequence-stack">
+                    {steps.map((step, index) => (
+                      <div key={index} className="sequence-card">
+                        <div className="sequence-card-head">
+                          <div>Step {index + 1}</div>
+                          <div className="form-grid columns-2" style={{ width: 200 }}>
+                            <div>
+                              <label className="dim" style={{ fontSize: 10 }}>Delay (days)</label>
+                              <input className="input" type="number" min={index === 0 ? 0 : 1} value={step.delay_days} onChange={(e) => updateStep(index, { delay_days: Number(e.target.value) })} />
+                            </div>
+                          </div>
+                        </div>
+                        <textarea className="textarea" placeholder="Write your message..." value={step.message_template} onChange={(e) => updateStep(index, { message_template: e.target.value })} />
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn-secondary" type="button" onClick={addStep}>+ Add Another Step</button>
+                </div>
+              )}
+
+              {wizardStep === 'review' && (
+                <div className="form-grid">
+                  <div className="card-title" style={{ marginBottom: 4 }}>Review Campaign</div>
+                  <div className="list-stack">
+                    <div className="metric-row"><span>Name</span><span>{form.name || '(not set)'}</span></div>
+                    <div className="metric-row"><span>Timezone</span><span>{form.timezone}</span></div>
+                    <div className="metric-row"><span>Send Window</span><span>{form.send_window_start} - {form.send_window_end}</span></div>
+                    <div className="metric-row"><span>Accounts</span><span>{selectedAccountIds.length} selected</span></div>
+                    <div className="metric-row"><span>Leads</span><span>{selectedLeadIds.length} selected</span></div>
+                    <div className="metric-row"><span>Sequence Steps</span><span>{steps.filter((s) => s.message_template.trim()).length} with messages</span></div>
+                  </div>
+                  <div className="btn-row" style={{ marginTop: 8 }}>
+                    <button className="btn" onClick={handleCreate} disabled={isSubmitting || !form.name.trim()}>
+                      {isSubmitting ? 'Creating...' : 'Create Campaign'}
+                    </button>
+                    <button className="btn-secondary" type="button" onClick={() => { setShowWizard(false); setWizardStep('setup'); }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="btn-row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
+                {canGoBack ? (
+                  <button className="btn-secondary" type="button" onClick={() => setWizardStep(wizardSteps[wizardStepIndex - 1].key)}>
+                    Back
+                  </button>
+                ) : <div />}
+                {canGoNext ? (
+                  <button className="btn" type="button" onClick={() => setWizardStep(wizardSteps[wizardStepIndex + 1].key)}>
+                    Next
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
-          <div className="sequence-stack">
-            {steps.map((step, index) => (
-              <div key={index} className="sequence-card">
-                <div className="sequence-card-head">
-                  <div>Step {index + 1}</div>
-                  <div className="dim">Delay {step.delay_days} day(s)</div>
-                </div>
-                <div className="form-grid columns-2">
-                  <input className="input" type="number" min={index === 0 ? 0 : 1} value={step.delay_days} onChange={(event) => updateStep(index, { delay_days: Number(event.target.value) })} />
-                  <input className="input" value={step.step_order} disabled />
-                </div>
-                <textarea className="textarea" placeholder="Use {First Name}, {Last Name}, {Company}, {Telegram Username}" value={step.message_template} onChange={(event) => updateStep(index, { message_template: event.target.value })} />
-              </div>
-            ))}
-          </div>
-          <div className="btn-row">
-            <button className="btn-secondary" type="button" onClick={addStep}>Add Another Step</button>
-            <button className="btn" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating...' : 'Create Campaign'}</button>
-          </div>
-          {builderMessage ? <div className="status-callout success">{builderMessage}</div> : null}
-        </div>
-      </form>
+        </>
+      )}
 
-      <div className="section-label">Campaign Library</div>
+      <div className="section-label">Campaign Status</div>
+      <div className="filter-row" style={{ marginBottom: 16, maxWidth: 400 }}>
+        <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="draft">Draft</option>
+          <option value="paused">Paused</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
       <div className="library-grid">
         {campaignRows.length ? campaignRows.map(({ detail, stats }) => (
           <Link key={detail.campaign?.id} href={`/campaigns/${detail.campaign?.id}`} className="card library-card">
@@ -271,21 +365,25 @@ export default function CampaignsPage() {
                 <div className="card-title">{detail.campaign?.name}</div>
                 <div className="card-subtitle" style={{ marginTop: 8 }}>{detail.campaign?.description ?? 'No description yet.'}</div>
               </div>
-              <span className="badge">{detail.campaign?.status ?? 'draft'}</span>
+              <span className={`badge ${detail.campaign?.status === 'active' ? 'badge-active' : ''}`}>{detail.campaign?.status ?? 'draft'}</span>
             </div>
             <div className="mini-stat-grid">
               <div className="mini-stat"><div className="mini-stat-label">Leads</div><div className="mini-stat-value">{stats.totalLeads}</div></div>
               <div className="mini-stat"><div className="mini-stat-label">Accounts</div><div className="mini-stat-value">{stats.assignedAccounts.length}</div></div>
               <div className="mini-stat"><div className="mini-stat-label">Sent</div><div className="mini-stat-value">{stats.sent}</div></div>
-              <div className="mini-stat"><div className="mini-stat-label">Reply</div><div className="mini-stat-value">{stats.replyRate}%</div></div>
+              <div className="mini-stat"><div className="mini-stat-label">Completion</div><div className="mini-stat-value">{completionRate(stats)}%</div></div>
+            </div>
+            <div className="campaign-progress-bar">
+              <div className="campaign-progress-fill" style={{ width: `${completionRate(stats)}%` }} />
             </div>
             <div className="library-card-footer">
-              <span className="dim">{detail.campaign?.timezone ?? 'UTC'} · {detail.campaign ? `${detail.campaign.send_window_start} -> ${detail.campaign.send_window_end}` : ''}</span>
+              <span className="dim">{detail.campaign?.timezone ?? 'UTC'} · {detail.campaign ? `${detail.campaign.send_window_start} - ${detail.campaign.send_window_end}` : ''}</span>
+              <span className="dim">{formatPercent(stats.replyRate)} reply rate</span>
               <span className="btn-secondary">Open</span>
             </div>
           </Link>
         )) : (
-          <div className="empty-state">No campaigns yet. Use the builder above to create your first outreach program.</div>
+          <div className="empty-state">No campaigns match the current filter. Create one to get started.</div>
         )}
       </div>
     </div>

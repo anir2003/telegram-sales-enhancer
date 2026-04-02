@@ -114,18 +114,42 @@ export function summariseCampaign(detail: CampaignDetail, activity: Activity[] =
   };
 }
 
-export function buildHeatmap(activity: Activity[], days = 21) {
+export type HeatmapDay = {
+  iso: string;
+  label: string;
+  count: number;
+  intensity: number;
+  dayOfWeek: number;
+  weekIndex: number;
+};
+
+export function buildHeatmap(activity: Activity[], weeks = 12): { days: HeatmapDay[]; weeks: number; weekLabels: string[] } {
   const today = startOfDay(new Date());
-  const buckets = Array.from({ length: days }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (days - index - 1));
-    const iso = date.toISOString().slice(0, 10);
-    return {
-      iso,
-      label: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+  const todayDow = today.getDay(); // 0=Sun
+  const totalDays = weeks * 7 + todayDow + 1;
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - totalDays + 1);
+  // align to Sunday
+  startDate.setDate(startDate.getDate() - startDate.getDay());
+
+  const buckets: HeatmapDay[] = [];
+  const current = new Date(startDate);
+  let weekIdx = 0;
+  let prevWeek = -1;
+
+  while (current <= today) {
+    const dow = current.getDay();
+    if (dow === 0 && buckets.length > 0) weekIdx++;
+    buckets.push({
+      iso: current.toISOString().slice(0, 10),
+      label: current.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       count: 0,
-    };
-  });
+      intensity: 0,
+      dayOfWeek: dow,
+      weekIndex: weekIdx,
+    });
+    current.setDate(current.getDate() + 1);
+  }
 
   activity.forEach((entry) => {
     if (!entry.event_type.startsWith('task.')) return;
@@ -134,11 +158,22 @@ export function buildHeatmap(activity: Activity[], days = 21) {
     if (bucket) bucket.count += 1;
   });
 
-  const maxCount = Math.max(1, ...buckets.map((bucket) => bucket.count));
-  return buckets.map((bucket) => ({
-    ...bucket,
-    intensity: bucket.count / maxCount,
-  }));
+  const maxCount = Math.max(1, ...buckets.map((b) => b.count));
+  buckets.forEach((b) => { b.intensity = b.count / maxCount; });
+
+  const totalWeeks = weekIdx + 1;
+  const weekLabels: string[] = [];
+  for (let w = 0; w < totalWeeks; w++) {
+    const first = buckets.find((b) => b.weekIndex === w);
+    if (first) {
+      const d = new Date(first.iso);
+      weekLabels.push(d.getDate() <= 7 ? d.toLocaleDateString(undefined, { month: 'short' }) : '');
+    } else {
+      weekLabels.push('');
+    }
+  }
+
+  return { days: buckets, weeks: totalWeeks, weekLabels };
 }
 
 export function buildAccountInsights(accounts: Account[], details: CampaignDetail[]) {

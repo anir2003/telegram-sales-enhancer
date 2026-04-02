@@ -8,6 +8,8 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [details, setDetails] = useState<CampaignDetail[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [formError, setFormError] = useState('');
   const [form, setForm] = useState({
     label: '',
     telegram_username: '',
@@ -36,72 +38,108 @@ export default function AccountsPage() {
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
-    await fetchJson('/api/accounts', {
-      method: 'POST',
-      body: JSON.stringify(form),
-    });
-    setForm({ label: '', telegram_username: '', daily_limit: 20, is_active: true });
-    await load();
+    setFormError('');
+    if (!form.label.trim() || !form.telegram_username.trim()) {
+      setFormError('Label and Telegram username are required.');
+      return;
+    }
+    try {
+      await fetchJson('/api/accounts', {
+        method: 'POST',
+        body: JSON.stringify(form),
+      });
+      setForm({ label: '', telegram_username: '', daily_limit: 20, is_active: true });
+      setShowForm(false);
+      await load();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to add account.');
+    }
   };
 
   const accountInsights = useMemo(() => buildAccountInsights(accounts, details), [accounts, details]);
-  const selectedAccount = accountInsights.find((account) => account.id === selectedAccountId) ?? accountInsights[0] ?? null;
+  const selectedAccount = accountInsights.find((account) => account.id === selectedAccountId) ?? null;
 
   return (
     <div className="page-content">
       <div className="card">
         <div className="card-header">
           <div>
-            <div className="card-title">Connected Telegram Accounts</div>
+            <div className="card-title">Telegram Sender Accounts</div>
             <div className="card-subtitle" style={{ marginTop: 8 }}>
-              This panel tracks the sender accounts shared by your organization. Linking yourself to the internal bot in Settings is separate and only connects your teammate identity.
+              Manage the Telegram accounts your team uses to send outreach messages. Each account can be assigned to multiple campaigns and has a configurable daily message limit.
             </div>
           </div>
+          <button className="btn" onClick={() => setShowForm(!showForm)}>
+            {showForm ? 'Cancel' : '+ Add Account'}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-4">
-        <div className="card"><div className="card-title">Accounts</div><div className="card-value">{accountInsights.length}</div><div className="card-subtitle">Telegram sender identities in your outbound pool.</div></div>
-        <div className="card"><div className="card-title">Active</div><div className="card-value">{accountInsights.filter((account) => account.is_active).length}</div><div className="card-subtitle">Accounts ready to be assigned right now.</div></div>
-        <div className="card"><div className="card-title">Messages Today</div><div className="card-value">{accountInsights.reduce((sum, account) => sum + account.sentToday, 0)}</div><div className="card-subtitle">Daily send load across every assigned campaign.</div></div>
-        <div className="card"><div className="card-title">Messages Yesterday</div><div className="card-value">{accountInsights.reduce((sum, account) => sum + account.sentYesterday, 0)}</div><div className="card-subtitle">Previous day baseline for comparison.</div></div>
-      </div>
-
-      <div className="split-layout">
-        <form className="card form-grid" onSubmit={handleCreate}>
-          <div className="card-header">
-            <div>
-              <div className="card-title">Add Telegram Account</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>Register a sender account so campaigns can assign workload to it. This does not replace each teammate linking the internal bot.</div>
+      {showForm && (
+        <form className="card form-grid" onSubmit={handleCreate} style={{ marginTop: 16 }}>
+          <div className="card-title">Connect New Telegram Account</div>
+          <div className="card-subtitle">Register a sender account so campaigns can assign outreach to it. This is the Telegram account your team member will use to send messages.</div>
+          <div className="form-grid columns-3" style={{ marginTop: 8 }}>
+            <div className="form-grid">
+              <label className="dim" style={{ fontSize: 11 }}>Account Label</label>
+              <input className="input" placeholder="e.g. My Business Account" value={form.label} onChange={(e) => setForm((c) => ({ ...c, label: e.target.value }))} />
+            </div>
+            <div className="form-grid">
+              <label className="dim" style={{ fontSize: 11 }}>Telegram Username</label>
+              <input className="input" placeholder="e.g. johndoe" value={form.telegram_username} onChange={(e) => setForm((c) => ({ ...c, telegram_username: e.target.value }))} />
+            </div>
+            <div className="form-grid">
+              <label className="dim" style={{ fontSize: 11 }}>Daily Message Limit</label>
+              <input className="input" type="number" min={1} max={500} value={form.daily_limit} onChange={(e) => setForm((c) => ({ ...c, daily_limit: Number(e.target.value) }))} />
             </div>
           </div>
-          <input className="input" placeholder="Label" value={form.label} onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))} />
-          <input className="input" placeholder="Telegram username" value={form.telegram_username} onChange={(event) => setForm((current) => ({ ...current, telegram_username: event.target.value }))} />
-          <input className="input" type="number" placeholder="Daily limit" value={form.daily_limit} onChange={(event) => setForm((current) => ({ ...current, daily_limit: Number(event.target.value) }))} />
-          <button className="btn" type="submit">Connect New Account</button>
+          {formError && <div className="status-callout danger">{formError}</div>}
+          <div className="btn-row">
+            <button className="btn" type="submit">Save Account</button>
+          </div>
         </form>
+      )}
 
-        <div className="card">
-          <div className="card-title">Selected Account Detail</div>
-          {selectedAccount ? (
-            <div className="list-stack" style={{ marginTop: 12 }}>
-              <div className="metric-row"><span>Label</span><span>{selectedAccount.label}</span></div>
-              <div className="metric-row"><span>Username</span><span>@{selectedAccount.telegram_username}</span></div>
-              <div className="metric-row"><span>Campaigns</span><span>{selectedAccount.campaignCount}</span></div>
-              <div className="metric-row"><span>Assigned Leads</span><span>{selectedAccount.assignedLeadCount}</span></div>
-              <div className="metric-row"><span>Today</span><span>{selectedAccount.sentToday}/{selectedAccount.daily_limit}</span></div>
-              <div className="metric-row"><span>Yesterday</span><span>{selectedAccount.sentYesterday}</span></div>
-              <div className="metric-row"><span>Availability</span><span>{selectedAccount.is_active ? 'Active' : 'Paused'}</span></div>
-              <div className="setup-item">
-                <div className="card-title">Campaign Membership</div>
-                <div className="card-subtitle" style={{ marginTop: 8 }}>
-                  {selectedAccount.campaignNames.length ? selectedAccount.campaignNames.join(', ') : 'Not assigned to any campaigns yet.'}
+      <div className="grid grid-4" style={{ marginTop: 16 }}>
+        <div className="card"><div className="card-title">Accounts</div><div className="card-value">{accountInsights.length}</div><div className="card-subtitle">Total sender accounts registered.</div></div>
+        <div className="card"><div className="card-title">Active</div><div className="card-value">{accountInsights.filter((a) => a.is_active).length}</div><div className="card-subtitle">Ready for campaign assignment.</div></div>
+        <div className="card"><div className="card-title">Messages Today</div><div className="card-value">{accountInsights.reduce((s, a) => s + a.sentToday, 0)}</div><div className="card-subtitle">Across all campaigns.</div></div>
+        <div className="card"><div className="card-title">Messages Yesterday</div><div className="card-value">{accountInsights.reduce((s, a) => s + a.sentYesterday, 0)}</div><div className="card-subtitle">Previous day baseline.</div></div>
+      </div>
+
+      {selectedAccount && (
+        <>
+          <div className="section-label">Account Detail</div>
+          <div className="card">
+            <div className="card-header">
+              <div>
+                <div className="card-title">{selectedAccount.label}</div>
+                <div className="card-subtitle" style={{ marginTop: 4 }}>@{selectedAccount.telegram_username}</div>
+              </div>
+              <span className="badge">{selectedAccount.is_active ? 'active' : 'paused'}</span>
+            </div>
+            <div className="grid grid-4" style={{ marginTop: 12 }}>
+              <div className="mini-stat"><div className="mini-stat-label">Campaigns</div><div className="mini-stat-value">{selectedAccount.campaignCount}</div></div>
+              <div className="mini-stat"><div className="mini-stat-label">Assigned Leads</div><div className="mini-stat-value">{selectedAccount.assignedLeadCount}</div></div>
+              <div className="mini-stat"><div className="mini-stat-label">Sent Today</div><div className="mini-stat-value">{selectedAccount.sentToday}/{selectedAccount.daily_limit}</div></div>
+              <div className="mini-stat"><div className="mini-stat-label">Utilization</div><div className="mini-stat-value">{selectedAccount.utilization}%</div></div>
+            </div>
+            <div className="utilization-bar" style={{ marginTop: 12 }}>
+              <div className="utilization-bar-fill" style={{ width: `${selectedAccount.utilization}%` }} />
+            </div>
+            {selectedAccount.campaignNames.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div className="dim" style={{ fontSize: 11, marginBottom: 6 }}>Campaign Assignments</div>
+                <div className="btn-row">
+                  {selectedAccount.campaignNames.map((name) => (
+                    <span key={name} className="badge">{name}</span>
+                  ))}
                 </div>
               </div>
-            </div>
-          ) : <div className="empty-state" style={{ marginTop: 12 }}>Add an account to inspect campaign usage and daily send levels.</div>}
-        </div>
-      </div>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="section-label">Account Pool</div>
       <div className="account-card-grid">
@@ -122,9 +160,9 @@ export default function AccountsPage() {
             <div className="utilization-bar">
               <div className="utilization-bar-fill" style={{ width: `${account.utilization}%` }} />
             </div>
-            <div className="card-subtitle" style={{ marginTop: 10 }}>{account.activeLeads} leads currently tied to this account across campaigns.</div>
+            <div className="card-subtitle" style={{ marginTop: 10 }}>{account.activeLeads} active leads tied to this account.</div>
           </button>
-        )) : <div className="empty-state">No Telegram accounts yet. Add one to begin building an account pool.</div>}
+        )) : <div className="empty-state">No Telegram accounts yet. Click "+ Add Account" above to connect your first sender account.</div>}
       </div>
     </div>
   );

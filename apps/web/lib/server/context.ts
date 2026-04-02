@@ -1,4 +1,4 @@
-import { getServerSupabaseClient } from '@/lib/supabase/server';
+import { getServerSupabaseClient, getAdminSupabaseClient } from '@/lib/supabase/server';
 import { demoProfile, demoWorkspace } from '@/lib/server/demo-store';
 import { isSupabaseConfigured } from '@/lib/env';
 
@@ -29,7 +29,14 @@ export async function getWorkspaceContext() {
     };
   }
 
-  const { data: profile } = await supabase
+  // Use admin client to bypass RLS — new users have workspace_id = NULL
+  // and the RLS policy (workspace_id = requesting_workspace_id()) filters them out.
+  const admin = getAdminSupabaseClient();
+  if (!admin) {
+    return { configured: true, user, profile: null, workspace: null };
+  }
+
+  const { data: profile } = await admin
     .from('profiles')
     .select('*')
     .eq('id', user.id)
@@ -44,7 +51,16 @@ export async function getWorkspaceContext() {
     };
   }
 
-  const { data: workspace } = await supabase
+  if (!profile.workspace_id) {
+    return {
+      configured: true,
+      user,
+      profile,
+      workspace: null,
+    };
+  }
+
+  const { data: workspace } = await admin
     .from('workspaces')
     .select('*')
     .eq('id', profile.workspace_id)

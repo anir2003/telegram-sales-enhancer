@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
-import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
+import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
 
 export default function DashboardPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -53,7 +53,7 @@ export default function DashboardPage() {
     const liveCampaigns = campaigns.filter((campaign) => campaign.status === 'active').length;
     const openLeads = campaignSummaries.reduce((sum, item) => sum + item.active, 0);
     const blockedLeads = campaignSummaries.reduce((sum, item) => sum + item.blocked, 0);
-    const heatmap = buildHeatmap(activity, 21);
+    const heatmap = buildHeatmap(activity, 12);
     const accountInsights = buildAccountInsights(accounts, details)
       .sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount)
       .slice(0, 4);
@@ -105,21 +105,42 @@ export default function DashboardPage() {
         <div className="card-header">
           <div>
             <div className="card-title">Daily Message Volume</div>
-            <div className="card-subtitle" style={{ marginTop: 8 }}>Tasks completed each day across the last three weeks.</div>
+            <div className="card-subtitle" style={{ marginTop: 8 }}>Tasks completed each day over the last 12 weeks.</div>
           </div>
           <div className="badge">{metrics.sentEvents} total sends</div>
         </div>
-        <div className="heatmap-grid">
-          {metrics.heatmap.map((day) => (
-            <div key={day.iso} className="heatmap-day-wrap">
-              <div
-                className="heatmap-day"
-                style={{ opacity: day.count ? Math.max(0.22, day.intensity) : 0.08 }}
-                title={`${day.label}: ${day.count} messages`}
-              />
-              <div className="heatmap-label">{day.label}</div>
+        <div className="gh-heatmap">
+          <div className="gh-heatmap-days">
+            {['', 'Mon', '', 'Wed', '', 'Fri', ''].map((d, i) => (
+              <div key={i} className="gh-heatmap-day-label">{d}</div>
+            ))}
+          </div>
+          <div className="gh-heatmap-body">
+            <div className="gh-heatmap-months">
+              {metrics.heatmap.weekLabels.map((label, i) => (
+                <div key={i} className="gh-heatmap-month-label">{label}</div>
+              ))}
             </div>
-          ))}
+            <div className="gh-heatmap-grid" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 1fr)` }}>
+              {metrics.heatmap.days.map((day) => (
+                <div
+                  key={day.iso}
+                  className={`gh-heatmap-cell level-${day.count === 0 ? 0 : day.intensity < 0.25 ? 1 : day.intensity < 0.5 ? 2 : day.intensity < 0.75 ? 3 : 4}`}
+                  style={{ gridColumn: day.weekIndex + 1, gridRow: day.dayOfWeek + 1 }}
+                  title={`${day.label}: ${day.count} messages`}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="gh-heatmap-legend">
+            <span className="dim">Less</span>
+            <div className="gh-heatmap-cell level-0" />
+            <div className="gh-heatmap-cell level-1" />
+            <div className="gh-heatmap-cell level-2" />
+            <div className="gh-heatmap-cell level-3" />
+            <div className="gh-heatmap-cell level-4" />
+            <span className="dim">More</span>
+          </div>
         </div>
       </div>
 
