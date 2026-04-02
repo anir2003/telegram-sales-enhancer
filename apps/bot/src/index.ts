@@ -60,15 +60,24 @@ async function sendNextTask(ctx: Context) {
     return;
   }
 
-  const response = await api.getNextTask(telegramUserId);
-  if (!response.task) {
-    await ctx.reply('No due tasks right now. When a campaign step becomes due, it will show up here.', {
-      reply_markup: commandMenu(),
-    });
-    return;
-  }
+  try {
+    const response = await api.getNextTask(telegramUserId);
+    if (!response.task) {
+      await ctx.reply('No due tasks right now. When a campaign step becomes due, it will show up here.', {
+        reply_markup: commandMenu(),
+      });
+      return;
+    }
 
-  await sendTaskCard(ctx, response.task);
+    await sendTaskCard(ctx, response.task);
+  } catch (error: any) {
+    if (error.message?.includes('NOT_LINKED')) {
+      await ctx.reply('You haven\'t linked your identity yet! Please generate an identity link code in the Settings page and send /link CODE to this bot.');
+    } else {
+      console.error(error);
+      await ctx.reply('Something went wrong fetching the next task.');
+    }
+  }
 }
 
 async function runTaskAction(

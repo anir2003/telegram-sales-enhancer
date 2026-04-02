@@ -7,7 +7,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const body = await request.json();
-  const task = await getNextBotTask(body.telegramUserId);
-  return NextResponse.json({ task });
+  try {
+    const body = await request.json();
+    const task = await getNextBotTask(body.telegramUserId);
+    return NextResponse.json({ task });
+  } catch (err: any) {
+    if (err.message === 'NOT_LINKED') {
+      return NextResponse.json({ error: 'NOT_LINKED' }, { status: 400 });
+    }
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }

@@ -317,20 +317,24 @@ export async function importLeadsCsv(csvText: string, context?: WorkspaceContext
     throw new Error(parsed.errors[0]?.message || 'CSV parsing failed');
   }
 
-  const records = parsed.data.map((row) =>
-    leadInputSchema.parse({
-      first_name: row['First Name'] ?? row.first_name ?? '',
-      last_name: row['Last Name'] ?? row.last_name ?? '',
-      company_name: row.Company ?? row.company_name ?? row['Company Name'] ?? '',
-      telegram_username: row['Telegram Username'] ?? row.telegram_username ?? '',
-      tags: (row.Tags ?? '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-      notes: row.Notes ?? null,
-      source: row.Source ?? 'CSV import',
-    }),
-  );
+  const records = parsed.data.map((row, index) => {
+    try {
+      return leadInputSchema.parse({
+        first_name: row['First Name'] ?? row.first_name ?? '',
+        last_name: row['Last Name'] ?? row.last_name ?? '',
+        company_name: row.Company ?? row.company_name ?? row['Company Name'] ?? '',
+        telegram_username: row['Telegram Username'] ?? row.telegram_username ?? '',
+        tags: (row.Tags ?? '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        notes: row.Notes ?? null,
+        source: row.Source ?? 'CSV import',
+      });
+    } catch (err: any) {
+      throw new Error(`Row ${index + 2}: Missing or invalid fields. Please ensure First Name, Last Name, Company, and Telegram Username are provided.`);
+    }
+  });
 
   if (!isSupabaseConfigured()) {
     const imported = await Promise.all(records.map((record) => createLead(record, active)));
@@ -1031,7 +1035,7 @@ export async function getNextBotTask(telegramUserId: number) {
     .eq('telegram_user_id', telegramUserId)
     .maybeSingle();
 
-  if (!profile) return null;
+  if (!profile) throw new Error('NOT_LINKED');
 
   const dueNow = nowIso();
 
