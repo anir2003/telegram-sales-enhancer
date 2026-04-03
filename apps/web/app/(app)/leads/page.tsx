@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 
@@ -15,6 +15,11 @@ export default function LeadsPage() {
   const [tagFilter, setTagFilter] = useState('all');
   const [importing, setImporting] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [importTags, setImportTags] = useState('');
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', company_name: '', telegram_username: '', tags: '', source: '' });
+  const menuRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -43,6 +48,16 @@ export default function LeadsPage() {
 
   useEffect(() => {
     void loadLeads();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const handleCreate = async (event: React.FormEvent) => {
@@ -84,17 +99,64 @@ export default function LeadsPage() {
     try {
       const formData = new FormData();
       formData.append('file', pendingFile);
+      if (importTags.trim()) {
+        formData.append('tags', importTags.trim());
+      }
       const result = await fetchJson('/api/leads/import', { method: 'POST', body: formData });
       const count = result.leads?.length ?? 0;
       setStatus(`Imported ${count} leads from ${pendingFile.name}. Duplicates were merged automatically.`);
       setStatusTone('success');
       setPendingFile(null);
+      setImportTags('');
       await loadLeads();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Import failed.');
       setStatusTone('danger');
     }
     setImporting(false);
+  };
+
+  const handleDeleteLead = async (leadId: string) => {
+    if (!confirm('Delete this lead? This cannot be undone.')) return;
+    try {
+      await fetchJson(`/api/leads/${leadId}`, { method: 'DELETE' });
+      setOpenMenu(null);
+      await loadLeads();
+    } catch {
+      setStatus('Failed to delete lead.');
+      setStatusTone('danger');
+    }
+  };
+
+  const startEdit = (lead: Lead) => {
+    setEditingLead(lead);
+    setEditForm({
+      first_name: lead.first_name,
+      last_name: lead.last_name,
+      company_name: lead.company_name,
+      telegram_username: lead.telegram_username,
+      tags: lead.tags.join(', '),
+      source: lead.source ?? 'Manual',
+    });
+    setOpenMenu(null);
+  };
+
+  const handleEditSave = async () => {
+    if (!editingLead) return;
+    try {
+      await fetchJson(`/api/leads/${editingLead.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...editForm,
+          tags: editForm.tags.split(',').map((t) => t.trim()).filter(Boolean),
+        }),
+      });
+      setEditingLead(null);
+      await loadLeads();
+    } catch {
+      setStatus('Failed to update lead.');
+      setStatusTone('danger');
+    }
   };
 
   const leadRows = useMemo(() => buildLeadMemberships(leads, details), [details, leads]);
@@ -161,15 +223,30 @@ export default function LeadsPage() {
             Choose CSV File
           </label>
           {pendingFile && (
-            <div className="btn-row" style={{ alignItems: 'center' }}>
-              <span className="dim" style={{ fontSize: 12 }}>{pendingFile.name}</span>
-              <button className="btn" type="button" onClick={handleImport} disabled={importing}>
-                {importing ? 'Importing...' : 'Import Now'}
-              </button>
-              <button className="btn-secondary" type="button" onClick={() => { setPendingFile(null); setStatus(''); }}>
-                Cancel
-              </button>
-            </div>
+            <>
+              <input
+                className="input"
+                placeholder="Add tags to all imported leads (comma separated)"
+                value={importTags}
+                onChange={(e) => setImportTags(e.target.value)}
+              />
+              {importTags.trim() && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {importTags.split(',').map((t) => t.trim()).filter(Boolean).map((t) => (
+                    <span key={t} className="tag">{t}</span>
+                  ))}
+                </div>
+              )}
+              <div className="btn-row" style={{ alignItems: 'center' }}>
+                <span className="dim" style={{ fontSize: 12 }}>{pendingFile.name}</span>
+                <button className="btn" type="button" onClick={handleImport} disabled={importing}>
+                  {importing ? 'Importing...' : 'Import Now'}
+                </button>
+                <button className="btn-secondary" type="button" onClick={() => { setPendingFile(null); setStatus(''); setImportTags(''); }}>
+                  Cancel
+                </button>
+              </div>
+            </>
           )}
           {status ? <div className={`status-callout ${statusTone === 'success' ? 'success' : statusTone === 'danger' ? 'danger' : ''}`}>{status}</div> : null}
         </div>
@@ -199,8 +276,7 @@ export default function LeadsPage() {
           <div>Company</div>
           <div>Source</div>
           <div>Tags</div>
-          <div>Campaigns</div>
-          <div>Status</div>
+          <div></div>
         </div>
         {loading ? (
           <div className="empty-state">Loading leads...</div>
@@ -214,19 +290,41 @@ export default function LeadsPage() {
               <div>{lead.company_name}</div>
               <div>{lead.source ?? 'Manual'}</div>
               <div>{lead.tags.length ? lead.tags.map((tag) => <span key={tag} className="tag">{tag}</span>) : <span className="dim">No tags</span>}</div>
-              <div>
-                {lead.memberships.length ? lead.memberships.slice(0, 2).map((item) => (
-                  <div key={`${lead.id}-${item.campaignId}`} className="dim">{item.campaignName}</div>
-                )) : <span className="dim">Unassigned</span>}
-                {lead.memberships.length > 2 ? <div className="dim">+{lead.memberships.length - 2} more</div> : null}
+              <div className="dots-menu-wrapper" ref={openMenu === lead.id ? menuRef : undefined}>
+                <button className="dots-btn" onClick={() => setOpenMenu(openMenu === lead.id ? null : lead.id)}>&#8942;</button>
+                {openMenu === lead.id && (
+                  <div className="dots-menu">
+                    <button onClick={() => startEdit(lead)}>Edit</button>
+                    <button className="danger-item" onClick={() => handleDeleteLead(lead.id)}>Delete</button>
+                  </div>
+                )}
               </div>
-              <div><span className="badge">{lead.memberships[0]?.status ?? 'reusable'}</span></div>
             </div>
           ))
         ) : (
           <div className="empty-state">No leads match the current search and filter settings.</div>
         )}
       </div>
+
+      {editingLead && (
+        <div className="edit-lead-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditingLead(null); }}>
+          <div className="edit-lead-modal">
+            <div className="card-title">Edit Lead</div>
+            <div className="form-grid columns-2">
+              <input className="input" placeholder="First Name" value={editForm.first_name} onChange={(e) => setEditForm((c) => ({ ...c, first_name: e.target.value }))} />
+              <input className="input" placeholder="Last Name" value={editForm.last_name} onChange={(e) => setEditForm((c) => ({ ...c, last_name: e.target.value }))} />
+              <input className="input" placeholder="Company" value={editForm.company_name} onChange={(e) => setEditForm((c) => ({ ...c, company_name: e.target.value }))} />
+              <input className="input" placeholder="Telegram username" value={editForm.telegram_username} onChange={(e) => setEditForm((c) => ({ ...c, telegram_username: e.target.value }))} />
+            </div>
+            <input className="input" placeholder="Tags (comma separated)" value={editForm.tags} onChange={(e) => setEditForm((c) => ({ ...c, tags: e.target.value }))} />
+            <input className="input" placeholder="Source" value={editForm.source} onChange={(e) => setEditForm((c) => ({ ...c, source: e.target.value }))} />
+            <div className="btn-row">
+              <button className="btn" onClick={handleEditSave}>Save Changes</button>
+              <button className="btn-secondary" onClick={() => setEditingLead(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

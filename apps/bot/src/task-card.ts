@@ -31,9 +31,9 @@ export function buildTaskMessage(task: BotTask) {
     '<b>Message to send</b>',
     `<pre>${escapeHtml(task.renderedMessage)}</pre>`,
     '',
-    '1. Tap <b>Open Chat</b>.',
-    '2. Send the message manually from the assigned Telegram account.',
-    '3. Return here and mark the outcome.',
+    '1. Tap <b>Open Chat</b> (message is auto-copied).',
+    '2. Paste and send the message from the assigned Telegram account.',
+    '3. Return here and tap <b>Sent</b>.',
   ].join('\n');
 }
 
@@ -42,20 +42,22 @@ export function buildTaskKeyboard(task: BotTask) {
 
   if (task.profileUrl) {
     keyboard.url('Open Chat', task.profileUrl);
+    keyboard.text('Copy Message', `task:copy:${task.taskId}`);
     keyboard.row();
   }
 
-  keyboard.text('Mark Sent', `task:sent:${task.taskId}`);
-  keyboard.text('Skip', `task:skip:${task.taskId}`);
-  keyboard.row();
+  keyboard.text('Sent', `task:sent:${task.taskId}`);
   keyboard.text('Replied', `task:reply:replied:${task.taskId}`);
-  keyboard.text('Interested', `task:reply:interested:${task.taskId}`);
-  keyboard.row();
-  keyboard.text('Not Interested', `task:reply:not_interested:${task.taskId}`);
-  keyboard.row();
-  keyboard.text('Next Task', 'task:next');
 
   return keyboard;
+}
+
+export function buildSentKeyboard(taskId: string) {
+  return new InlineKeyboard()
+    .text('Status: sent', 'noop')
+    .text('Replied', `task:reply:replied:${taskId}`)
+    .row()
+    .text('Next Task', 'task:next');
 }
 
 export function buildResolvedKeyboard(statusLabel: string) {

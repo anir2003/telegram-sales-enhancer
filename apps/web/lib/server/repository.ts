@@ -305,7 +305,56 @@ export async function createLead(input: unknown, context?: WorkspaceContext) {
   return data as LeadRecord;
 }
 
-export async function importLeadsCsv(csvText: string, context?: WorkspaceContext) {
+export async function updateLead(leadId: string, input: Record<string, unknown>, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
+  assertWorkspace(active);
+  const payload: Record<string, unknown> = {};
+  if (input.first_name !== undefined) payload.first_name = String(input.first_name).trim();
+  if (input.last_name !== undefined) payload.last_name = String(input.last_name).trim();
+  if (input.company_name !== undefined) payload.company_name = String(input.company_name).trim();
+  if (input.telegram_username !== undefined) payload.telegram_username = normalizeTelegramUsername(String(input.telegram_username));
+  if (input.tags !== undefined) payload.tags = Array.isArray(input.tags) ? input.tags : [];
+  if (input.source !== undefined) payload.source = String(input.source).trim() || null;
+
+  if (!isSupabaseConfigured()) {
+    const record = demoState.leads.find((l) => l.id === leadId);
+    if (!record) return null;
+    Object.assign(record, payload);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('leads')
+    .update(payload)
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', leadId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as LeadRecord;
+}
+
+export async function deleteLead(leadId: string, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
+  assertWorkspace(active);
+
+  if (!isSupabaseConfigured()) {
+    const idx = demoState.leads.findIndex((l) => l.id === leadId);
+    if (idx !== -1) demoState.leads.splice(idx, 1);
+    return;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { error } = await supabase!
+    .from('leads')
+    .delete()
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', leadId);
+  if (error) throw error;
+}
+
+export async function importLeadsCsv(csvText: string, extraTags?: string[], context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   const parsed = Papa.parse<Record<string, string>>(csvText, {
     header: true,
@@ -332,10 +381,10 @@ export async function importLeadsCsv(csvText: string, context?: WorkspaceContext
         last_name: row['Last Name'] ?? row.last_name ?? '',
         company_name: row.Company ?? row.company_name ?? row['Company Name'] ?? '',
         telegram_username: row['Telegram Username'] ?? row.telegram_username ?? '',
-        tags: (row.Tags ?? '')
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean),
+        tags: [
+          ...(row.Tags ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+          ...(extraTags ?? []),
+        ],
         notes: row.Notes ?? null,
         source: row.Source ?? 'CSV import',
       });
@@ -453,6 +502,8 @@ export async function createCampaign(input: unknown, context?: WorkspaceContext)
   const payload = {
     ...parsed,
     description: parsed.description ?? null,
+    start_date: parsed.start_date ?? null,
+    end_date: parsed.end_date ?? null,
     workspace_id: active.workspaceId,
     created_by: active.profileId,
   };
@@ -487,6 +538,8 @@ export async function updateCampaign(campaignId: string, input: unknown, context
     timezone: parsed.timezone,
     send_window_start: parsed.send_window_start,
     send_window_end: parsed.send_window_end,
+    start_date: parsed.start_date ?? null,
+    end_date: parsed.end_date ?? null,
   };
 
   if (!isSupabaseConfigured()) {

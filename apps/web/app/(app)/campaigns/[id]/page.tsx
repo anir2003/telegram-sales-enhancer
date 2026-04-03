@@ -1,17 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
-import { type Account, type CampaignDetail, type Lead, formatWindow, summariseCampaign } from '@/lib/web/insights';
+import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
 
 const stageOrder = ['queued', 'due', 'sent_waiting_followup', 'replied', 'completed', 'blocked', 'skipped'] as const;
 
 const templatePlaceholders = [
-  '{First Name}',
-  '{Last Name}',
-  '{Company}',
-  '{Telegram Username}',
+  { label: 'First Name', token: '{First Name}' },
+  { label: 'Last Name', token: '{Last Name}' },
+  { label: 'Company', token: '{Company}' },
+  { label: 'Telegram Username', token: '{Telegram Username}' },
 ] as const;
 
 function normalizeTelegramUsername(value: string) {
@@ -32,9 +32,13 @@ export default function CampaignDetailPage() {
   const campaignId = params.id;
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
   const [stepsForm, setStepsForm] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'stages' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'stages' | 'leads' | 'settings'>('overview');
   const [stageFilterAccount, setStageFilterAccount] = useState('all');
-  
+  const [leadSearch, setLeadSearch] = useState('');
+  const [leadStageFilter, setLeadStageFilter] = useState('all');
+  const [activeEditorStep, setActiveEditorStep] = useState(0);
+  const editorRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '',
@@ -42,6 +46,8 @@ export default function CampaignDetailPage() {
     timezone: 'UTC',
     send_window_start: '09:00',
     send_window_end: '18:00',
+    start_date: '',
+    end_date: '',
   });
 
   const load = async () => {
@@ -55,6 +61,8 @@ export default function CampaignDetailPage() {
         timezone: response.campaign.timezone ?? 'UTC',
         send_window_start: response.campaign.send_window_start ?? '09:00',
         send_window_end: response.campaign.send_window_end ?? '18:00',
+        start_date: response.campaign.start_date ?? '',
+        end_date: response.campaign.end_date ?? '',
       });
     }
   };
@@ -83,6 +91,17 @@ export default function CampaignDetailPage() {
     }));
   }, [detail?.attachedLeads, stageFilterAccount]);
 
+  const filteredAttachedLeads = useMemo(() => {
+    return (detail?.attachedLeads ?? []).filter((item: any) => {
+      const lead = leadById.get(item.lead_id);
+      const matchesStage = leadStageFilter === 'all' || item.status === leadStageFilter;
+      const matchesSearch = !leadSearch.trim() || [
+        lead?.first_name, lead?.last_name, lead?.company_name, lead?.telegram_username,
+      ].join(' ').toLowerCase().includes(leadSearch.trim().toLowerCase());
+      return matchesStage && matchesSearch;
+    });
+  }, [detail?.attachedLeads, leadById, leadStageFilter, leadSearch]);
+
   const chartData = useMemo(() => {
     const bars = Array.from({ length: 24 }).map((_, i) => ({ label: `${i}:00`, sent: 0, replies: 0 }));
     const now = Date.now();
@@ -97,7 +116,6 @@ export default function CampaignDetailPage() {
       }
     });
 
-    // Make the chart visually interesting if there's no data so it doesn't look broken during setup
     const hasData = bars.some(b => b.sent > 0 || b.replies > 0);
     if (!hasData) {
       return bars.map((b, i) => {
@@ -143,6 +161,33 @@ export default function CampaignDetailPage() {
     await load();
   };
 
+  const insertPlaceholder = (token: string) => {
+    const ta = editorRefs.current[activeEditorStep];
+    if (!ta) {
+      setStepsForm(current => {
+        const next = [...current];
+        if (next[activeEditorStep]) {
+          next[activeEditorStep] = { ...next[activeEditorStep], message_template: next[activeEditorStep].message_template + token };
+        }
+        return next;
+      });
+      return;
+    }
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const current = stepsForm[activeEditorStep]?.message_template ?? '';
+    const updated = current.substring(0, start) + token + current.substring(end);
+    setStepsForm(prev => {
+      const next = [...prev];
+      next[activeEditorStep] = { ...next[activeEditorStep], message_template: updated };
+      return next;
+    });
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
   const maxChartVal = Math.max(1, ...chartData.map(b => b.sent + b.replies));
 
   return (
@@ -165,6 +210,7 @@ export default function CampaignDetailPage() {
       <div className="nav-tabs">
         <button className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>Overview</button>
         <button className={`nav-tab ${activeTab === 'stages' ? 'active' : ''}`} onClick={() => setActiveTab('stages')}>Stages</button>
+        <button className={`nav-tab ${activeTab === 'leads' ? 'active' : ''}`} onClick={() => setActiveTab('leads')}>Leads</button>
         <button className={`nav-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</button>
       </div>
 
@@ -263,6 +309,46 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
+      {activeTab === 'leads' && (
+        <div className="grid">
+          <div className="card" style={{ marginBottom: 0 }}>
+            <div className="form-grid">
+              <div className="lead-select-toolbar">
+                <input className="input" style={{ flex: 1 }} placeholder="Search leads by name, company, or username" value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+                <select className="select" style={{ width: 'auto', minWidth: 150 }} value={leadStageFilter} onChange={(e) => setLeadStageFilter(e.target.value)}>
+                  <option value="all">All Stages</option>
+                  {stageOrder.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="table campaign-detail-table">
+            <div className="table-header">
+              <div>Lead</div>
+              <div>Company</div>
+              <div>Stage</div>
+              <div>Account</div>
+              <div>Last Sent</div>
+              <div>Next Step</div>
+            </div>
+            {filteredAttachedLeads.length ? filteredAttachedLeads.map((item: any) => {
+              const lead = leadById.get(item.lead_id);
+              const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
+              return (
+                <div key={item.id} className="table-row">
+                  <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
+                  <div>{lead?.company_name ?? 'Company'}</div>
+                  <div><span className="badge">{item.status}</span></div>
+                  <div>{account?.label ?? 'Unassigned'}</div>
+                  <div>{item.last_sent_at ? new Date(item.last_sent_at).toLocaleString() : 'Not yet'}</div>
+                  <div>{item.next_step_order ?? 'Done'}</div>
+                </div>
+              );
+            }) : <div className="empty-state">No leads match the current filters.</div>}
+          </div>
+        </div>
+      )}
+
       {activeTab === 'settings' && (
         <div className="grid">
           <div className="card form-grid">
@@ -273,6 +359,16 @@ export default function CampaignDetailPage() {
               <input className="input" placeholder="Window Start" value={editForm.send_window_start} onChange={(event) => setEditForm((current) => ({ ...current, send_window_start: event.target.value }))} />
               <input className="input" placeholder="Window End" value={editForm.send_window_end} onChange={(event) => setEditForm((current) => ({ ...current, send_window_end: event.target.value }))} />
             </div>
+            <div className="form-grid columns-2">
+              <div className="form-grid">
+                <label className="dim" style={{ fontSize: 11 }}>Start Date</label>
+                <input className="input" type="date" value={editForm.start_date} onChange={(event) => setEditForm((current) => ({ ...current, start_date: event.target.value }))} />
+              </div>
+              <div className="form-grid">
+                <label className="dim" style={{ fontSize: 11 }}>End Date</label>
+                <input className="input" type="date" value={editForm.end_date} onChange={(event) => setEditForm((current) => ({ ...current, end_date: event.target.value }))} />
+              </div>
+            </div>
             <textarea className="textarea" placeholder="Description" value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} />
             <div className="btn-row">
               <button className="btn" type="button" onClick={saveChanges}>Save Campaign</button>
@@ -282,36 +378,34 @@ export default function CampaignDetailPage() {
           <div className="card">
             <div className="card-title">Sequence Editor</div>
             <div className="card-subtitle" style={{ marginTop: 8 }}>
-              Insert tags to automatically personalize the message: 
-              {templatePlaceholders.map(tag => (
-                <span key={tag} className="var-tag" onClick={() => {
-                  if (stepsForm.length > 0) {
-                    setStepsForm(current => {
-                      const next = [...current];
-                      next[0] = { ...next[0], message_template: next[0].message_template + ' ' + tag };
-                      return next;
-                    });
-                  }
-                }}>{tag}</span>
+              Click a placeholder to insert it at cursor position:
+            </div>
+            <div className="placeholder-pills" style={{ marginTop: 8 }}>
+              {templatePlaceholders.map((p) => (
+                <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}>
+                  {p.label}
+                </button>
               ))}
             </div>
-            
+
             <div className="sequence-stack" style={{ marginTop: 24 }}>
               {stepsForm.length ? stepsForm.map((step: any, idx) => {
                 const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
-                
+
                 return (
-                  <div key={step.id} className="sequence-card">
+                  <div key={step.id} className="sequence-card" onClick={() => setActiveEditorStep(idx)}>
                     <div className="sequence-card-head">
-                      <div>Step {step.step_order}</div>
+                      <div>Step {step.step_order} {activeEditorStep === idx ? <span className="dim" style={{ fontSize: 10 }}>(editing)</span> : ''}</div>
                       <div className="dim">Delay {step.delay_days} day(s)</div>
                     </div>
-                    
+
                     <div className="editor-wrapper">
                       <div className="editor-pane">
-                        <textarea 
-                          className="message-input" 
+                        <textarea
+                          className="message-input"
+                          ref={(el) => { editorRefs.current[idx] = el; }}
                           value={step.message_template}
+                          onFocus={() => setActiveEditorStep(idx)}
                           onChange={(e) => {
                             setStepsForm(current => {
                               const next = [...current];
@@ -322,7 +416,7 @@ export default function CampaignDetailPage() {
                           placeholder="Type your message here..."
                         />
                       </div>
-                      
+
                       <div className="preview-pane">
                         <div className="preview-header">
                           <div className="preview-avatar">L</div>
@@ -341,34 +435,6 @@ export default function CampaignDetailPage() {
                   </div>
                 );
               }) : <div className="empty-state">No sequence steps have been created for this campaign yet.</div>}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 16 }}>Lead List</div>
-            <div className="table campaign-detail-table">
-              <div className="table-header">
-                <div>Lead</div>
-                <div>Company</div>
-                <div>Stage</div>
-                <div>Account</div>
-                <div>Last Sent</div>
-                <div>Next Step</div>
-              </div>
-              {detail.attachedLeads.length ? detail.attachedLeads.map((item: any) => {
-                const lead = leadById.get(item.lead_id);
-                const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
-                return (
-                  <div key={item.id} className="table-row">
-                    <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
-                    <div>{lead?.company_name ?? 'Company'}</div>
-                    <div><span className="badge">{item.status}</span></div>
-                    <div>{account?.label ?? 'Unassigned'}</div>
-                    <div>{item.last_sent_at ? new Date(item.last_sent_at).toLocaleString() : 'Not yet'}</div>
-                    <div>{item.next_step_order ?? 'Done'}</div>
-                  </div>
-                );
-              }) : <div className="empty-state">Attach leads from the campaign builder to populate the CRM-style detail page.</div>}
             </div>
           </div>
         </div>

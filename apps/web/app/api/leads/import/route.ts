@@ -17,7 +17,11 @@ export async function POST(request: NextRequest) {
     }
 
     const csvText = await file.text();
-    const leads = await importLeadsCsv(csvText, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
+    const tagsRaw = formData.get('tags');
+    const extraTags = typeof tagsRaw === 'string'
+      ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
+    const leads = await importLeadsCsv(csvText, extraTags, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
 
     return NextResponse.json({ leads });
   } catch (err: any) {

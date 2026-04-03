@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 
@@ -17,6 +17,21 @@ const emptyStep = (stepOrder: number): SequenceDraft => ({
   message_template: '',
 });
 
+const placeholders = [
+  { label: 'First Name', token: '{First Name}' },
+  { label: 'Last Name', token: '{Last Name}' },
+  { label: 'Company', token: '{Company}' },
+  { label: 'Telegram Username', token: '{Telegram Username}' },
+] as const;
+
+function renderPreview(template: string) {
+  return template
+    .replaceAll('{First Name}', 'Ava')
+    .replaceAll('{Last Name}', 'Patel')
+    .replaceAll('{Company}', 'Acme Inc')
+    .replaceAll('{Telegram Username}', 'avapatel');
+}
+
 type WizardStep = 'setup' | 'accounts' | 'timing' | 'leads' | 'sequence' | 'review';
 
 export default function CampaignsPage() {
@@ -29,15 +44,21 @@ export default function CampaignsPage() {
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [leadSearch, setLeadSearch] = useState('');
+  const [leadTagFilter, setLeadTagFilter] = useState('all');
+  const [leadCompanyFilter, setLeadCompanyFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>('setup');
+  const [activeStepIdx, setActiveStepIdx] = useState(0);
+  const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
   const [form, setForm] = useState({
     name: '',
     description: '',
     timezone: 'UTC',
     send_window_start: '09:00',
     send_window_end: '18:00',
+    start_date: '',
+    end_date: '',
   });
   const [steps, setSteps] = useState<SequenceDraft[]>([
     emptyStep(1),
@@ -72,15 +93,20 @@ export default function CampaignsPage() {
     [accounts, details],
   );
 
+  const allLeadTags = useMemo(() => [...new Set(leads.flatMap((l) => l.tags))], [leads]);
+  const allCompanies = useMemo(() => [...new Set(leads.map((l) => l.company_name).filter(Boolean))], [leads]);
+
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
-      if (!leadSearch.trim()) return true;
-      return [lead.first_name, lead.last_name, lead.company_name, lead.telegram_username]
+      const matchesSearch = !leadSearch.trim() || [lead.first_name, lead.last_name, lead.company_name, lead.telegram_username]
         .join(' ')
         .toLowerCase()
         .includes(leadSearch.trim().toLowerCase());
+      const matchesTag = leadTagFilter === 'all' || lead.tags.includes(leadTagFilter);
+      const matchesCompany = leadCompanyFilter === 'all' || lead.company_name === leadCompanyFilter;
+      return matchesSearch && matchesTag && matchesCompany;
     });
-  }, [leadSearch, leads]);
+  }, [leadSearch, leadTagFilter, leadCompanyFilter, leads]);
 
   const campaignRows = useMemo(() => {
     return details
@@ -130,10 +156,12 @@ export default function CampaignsPage() {
         });
       }
 
-      setForm({ name: '', description: '', timezone: 'UTC', send_window_start: '09:00', send_window_end: '18:00' });
+      setForm({ name: '', description: '', timezone: 'UTC', send_window_start: '09:00', send_window_end: '18:00', start_date: '', end_date: '' });
       setSelectedLeadIds([]);
       setSelectedAccountIds([]);
       setLeadSearch('');
+      setLeadTagFilter('all');
+      setLeadCompanyFilter('all');
       setSteps([emptyStep(1), emptyStep(2), emptyStep(3)]);
       setShowWizard(false);
       setWizardStep('setup');
@@ -162,6 +190,33 @@ export default function CampaignsPage() {
 
   const addStep = () => {
     setSteps((current) => [...current, emptyStep(current.length + 1)]);
+  };
+
+  const insertPlaceholder = (token: string) => {
+    const ta = textareaRefs.current[activeStepIdx];
+    if (!ta) {
+      updateStep(activeStepIdx, { message_template: steps[activeStepIdx].message_template + token });
+      return;
+    }
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const current = steps[activeStepIdx].message_template;
+    const next = current.substring(0, start) + token + current.substring(end);
+    updateStep(activeStepIdx, { message_template: next });
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  const selectAllFiltered = () => {
+    const ids = filteredLeads.map((l) => l.id);
+    setSelectedLeadIds((current) => [...new Set([...current, ...ids])]);
+  };
+
+  const deselectAllFiltered = () => {
+    const ids = new Set(filteredLeads.map((l) => l.id));
+    setSelectedLeadIds((current) => current.filter((id) => !ids.has(id)));
   };
 
   const wizardSteps: { key: WizardStep; label: string }[] = [
@@ -262,6 +317,16 @@ export default function CampaignsPage() {
                       <input className="input" type="time" value={form.send_window_end} onChange={(e) => setForm((c) => ({ ...c, send_window_end: e.target.value }))} />
                     </div>
                   </div>
+                  <div className="form-grid columns-2" style={{ marginTop: 8 }}>
+                    <div className="form-grid">
+                      <label className="dim" style={{ fontSize: 11 }}>Campaign Start Date</label>
+                      <input className="input" type="date" value={form.start_date} onChange={(e) => setForm((c) => ({ ...c, start_date: e.target.value }))} />
+                    </div>
+                    <div className="form-grid">
+                      <label className="dim" style={{ fontSize: 11 }}>Campaign End Date</label>
+                      <input className="input" type="date" value={form.end_date} onChange={(e) => setForm((c) => ({ ...c, end_date: e.target.value }))} />
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -269,17 +334,40 @@ export default function CampaignsPage() {
                 <div className="form-grid">
                   <div className="card-title" style={{ marginBottom: 4 }}>Attach Leads</div>
                   <div className="card-subtitle">{selectedLeadIds.length} leads selected from {leads.length} available.</div>
-                  <input className="input" placeholder="Search leads by company, name, or Telegram username" value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+
+                  <div className="lead-select-toolbar">
+                    <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+                    <select className="select" style={{ width: 'auto', minWidth: 140 }} value={leadCompanyFilter} onChange={(e) => setLeadCompanyFilter(e.target.value)}>
+                      <option value="all">All Companies</option>
+                      {allCompanies.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <select className="select" style={{ width: 'auto', minWidth: 130 }} value={leadTagFilter} onChange={(e) => setLeadTagFilter(e.target.value)}>
+                      <option value="all">All Tags</option>
+                      {allLeadTags.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="btn-row" style={{ fontSize: 12 }}>
+                    <button className="chip" type="button" onClick={selectAllFiltered}>Select all {filteredLeads.length} shown</button>
+                    <button className="chip" type="button" onClick={deselectAllFiltered}>Deselect shown</button>
+                    <button className="chip" type="button" onClick={() => setSelectedLeadIds([])}>Clear selection</button>
+                  </div>
+
                   <div className="selection-list">
-                    {filteredLeads.map((lead) => (
+                    {filteredLeads.length ? filteredLeads.map((lead) => (
                       <label key={lead.id} className={`selection-row ${selectedLeadIds.includes(lead.id) ? 'active' : ''}`}>
                         <div>
                           <div>{lead.first_name} {lead.last_name}</div>
                           <div className="dim">{lead.company_name} · @{lead.telegram_username}</div>
+                          {lead.tags.length > 0 && (
+                            <div style={{ marginTop: 4 }}>
+                              {lead.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                            </div>
+                          )}
                         </div>
                         <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} />
                       </label>
-                    ))}
+                    )) : <div className="empty-state">No leads match filters.</div>}
                   </div>
                 </div>
               )}
@@ -287,12 +375,19 @@ export default function CampaignsPage() {
               {wizardStep === 'sequence' && (
                 <div className="form-grid">
                   <div className="card-title" style={{ marginBottom: 4 }}>Message Sequence</div>
-                  <div className="card-subtitle">Draft the messages for each step. Use {'{'}{`First Name`}{'}'}, {'{'}{`Last Name`}{'}'}, {'{'}{`Company`}{'}'}, {'{'}{`Telegram Username`}{'}'} as placeholders.</div>
+                  <div className="card-subtitle">Click a placeholder to insert it at cursor position:</div>
+                  <div className="placeholder-pills">
+                    {placeholders.map((p) => (
+                      <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="sequence-stack">
                     {steps.map((step, index) => (
-                      <div key={index} className="sequence-card">
+                      <div key={index} className="sequence-card" onClick={() => setActiveStepIdx(index)}>
                         <div className="sequence-card-head">
-                          <div>Step {index + 1}</div>
+                          <div>Step {index + 1} {activeStepIdx === index ? <span className="dim" style={{ fontSize: 10 }}>(editing)</span> : ''}</div>
                           <div className="form-grid columns-2" style={{ width: 200 }}>
                             <div>
                               <label className="dim" style={{ fontSize: 10 }}>Delay (days)</label>
@@ -300,7 +395,31 @@ export default function CampaignsPage() {
                             </div>
                           </div>
                         </div>
-                        <textarea className="textarea" placeholder="Write your message..." value={step.message_template} onChange={(e) => updateStep(index, { message_template: e.target.value })} />
+                        <div className="editor-wrapper">
+                          <div className="editor-pane">
+                            <textarea
+                              className="message-input"
+                              ref={(el) => { textareaRefs.current[index] = el; }}
+                              placeholder="Write your message..."
+                              value={step.message_template}
+                              onFocus={() => setActiveStepIdx(index)}
+                              onChange={(e) => updateStep(index, { message_template: e.target.value })}
+                            />
+                          </div>
+                          <div className="preview-pane">
+                            <div className="preview-header">
+                              <div className="preview-avatar">A</div>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Ava Patel</div>
+                                <div className="dim" style={{ fontSize: 11 }}>@avapatel</div>
+                              </div>
+                            </div>
+                            <div className="preview-bubble">
+                              {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
+                            </div>
+                            <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -315,6 +434,8 @@ export default function CampaignsPage() {
                     <div className="metric-row"><span>Name</span><span>{form.name || '(not set)'}</span></div>
                     <div className="metric-row"><span>Timezone</span><span>{form.timezone}</span></div>
                     <div className="metric-row"><span>Send Window</span><span>{form.send_window_start} - {form.send_window_end}</span></div>
+                    {form.start_date && <div className="metric-row"><span>Start Date</span><span>{form.start_date}</span></div>}
+                    {form.end_date && <div className="metric-row"><span>End Date</span><span>{form.end_date}</span></div>}
                     <div className="metric-row"><span>Accounts</span><span>{selectedAccountIds.length} selected</span></div>
                     <div className="metric-row"><span>Leads</span><span>{selectedLeadIds.length} selected</span></div>
                     <div className="metric-row"><span>Sequence Steps</span><span>{steps.filter((s) => s.message_template.trim()).length} with messages</span></div>

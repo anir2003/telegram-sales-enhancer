@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { Bot, Context, Keyboard, webhookCallback } from 'grammy';
 import { AppApiClient, type BotTask } from './api';
 import { getBotConfig } from './config';
-import { buildResolvedKeyboard, buildTaskKeyboard, buildTaskMessage } from './task-card';
+import { buildResolvedKeyboard, buildSentKeyboard, buildTaskKeyboard, buildTaskMessage } from './task-card';
 
 const config = getBotConfig();
 const api = new AppApiClient({
@@ -11,6 +11,9 @@ const api = new AppApiClient({
   secret: config.webhookSecret || undefined,
 });
 const bot = new Bot(config.token);
+
+// Store last rendered message per user for copy functionality
+const lastTaskMessage = new Map<number, string>();
 
 function commandMenu() {
   return new Keyboard().text('Next task').resized();
@@ -46,6 +49,9 @@ async function handleLinkCode(ctx: Context, code: string) {
 }
 
 async function sendTaskCard(ctx: Context, task: BotTask) {
+  if (ctx.from) {
+    lastTaskMessage.set(ctx.from.id, task.renderedMessage);
+  }
   await ctx.reply(buildTaskMessage(task), {
     parse_mode: 'HTML',
     link_preview_options: { is_disabled: true },
@@ -78,24 +84,6 @@ async function sendNextTask(ctx: Context) {
       await ctx.reply('Something went wrong fetching the next task.');
     }
   }
-}
-
-async function runTaskAction(
-  ctx: Context,
-  action: () => Promise<void>,
-  statusLabel: string,
-  confirmation: string,
-) {
-  await action();
-  await ctx.answerCallbackQuery({ text: confirmation });
-  try {
-    await ctx.editMessageReplyMarkup({
-      reply_markup: buildResolvedKeyboard(statusLabel),
-    });
-  } catch (error) {
-    console.warn('Unable to update inline keyboard', error);
-  }
-  await sendNextTask(ctx);
 }
 
 bot.command('start', async (ctx) => {
@@ -171,47 +159,60 @@ bot.callbackQuery('noop', async (ctx) => {
 });
 bot.callbackQuery('task:next', sendNextTask);
 
+// Copy message handler - sends the rendered message as a copyable reply
+bot.callbackQuery(/^task:copy:(.+)$/, async (ctx) => {
+  const userId = ctx.from.id;
+  const message = lastTaskMessage.get(userId);
+  if (message) {
+    await ctx.reply(message);
+    await ctx.answerCallbackQuery({ text: 'Message sent — copy it from above' });
+  } else {
+    await ctx.answerCallbackQuery({ text: 'Message not available, pull /next again' });
+  }
+});
+
 bot.callbackQuery(/^task:sent:(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
-  await runTaskAction(
-    ctx,
-    async () => {
-      await api.markTaskSent(taskId, ctx.from.id);
-    },
-    'Status: sent',
-    'Marked sent',
-  );
+  await api.markTaskSent(taskId, ctx.from.id);
+  await ctx.answerCallbackQuery({ text: 'Marked sent' });
+  try {
+    await ctx.editMessageReplyMarkup({
+      reply_markup: buildSentKeyboard(taskId),
+    });
+  } catch (error) {
+    console.warn('Unable to update inline keyboard', error);
+  }
+  await sendNextTask(ctx);
 });
 
 bot.callbackQuery(/^task:skip:(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
-  await runTaskAction(
-    ctx,
-    async () => {
-      await api.markTaskSkipped(taskId, ctx.from.id);
-    },
-    'Status: skipped',
-    'Marked skipped',
-  );
+  await api.markTaskSkipped(taskId, ctx.from.id);
+  await ctx.answerCallbackQuery({ text: 'Marked skipped' });
+  try {
+    await ctx.editMessageReplyMarkup({
+      reply_markup: buildResolvedKeyboard('Status: skipped'),
+    });
+  } catch (error) {
+    console.warn('Unable to update inline keyboard', error);
+  }
+  await sendNextTask(ctx);
 });
 
 bot.callbackQuery(/^task:reply:(interested|not_interested|replied):(.+)$/, async (ctx) => {
   const replyStatus = ctx.match[1] as 'interested' | 'not_interested' | 'replied';
   const taskId = ctx.match[2];
-  const labelByReplyStatus = {
-    replied: 'Status: replied',
-    interested: 'Status: interested',
-    not_interested: 'Status: not interested',
-  } as const;
 
-  await runTaskAction(
-    ctx,
-    async () => {
-      await api.markTaskReply(taskId, ctx.from.id, replyStatus);
-    },
-    labelByReplyStatus[replyStatus],
-    'Reply logged',
-  );
+  await api.markTaskReply(taskId, ctx.from.id, replyStatus);
+  await ctx.answerCallbackQuery({ text: 'Reply logged' });
+  try {
+    await ctx.editMessageReplyMarkup({
+      reply_markup: buildResolvedKeyboard('Status: replied'),
+    });
+  } catch (error) {
+    console.warn('Unable to update inline keyboard', error);
+  }
+  await sendNextTask(ctx);
 });
 
 bot.catch(async (error) => {

@@ -112,6 +112,8 @@ export const demoState: {
       timezone: 'UTC',
       send_window_start: '09:00',
       send_window_end: '18:00',
+      start_date: null,
+      end_date: null,
       created_at: now,
     },
   ],

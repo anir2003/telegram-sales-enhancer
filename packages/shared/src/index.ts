@@ -46,6 +46,8 @@ export interface CampaignRecord {
   timezone: string;
   send_window_start: string;
   send_window_end: string;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
 }
 
@@ -132,6 +134,8 @@ export const campaignInputSchema = z.object({
   timezone: z.string().trim().min(1).default('UTC'),
   send_window_start: z.string().trim().min(1).default('09:00'),
   send_window_end: z.string().trim().min(1).default('18:00'),
+  start_date: z.string().trim().nullish(),
+  end_date: z.string().trim().nullish(),
 });
 
 export const telegramAccountInputSchema = z.object({
