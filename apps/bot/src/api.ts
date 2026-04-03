@@ -40,10 +40,6 @@ export class AppApiClient {
     return (await response.json()) as T;
   }
 
-  linkTelegramUser(input: { code: string; telegramUserId: number; telegramUsername?: string | null }) {
-    return this.post<{ profile: { email?: string | null; full_name?: string | null } }>('/api/bot/link', input);
-  }
-
   getNextTask(telegramUserId: number) {
     return this.post<{ task: BotTask | null }>('/api/bot/next', { telegramUserId });
   }

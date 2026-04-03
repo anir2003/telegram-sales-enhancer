@@ -24,8 +24,6 @@ export const demoProfile = {
   email: 'demo@workspace.local',
   full_name: 'Workspace Admin',
   role: 'admin',
-  telegram_user_id: null as number | null,
-  telegram_username: null as string | null,
 };
 
 export const demoState: {
@@ -37,7 +35,7 @@ export const demoState: {
   sendTasks: SendTaskRecord[];
   activity: ActivityLogRecord[];
   assignments: Array<{ id: string; workspace_id: string; campaign_id: string; telegram_account_id: string; created_at: string }>;
-  botCodes: Array<{ id: string; workspace_id: string; profile_id: string; code: string; expires_at: string; consumed_at: string | null; created_at: string }>;
+  botCodes: Array<any>;
 } = {
   leads: [
     {
