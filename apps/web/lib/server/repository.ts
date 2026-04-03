@@ -786,7 +786,7 @@ export async function updateCampaignLead(id: string, patch: Partial<CampaignLead
   const { data, error } = await supabase!
     .from('campaign_leads')
     .update(patch)
-    .eq('workspace_id', context.workspaceId)
+    .eq('workspace_id', active.workspaceId)
     .eq('id', id)
     .select('*')
     .single();
