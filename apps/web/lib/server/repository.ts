@@ -1531,3 +1531,25 @@ export async function logActivity(input: {
   if (error) throw error;
   return data as ActivityLogRecord;
 }
+
+export async function updateSequenceStep(stepId: string, input: unknown, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
+  const parsed = sequenceStepInputSchema.partial().parse(input);
+  if (!isSupabaseConfigured()) {
+    const record = demoState.steps.find((s) => s.id === stepId);
+    if (record) {
+      Object.assign(record, parsed);
+    }
+    return record;
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaign_sequence_steps')
+    .update(parsed)
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', stepId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as SequenceStepRecord;
+}
