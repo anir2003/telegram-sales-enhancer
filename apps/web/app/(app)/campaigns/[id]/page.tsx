@@ -7,7 +7,7 @@ import { type Account, type CampaignDetail, type Lead, formatWindow, summariseCa
 
 const stageOrder = ['queued', 'due', 'sent_waiting_followup', 'replied', 'completed', 'blocked', 'skipped'] as const;
 
-export const templatePlaceholders = [
+const templatePlaceholders = [
   '{First Name}',
   '{Last Name}',
   '{Company}',
