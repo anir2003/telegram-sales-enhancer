@@ -19,34 +19,7 @@ function commandMenu() {
   return new Keyboard().text('Next task').resized();
 }
 
-async function handleLinkCode(ctx: Context, code: string) {
-  if (!ctx.from) {
-    await ctx.reply('Telegram user not found for this session.');
-    return;
-  }
 
-  const trimmedCode = code.trim().toUpperCase();
-  if (!trimmedCode) {
-    await ctx.reply('Send /link CODE using the one-time code from Settings.');
-    return;
-  }
-
-  try {
-    const response = await api.linkTelegramUser({
-      code: trimmedCode,
-      telegramUserId: ctx.from.id,
-      telegramUsername: ctx.from.username ?? null,
-    });
-
-    await ctx.reply(
-      `Linked successfully${response.profile?.email ? ` for ${response.profile.email}` : ''}. Use /next to get the next task.`,
-      { reply_markup: commandMenu() },
-    );
-  } catch (error) {
-    console.error(error);
-    await ctx.reply('That link code is invalid or expired. Generate a fresh code in Settings and try again.');
-  }
-}
 
 async function sendTaskCard(ctx: Context, task: BotTask) {
   if (ctx.from) {
@@ -91,7 +64,6 @@ bot.command('start', async (ctx) => {
     [
       'This is your internal Telegram sales task bot.',
       '',
-      '/link CODE — Link your identity (from Settings page)',
       '/connect CODE — Register this account as a sender (from Accounts page)',
       '/next — Pull the next due outreach task',
       '',
@@ -99,16 +71,6 @@ bot.command('start', async (ctx) => {
     ].join('\n'),
     { reply_markup: commandMenu() },
   );
-});
-
-bot.command('link', async (ctx) => {
-  const code = ctx.message?.text.split(/\s+/)[1]?.trim();
-  if (!code) {
-    await ctx.reply('Send /link CODE using the one-time code from Settings, or just paste the six-character code directly.');
-    return;
-  }
-
-  await handleLinkCode(ctx, code);
 });
 
 bot.command('connect', async (ctx) => {
@@ -148,11 +110,29 @@ bot.command('connect', async (ctx) => {
 bot.command('next', sendNextTask);
 bot.hears(/^next task$/i, sendNextTask);
 bot.hears(/^[A-Z0-9]{6}$/i, async (ctx) => {
-  const code = ctx.message?.text;
-  if (!code) {
+  const code = ctx.message?.text?.trim()?.toUpperCase();
+  if (!code || !ctx.from) {
     return;
   }
-  await handleLinkCode(ctx, code);
+
+  try {
+    const response = await api.connectAccount({
+      code,
+      telegramUserId: ctx.from.id,
+      telegramUsername: ctx.from.username ?? `user_${ctx.from.id}`,
+    });
+
+    const account = response.account;
+    await ctx.reply(
+      `Telegram account connected as sender.\n\nLabel: ${account?.label ?? 'Account'}\nUsername: @${account?.telegram_username ?? ctx.from.username}\n\nThis account can now be assigned to campaigns. Use /next to pull tasks.`,
+      { reply_markup: commandMenu() },
+    );
+  } catch (error) {
+    console.error(error);
+    await ctx.reply(
+      'That account link code is invalid or expired. Generate a fresh code on the Accounts page and try again.',
+    );
+  }
 });
 bot.callbackQuery('noop', async (ctx) => {
   await ctx.answerCallbackQuery();
@@ -241,7 +221,6 @@ async function startWebhookMode() {
 
   await bot.api.setMyCommands([
     { command: 'start', description: 'Open the internal bot guide' },
-    { command: 'link', description: 'Link your Telegram user to the CRM' },
     { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
   ]);
@@ -272,7 +251,6 @@ async function startWebhookMode() {
 async function startPollingMode() {
   await bot.api.setMyCommands([
     { command: 'start', description: 'Open the internal bot guide' },
-    { command: 'link', description: 'Link your Telegram user to the CRM' },
     { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
   ]);
