@@ -31,7 +31,9 @@ export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
   const campaignId = params.id;
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
+  const [stepsForm, setStepsForm] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'stages' | 'settings'>('overview');
+  const [stageFilterAccount, setStageFilterAccount] = useState('all');
   
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -45,6 +47,7 @@ export default function CampaignDetailPage() {
   const load = async () => {
     const response = await fetchJson(`/api/campaigns/${campaignId}`);
     setDetail(response);
+    setStepsForm(response.steps || []);
     if (response.campaign) {
       setEditForm({
         name: response.campaign.name ?? '',
@@ -72,9 +75,13 @@ export default function CampaignDetailPage() {
   const leadsByStage = useMemo(() => {
     return stageOrder.map((status) => ({
       status,
-      items: (detail?.attachedLeads ?? []).filter((lead: any) => lead.status === status),
+      items: (detail?.attachedLeads ?? []).filter((lead: any) => {
+        if (lead.status !== status) return false;
+        if (stageFilterAccount !== 'all' && lead.assigned_account_id !== stageFilterAccount) return false;
+        return true;
+      }),
     }));
-  }, [detail?.attachedLeads]);
+  }, [detail?.attachedLeads, stageFilterAccount]);
 
   const chartData = useMemo(() => {
     const bars = Array.from({ length: 24 }).map((_, i) => ({ label: `${i}:00`, sent: 0, replies: 0 }));
@@ -121,7 +128,18 @@ export default function CampaignDetailPage() {
       method: 'PATCH',
       body: JSON.stringify(editForm),
     });
+    for (const step of stepsForm) {
+      await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ message_template: step.message_template }),
+      });
+    }
     setIsEditing(false);
+    await load();
+  };
+
+  const markReplied = async (leadId: string) => {
+    await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ status: 'replied', last_reply_at: new Date().toISOString() }) });
     await load();
   };
 
@@ -205,29 +223,43 @@ export default function CampaignDetailPage() {
       )}
 
       {activeTab === 'stages' && (
-        <div className="stage-board">
-          {leadsByStage.map((column) => (
-            <div key={column.status} className="stage-column">
-              <div className="stage-column-head">
-                <span>{column.status.replaceAll('_', ' ')}</span>
-                <span className="badge">{column.items.length}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span className="dim" style={{ fontSize: 13 }}>Filter by account:</span>
+            <select className="input" style={{ width: 220 }} value={stageFilterAccount} onChange={(e) => setStageFilterAccount(e.target.value)}>
+              <option value="all">All Accounts</option>
+              {metrics.assignedAccounts.map((account: any) => (
+                <option key={account.id} value={account.id}>{account.label} (@{account.telegram_username})</option>
+              ))}
+            </select>
+          </div>
+          <div className="stage-board">
+            {leadsByStage.map((column) => (
+              <div key={column.status} className="stage-column">
+                <div className="stage-column-head">
+                  <span>{column.status.replaceAll('_', ' ')}</span>
+                  <span className="badge">{column.items.length}</span>
+                </div>
+                <div className="stage-column-body">
+                  {column.items.length ? column.items.map((item: any) => {
+                    const lead = leadById.get(item.lead_id);
+                    const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
+                    return (
+                      <div key={item.id} className="board-card">
+                        <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
+                        <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
+                        <div className="dim">Account: {account?.label ?? 'unassigned'}</div>
+                        <div className="dim">Next step: {item.next_step_order ?? 'done'}</div>
+                        {item.status !== 'replied' && (
+                           <button className="btn-secondary" style={{ width: '100%', marginTop: 8 }} onClick={(e) => { e.stopPropagation(); markReplied(item.id); }}>Mark as Replied</button>
+                        )}
+                      </div>
+                    );
+                  }) : <div className="board-card empty" style={{ border: 'none', background: 'transparent' }}>No leads in this stage.</div>}
+                </div>
               </div>
-              <div className="stage-column-body">
-                {column.items.length ? column.items.map((item: any) => {
-                  const lead = leadById.get(item.lead_id);
-                  const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
-                  return (
-                    <div key={item.id} className="board-card">
-                      <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
-                      <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
-                      <div className="dim">Account: {account?.label ?? 'unassigned'}</div>
-                      <div className="dim">Next step: {item.next_step_order ?? 'done'}</div>
-                    </div>
-                  );
-                }) : <div className="board-card empty" style={{ border: 'none', background: 'transparent' }}>No leads in this stage.</div>}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
@@ -253,14 +285,19 @@ export default function CampaignDetailPage() {
               Insert tags to automatically personalize the message: 
               {templatePlaceholders.map(tag => (
                 <span key={tag} className="var-tag" onClick={() => {
-                  // Basic insertion pseudo-logic for mock, since it's just a textarea
-                  alert(`In a real setup, clicking this inserts ${tag} at your cursor.`);
+                  if (stepsForm.length > 0) {
+                    setStepsForm(current => {
+                      const next = [...current];
+                      next[0] = { ...next[0], message_template: next[0].message_template + ' ' + tag };
+                      return next;
+                    });
+                  }
                 }}>{tag}</span>
               ))}
             </div>
             
             <div className="sequence-stack" style={{ marginTop: 24 }}>
-              {detail.steps.length ? detail.steps.map((step: any, idx) => {
+              {stepsForm.length ? stepsForm.map((step: any, idx) => {
                 const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
                 
                 return (
@@ -274,7 +311,14 @@ export default function CampaignDetailPage() {
                       <div className="editor-pane">
                         <textarea 
                           className="message-input" 
-                          defaultValue={step.message_template}
+                          value={step.message_template}
+                          onChange={(e) => {
+                            setStepsForm(current => {
+                              const next = [...current];
+                              next[idx] = { ...next[idx], message_template: e.target.value };
+                              return next;
+                            });
+                          }}
                           placeholder="Type your message here..."
                         />
                       </div>

@@ -775,7 +775,8 @@ export async function pauseCampaign(campaignId: string, context?: WorkspaceConte
   return data as CampaignRecord;
 }
 
-async function updateCampaignLead(id: string, patch: Partial<CampaignLeadRecord>, context: WorkspaceContext) {
+export async function updateCampaignLead(id: string, patch: Partial<CampaignLeadRecord>, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
     const record = demoState.campaignLeads.find((item) => item.id === id);
     if (record) Object.assign(record, patch);
