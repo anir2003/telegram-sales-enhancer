@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 
@@ -66,11 +66,12 @@ export default function CampaignsPage() {
     emptyStep(3),
   ]);
 
-  const load = async () => {
+  // Use useCallback to prevent recreating the load function on every render
+  const load = useCallback(async () => {
     const [campaignResponse, leadResponse, accountResponse] = await Promise.all([
-      fetchJson('/api/campaigns'),
-      fetchJson('/api/leads'),
-      fetchJson('/api/accounts'),
+      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
+      fetchJson<{ leads: Lead[] }>('/api/leads'),
+      fetchJson<{ accounts: Account[] }>('/api/accounts'),
     ]);
 
     const nextCampaigns = campaignResponse.campaigns ?? [];
@@ -78,15 +79,20 @@ export default function CampaignsPage() {
     setLeads(leadResponse.leads ?? []);
     setAccounts(accountResponse.accounts ?? []);
 
-    const nextDetails = await Promise.all(
-      nextCampaigns.map((campaign: Campaign) => fetchJson(`/api/campaigns/${campaign.id}`)),
-    );
-    setDetails(nextDetails);
-  };
+    // Only fetch campaign details if there are campaigns
+    if (nextCampaigns.length > 0) {
+      const nextDetails = await Promise.all(
+        nextCampaigns.map((campaign: Campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
+      );
+      setDetails(nextDetails);
+    } else {
+      setDetails([]);
+    }
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const accountInsights = useMemo(
     () => buildAccountInsights(accounts, details),
@@ -125,7 +131,7 @@ export default function CampaignsPage() {
     setBuilderMessage('');
 
     try {
-      const { campaign } = await fetchJson('/api/campaigns', {
+      const { campaign } = await fetchJson<{ campaign: Campaign }>('/api/campaigns', {
         method: 'POST',
         body: JSON.stringify(form),
       });

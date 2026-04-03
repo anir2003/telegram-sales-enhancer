@@ -18,14 +18,14 @@ export default function AccountsPage() {
 
   const load = async () => {
     const [accountResponse, campaignResponse] = await Promise.all([
-      fetchJson('/api/accounts'),
-      fetchJson('/api/campaigns'),
+      fetchJson<{ accounts: any[] }>('/api/accounts'),
+      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
     ]);
     const nextAccounts = accountResponse.accounts ?? [];
     setAccounts(nextAccounts);
-    const campaigns: Campaign[] = campaignResponse.campaigns ?? [];
+    const campaigns = campaignResponse.campaigns ?? [];
     const nextDetails = await Promise.all(
-      campaigns.map((campaign) => fetchJson(`/api/campaigns/${campaign.id}`)),
+      campaigns.map((campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
     );
     setDetails(nextDetails);
     setSelectedAccountId((current) => current ?? nextAccounts[0]?.id ?? null);
@@ -43,7 +43,7 @@ export default function AccountsPage() {
     }
     setGenerating(true);
     try {
-      const response = await fetchJson('/api/accounts/link-code', {
+      const response = await fetchJson<{ linkCode?: { code: string } }>('/api/accounts/link-code', {
         method: 'POST',
         body: JSON.stringify({ label: connectLabel.trim(), dailyLimit: connectDailyLimit }),
       });

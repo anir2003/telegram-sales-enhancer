@@ -7,7 +7,7 @@ export default function ActivityPage() {
   const [activity, setActivity] = useState<any[]>([]);
 
   useEffect(() => {
-    void fetchJson('/api/activity').then((response) => setActivity(response.activity ?? []));
+    void fetchJson<{ activity: any[] }>('/api/activity').then((response) => setActivity(response.activity ?? []));
   }, []);
 
   return (

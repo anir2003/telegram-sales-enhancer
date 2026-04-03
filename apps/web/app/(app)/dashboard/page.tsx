@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { fetchJson } from '@/lib/web/fetch-json';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { fetchJson, invalidateCache } from '@/lib/web/fetch-json';
 import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
 
 export default function DashboardPage() {
@@ -13,31 +13,54 @@ export default function DashboardPage() {
   const [details, setDetails] = useState<CampaignDetail[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const [campaignResponse, accountResponse, leadResponse, activityResponse] = await Promise.all([
-        fetchJson('/api/campaigns'),
-        fetchJson('/api/accounts'),
-        fetchJson('/api/leads'),
-        fetchJson('/api/activity'),
-      ]);
+  // Use useCallback to prevent recreating the load function on every render
+  const load = useCallback(async () => {
+    setLoading(true);
+    
+    // Parallel fetch of all main data sources
+    const [campaignResponse, accountResponse, leadResponse, activityResponse] = await Promise.all([
+      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
+      fetchJson<{ accounts: Account[] }>('/api/accounts'),
+      fetchJson<{ leads: Lead[] }>('/api/leads'),
+      fetchJson<{ activity: Activity[] }>('/api/activity'),
+    ]);
 
-      const nextCampaigns = campaignResponse.campaigns ?? [];
-      setCampaigns(nextCampaigns);
-      setAccounts(accountResponse.accounts ?? []);
-      setLeads(leadResponse.leads ?? []);
-      setActivity(activityResponse.activity ?? []);
+    const nextCampaigns = campaignResponse.campaigns ?? [];
+    setCampaigns(nextCampaigns);
+    setAccounts(accountResponse.accounts ?? []);
+    setLeads(leadResponse.leads ?? []);
+    setActivity(activityResponse.activity ?? []);
 
+    // Only fetch campaign details if there are campaigns
+    if (nextCampaigns.length > 0) {
       const nextDetails = await Promise.all(
-        nextCampaigns.map((campaign: Campaign) => fetchJson(`/api/campaigns/${campaign.id}`)),
+        nextCampaigns.map((campaign: Campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
       );
       setDetails(nextDetails);
-      setLoading(false);
-    };
-
-    void load();
+    } else {
+      setDetails([]);
+    }
+    
+    setLoading(false);
   }, []);
+
+  // Refresh data function that clears cache first
+  const refresh = useCallback(async () => {
+    invalidateCache('/api/');
+    await load();
+  }, [load]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Auto-refresh data every 60 seconds (for live dashboard feel)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refresh();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
   const metrics = useMemo(() => {
     const campaignSummaries = details.map((detail) => ({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 
@@ -29,26 +29,33 @@ export default function LeadsPage() {
     source: 'Manual',
   });
 
-  const loadLeads = async () => {
+  // Use useCallback to prevent recreating the load function on every render
+  const loadLeads = useCallback(async () => {
     setLoading(true);
     const [leadResponse, campaignResponse] = await Promise.all([
-      fetchJson('/api/leads'),
-      fetchJson('/api/campaigns'),
+      fetchJson<{ leads: Lead[] }>('/api/leads'),
+      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
     ]);
     const nextLeads = leadResponse.leads ?? [];
-    const campaigns: Campaign[] = campaignResponse.campaigns ?? [];
-    const nextDetails = await Promise.all(
-      campaigns.map((campaign) => fetchJson(`/api/campaigns/${campaign.id}`)),
-    );
+    const campaigns = campaignResponse.campaigns ?? [];
+    
+    // Only fetch campaign details if there are campaigns
+    if (campaigns.length > 0) {
+      const nextDetails = await Promise.all(
+        campaigns.map((campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
+      );
+      setDetails(nextDetails);
+    } else {
+      setDetails([]);
+    }
 
     setLeads(nextLeads);
-    setDetails(nextDetails);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     void loadLeads();
-  }, []);
+  }, [loadLeads]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -102,7 +109,7 @@ export default function LeadsPage() {
       if (importTags.trim()) {
         formData.append('tags', importTags.trim());
       }
-      const result = await fetchJson('/api/leads/import', { method: 'POST', body: formData });
+      const result = await fetchJson<{ leads?: unknown[] }>('/api/leads/import', { method: 'POST', body: formData });
       const count = result.leads?.length ?? 0;
       setStatus(`Imported ${count} leads from ${pendingFile.name}. Duplicates were merged automatically.`);
       setStatusTone('success');

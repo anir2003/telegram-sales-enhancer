@@ -24,6 +24,8 @@ export type Campaign = {
   send_window_start: string;
   send_window_end: string;
   description?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
 };
 
 export type CampaignLead = {

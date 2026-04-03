@@ -9,11 +9,11 @@ export default function SettingsPage() {
   const linkedTelegram = me?.profile?.telegram_username ? `@${me.profile.telegram_username}` : null;
 
   useEffect(() => {
-    void fetchJson('/api/me').then(setMe);
+    void fetchJson<any>('/api/me').then(setMe);
   }, []);
 
   const generateCode = async () => {
-    const response = await fetchJson('/api/bot/link-code', { method: 'POST' });
+    const response = await fetchJson<{ linkCode?: { code: string } }>('/api/bot/link-code', { method: 'POST' });
     setLinkCode(response.linkCode?.code ?? '');
   };
 

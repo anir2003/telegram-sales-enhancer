@@ -51,7 +51,7 @@ export default function CampaignDetailPage() {
   });
 
   const load = async () => {
-    const response = await fetchJson(`/api/campaigns/${campaignId}`);
+    const response = await fetchJson<CampaignDetail>(`/api/campaigns/${campaignId}`);
     setDetail(response);
     setStepsForm(response.steps || []);
     if (response.campaign) {

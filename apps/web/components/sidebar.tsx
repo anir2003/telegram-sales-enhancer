@@ -5,12 +5,12 @@ import { usePathname } from 'next/navigation';
 import { IconAccounts, IconActivity, IconCampaigns, IconDashboard, IconLeads, IconSettings } from '@/components/icons';
 
 const items = [
-  { href: '/dashboard', label: 'Dashboard', icon: IconDashboard },
-  { href: '/leads', label: 'Leads', icon: IconLeads },
-  { href: '/campaigns', label: 'Campaigns', icon: IconCampaigns },
-  { href: '/accounts', label: 'Accounts', icon: IconAccounts },
-  { href: '/activity', label: 'Activity', icon: IconActivity },
-  { href: '/settings', label: 'Settings', icon: IconSettings },
+  { href: '/dashboard', label: 'Dashboard', icon: IconDashboard, prefetch: true },
+  { href: '/leads', label: 'Leads', icon: IconLeads, prefetch: true },
+  { href: '/campaigns', label: 'Campaigns', icon: IconCampaigns, prefetch: true },
+  { href: '/accounts', label: 'Accounts', icon: IconAccounts, prefetch: true },
+  { href: '/activity', label: 'Activity', icon: IconActivity, prefetch: true },
+  { href: '/settings', label: 'Settings', icon: IconSettings, prefetch: false }, // Settings doesn't need prefetch
 ];
 
 export function Sidebar() {
@@ -31,7 +31,12 @@ export function Sidebar() {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
-            <Link key={item.href} href={item.href} className={`sidebar-item ${active ? 'active' : ''}`}>
+            <Link 
+              key={item.href} 
+              href={item.href} 
+              className={`sidebar-item ${active ? 'active' : ''}`}
+              prefetch={item.prefetch}
+            >
               <Icon size={16} />
               <span>{item.label}</span>
             </Link>
