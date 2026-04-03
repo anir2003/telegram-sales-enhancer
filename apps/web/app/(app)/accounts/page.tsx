@@ -117,6 +117,22 @@ export default function AccountsPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!editingAccount) return;
+    if (!confirm(`Are you sure you want to delete ${editingAccount.label}? This will remove it from all campaigns.`)) return;
+    
+    setSaving(true);
+    try {
+      await fetchJson(`/api/accounts/${editingAccount.id}`, { method: 'DELETE' });
+      setEditingAccount(null);
+      if (selectedAccountId === editingAccount.id) setSelectedAccountId(null);
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete account');
+    }
+    setSaving(false);
+  };
+
   const accountInsights = useMemo(() => buildAccountInsights(accounts, details), [accounts, details]);
   const selectedAccount = accountInsights.find((account) => account.id === selectedAccountId) ?? null;
 
@@ -385,6 +401,9 @@ export default function AccountsPage() {
               </button>
               <button className="btn-secondary" onClick={() => setEditingAccount(null)}>
                 Cancel
+              </button>
+              <button className="btn-secondary danger" onClick={handleDeleteAccount} disabled={saving} style={{ marginLeft: 'auto', color: '#e74c3c' }}>
+                Delete Account
               </button>
             </div>
           </div>
