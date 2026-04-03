@@ -1198,7 +1198,7 @@ async function completeBotTask(
     const campaignLead = demoState.campaignLeads.find((item) => item.id === task.campaign_lead_id);
     const campaign = demoState.campaigns.find((item) => item.id === task.campaign_id);
     const steps = demoState.steps.filter((item) => item.campaign_id === task.campaign_id).sort((a, b) => a.step_order - b.step_order);
-    const nextStep = steps.find((item) => item.step_order === task.step_order + 1);
+    const nextStep = steps.find((item) => item.step_order > task.step_order);
     if (campaignLead) {
       if (options.replyStatus) {
         campaignLead.status = 'replied';
@@ -1290,7 +1290,9 @@ async function completeBotTask(
       .from('campaign_sequence_steps')
       .select('*')
       .eq('campaign_id', task.campaign_id)
-      .eq('step_order', task.step_order + 1)
+      .gt('step_order', task.step_order)
+      .order('step_order', { ascending: true })
+      .limit(1)
       .maybeSingle();
 
     if (nextStep) {
