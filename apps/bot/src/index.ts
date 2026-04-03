@@ -78,7 +78,7 @@ async function sendNextTask(ctx: Context) {
     await sendTaskCard(ctx, response.task);
   } catch (error: any) {
     if (error.message?.includes('NOT_LINKED')) {
-      await ctx.reply('You haven\'t linked your identity yet! Please generate an identity link code in the Settings page and send /link CODE to this bot.');
+      await ctx.reply('This Telegram account is not registered as a Sender Account! Please generate a connect code on the Accounts page and send /connect CODE to this bot.');
     } else {
       console.error(error);
       await ctx.reply('Something went wrong fetching the next task.');
