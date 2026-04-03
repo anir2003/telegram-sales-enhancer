@@ -562,6 +562,22 @@ export async function updateCampaign(campaignId: string, input: unknown, context
   return data as CampaignRecord;
 }
 
+export async function deleteCampaign(campaignId: string, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    demoState.campaigns = demoState.campaigns.filter((item) => item.id !== campaignId);
+    return;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { error } = await supabase!
+    .from('campaigns')
+    .delete()
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', campaignId);
+  if (error) throw error;
+}
+
 export async function getCampaignDetail(campaignId: string, context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
@@ -1036,6 +1052,7 @@ export async function consumeAccountLinkCode(input: {
       daily_limit: meta.daily_limit ?? 20,
       is_active: true,
       owner_id: match.profile_id,
+      telegram_user_id: input.telegramUserId,
       created_at: nowIso(),
     };
     demoState.accounts.unshift(record);
@@ -1069,6 +1086,7 @@ export async function consumeAccountLinkCode(input: {
       daily_limit: (meta as any).daily_limit ?? 20,
       is_active: true,
       owner_id: codeRow.profile_id,
+      telegram_user_id: input.telegramUserId,
     })
     .select('*')
     .single();
@@ -1088,17 +1106,45 @@ export async function consumeAccountLinkCode(input: {
 
 export async function getNextBotTask(telegramUserId: number) {
   if (!isSupabaseConfigured()) {
-    const claimedTask = demoState.sendTasks.find(
-      (item) => item.status === 'claimed' && item.claimed_by_profile_id === demoProfile.id && isDue(item.due_at),
-    );
-    if (claimedTask) {
-      return buildBotTaskPayload(claimedTask);
+    let profile = demoState.profiles.find((p) => p.telegram_user_id === telegramUserId);
+    let userAccountIds: string[] = [];
+    let workspaceId: string;
+    let fallbackProfileId: string;
+
+    if (profile) {
+      workspaceId = profile.workspace_id;
+      fallbackProfileId = profile.id;
+      userAccountIds = demoState.accounts.filter((a) => a.owner_id === profile.id).map((a) => a.id);
+    } else {
+      const account = demoState.accounts.find((a) => a.telegram_user_id === telegramUserId);
+      if (!account) throw new Error('NOT_LINKED');
+      workspaceId = account.workspace_id;
+      userAccountIds = [account.id];
+      fallbackProfileId = account.owner_id ?? demoProfile.id;
     }
 
-    const task = demoState.sendTasks.find((item) => item.status === 'pending' && isDue(item.due_at));
+    const claimed = demoState.sendTasks.find(
+      (item) =>
+        item.workspace_id === workspaceId &&
+        item.status === 'claimed' &&
+        item.claimed_by_profile_id === fallbackProfileId &&
+        isDue(item.due_at),
+    );
+    if (claimed) {
+      return buildBotTaskPayload(claimed);
+    }
+
+    const task = demoState.sendTasks.find(
+      (item) =>
+        item.workspace_id === workspaceId &&
+        userAccountIds.includes(item.assigned_account_id) &&
+        item.status === 'pending' &&
+        isDue(item.due_at),
+    );
+
     if (!task) return null;
     task.status = 'claimed';
-    task.claimed_by_profile_id = demoProfile.id;
+    task.claimed_by_profile_id = fallbackProfileId;
     return buildBotTaskPayload(task);
   }
 
@@ -1109,25 +1155,49 @@ export async function getNextBotTask(telegramUserId: number) {
     .eq('telegram_user_id', telegramUserId)
     .maybeSingle();
 
-  if (!profile) throw new Error('NOT_LINKED');
+  let userAccountIds: string[] = [];
+  let workspaceId: string;
+  let simulatedProfileId: string;
 
-  const { data: userAccounts } = await supabase!
-    .from('telegram_accounts')
-    .select('id')
-    .eq('owner_id', profile.id);
+  if (profile) {
+    workspaceId = profile.workspace_id;
+    simulatedProfileId = profile.id;
+    const { data: userAccounts } = await supabase!
+      .from('telegram_accounts')
+      .select('id')
+      .eq('owner_id', profile.id);
 
-  if (!userAccounts || userAccounts.length === 0) return null;
-  const userAccountIds = userAccounts.map(a => a.id);
+    if (userAccounts && userAccounts.length > 0) {
+      userAccountIds = userAccounts.map(a => a.id);
+    }
+  } else {
+    // Fallback: check if the telegram user is a standalone sender account
+    const { data: telegramAccount } = await supabase!
+      .from('telegram_accounts')
+      .select('id, workspace_id, owner_id')
+      .eq('telegram_user_id', telegramUserId)
+      .maybeSingle();
+
+    if (!telegramAccount) {
+      throw new Error('NOT_LINKED');
+    }
+
+    workspaceId = telegramAccount.workspace_id;
+    userAccountIds = [telegramAccount.id];
+    simulatedProfileId = telegramAccount.owner_id ?? '';
+  }
+
+  if (userAccountIds.length === 0) return null;
 
   const dueNow = nowIso();
 
   const { data: claimedTask } = await supabase!
     .from('send_tasks')
     .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
-    .eq('workspace_id', profile.workspace_id)
+    .eq('workspace_id', workspaceId)
     .in('assigned_account_id', userAccountIds)
     .eq('status', 'claimed')
-    .eq('claimed_by_profile_id', profile.id)
+    .eq('claimed_by_profile_id', simulatedProfileId)
     .lte('due_at', dueNow)
     .order('due_at', { ascending: true })
     .limit(1)
@@ -1140,7 +1210,7 @@ export async function getNextBotTask(telegramUserId: number) {
   const { data: pendingTask } = await supabase!
     .from('send_tasks')
     .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
-    .eq('workspace_id', profile.workspace_id)
+    .eq('workspace_id', workspaceId)
     .in('assigned_account_id', userAccountIds)
     .eq('status', 'pending')
     .lte('due_at', dueNow)
@@ -1259,12 +1329,30 @@ async function completeBotTask(
     .select('*')
     .eq('telegram_user_id', telegramUserId)
     .maybeSingle();
-  if (!profile) return null;
+
+  let workspaceId: string;
+  let simulatedProfileId: string;
+
+  if (profile) {
+    workspaceId = profile.workspace_id;
+    simulatedProfileId = profile.id;
+  } else {
+    // Fallback: check if the telegram user is a standalone sender account
+    const { data: telegramAccount } = await supabase!
+      .from('telegram_accounts')
+      .select('id, workspace_id, owner_id')
+      .eq('telegram_user_id', telegramUserId)
+      .maybeSingle();
+
+    if (!telegramAccount) return null;
+    workspaceId = telegramAccount.workspace_id;
+    simulatedProfileId = telegramAccount.owner_id ?? '';
+  }
 
   const { data: task } = await supabase!
     .from('send_tasks')
     .select('*')
-    .eq('workspace_id', profile.workspace_id)
+    .eq('workspace_id', workspaceId)
     .eq('id', taskId)
     .maybeSingle();
   if (!task) return null;
@@ -1274,7 +1362,7 @@ async function completeBotTask(
     .update({
       status: options.taskStatus,
       completed_at: nowIso(),
-      claimed_by_profile_id: profile.id,
+      claimed_by_profile_id: simulatedProfileId || null,
       claimed_at: nowIso(),
     })
     .eq('id', task.id);
@@ -1340,7 +1428,7 @@ async function completeBotTask(
 
   await logActivity({
     workspaceId: task.workspace_id,
-    profileId: profile.id,
+    profileId: simulatedProfileId || null,
     event_type: `task.${options.taskStatus}`,
     event_label: `Task ${options.taskStatus}`,
     payload: { task_id: taskId, reply_status: options.replyStatus },

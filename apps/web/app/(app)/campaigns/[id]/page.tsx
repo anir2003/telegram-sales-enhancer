@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
 
@@ -45,6 +45,7 @@ function formatTimestamp(date: string | null | undefined) {
 
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const campaignId = params.id;
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
   const [stepsForm, setStepsForm] = useState<any[]>([]);
@@ -59,6 +60,7 @@ export default function CampaignDetailPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [togglingStatus, setTogglingStatus] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -186,6 +188,20 @@ export default function CampaignDetailPage() {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to change campaign status'}`);
     } finally {
       setTogglingStatus(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this campaign? This action cannot be undone.')) return;
+    setIsDeleting(true);
+    setStatusMessage('');
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
+      router.push('/campaigns');
+    } catch (err: any) {
+      console.error('Delete campaign failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to delete campaign'}`);
+      setIsDeleting(false);
     }
   };
 
@@ -321,7 +337,19 @@ export default function CampaignDetailPage() {
             <button className="btn-secondary" onClick={() => setActiveTab('settings')}>
               {isEditing ? 'Cancel Edit' : 'Edit'}
             </button>
-            <button className={statusButton.className} onClick={handleStatusToggle} disabled={togglingStatus}>
+            <button
+              className="btn"
+              onClick={handleDelete}
+              disabled={isDeleting || togglingStatus}
+              style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-danger)', borderColor: 'var(--text-danger)' }}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </button>
+            <button 
+              className={statusButton.className} 
+              onClick={handleStatusToggle} 
+              disabled={togglingStatus}
+            >
               {togglingStatus ? 'Processing...' : statusButton.text}
             </button>
           </div>
