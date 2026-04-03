@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
@@ -27,17 +27,36 @@ function renderMessageTemplate(template: string, lead: any) {
     .replaceAll('{Telegram Username}', normalizeTelegramUsername(lead.telegram_username || 'unknown'));
 }
 
+function formatTimestamp(date: string | null | undefined) {
+  if (!date) return null;
+  const d = new Date(date);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString();
+}
+
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
   const campaignId = params.id;
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
   const [stepsForm, setStepsForm] = useState<any[]>([]);
+  const [originalSteps, setOriginalSteps] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'stages' | 'leads' | 'settings'>('overview');
   const [stageFilterAccount, setStageFilterAccount] = useState('all');
   const [leadSearch, setLeadSearch] = useState('');
   const [leadStageFilter, setLeadStageFilter] = useState('all');
   const [activeEditorStep, setActiveEditorStep] = useState(0);
   const editorRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const [savingSteps, setSavingSteps] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -50,10 +69,20 @@ export default function CampaignDetailPage() {
     end_date: '',
   });
 
-  const load = async () => {
+  // Lead edit modal state
+  const [editingLead, setEditingLead] = useState<any>(null);
+  const [leadEditForm, setLeadEditForm] = useState({
+    status: '',
+    notes: '',
+    next_step_order: 1,
+  });
+
+  const load = useCallback(async () => {
     const response = await fetchJson<CampaignDetail>(`/api/campaigns/${campaignId}`);
     setDetail(response);
     setStepsForm(response.steps || []);
+    setOriginalSteps(JSON.parse(JSON.stringify(response.steps || [])));
+    setHasUnsavedChanges(false);
     if (response.campaign) {
       setEditForm({
         name: response.campaign.name ?? '',
@@ -65,11 +94,18 @@ export default function CampaignDetailPage() {
         end_date: response.campaign.end_date ?? '',
       });
     }
-  };
+  }, [campaignId]);
 
   useEffect(() => {
     if (campaignId) void load();
-  }, [campaignId]);
+  }, [campaignId, load]);
+
+  // Check for unsaved changes
+  useEffect(() => {
+    const current = JSON.stringify(stepsForm);
+    const original = JSON.stringify(originalSteps);
+    setHasUnsavedChanges(current !== original);
+  }, [stepsForm, originalSteps]);
 
   const metrics = useMemo(() => (detail ? summariseCampaign(detail) : null), [detail]);
   const leadById = useMemo(
@@ -131,13 +167,12 @@ export default function CampaignDetailPage() {
     return <div className="page-content"><div className="empty-state">Loading campaign…</div></div>;
   }
 
-  const launchCampaign = async () => {
-    await fetchJson(`/api/campaigns/${campaignId}/launch`, { method: 'POST' });
-    await load();
-  };
-
-  const pauseCampaign = async () => {
-    await fetchJson(`/api/campaigns/${campaignId}/pause`, { method: 'POST' });
+  const handleStatusToggle = async () => {
+    if (detail.campaign?.status === 'active') {
+      await fetchJson(`/api/campaigns/${campaignId}/pause`, { method: 'POST' });
+    } else {
+      await fetchJson(`/api/campaigns/${campaignId}/launch`, { method: 'POST' });
+    }
     await load();
   };
 
@@ -146,18 +181,48 @@ export default function CampaignDetailPage() {
       method: 'PATCH',
       body: JSON.stringify(editForm),
     });
-    for (const step of stepsForm) {
-      await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ message_template: step.message_template }),
-      });
-    }
     setIsEditing(false);
     await load();
   };
 
+  const saveSequenceChanges = async () => {
+    setSavingSteps(true);
+    try {
+      for (const step of stepsForm) {
+        await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ message_template: step.message_template }),
+        });
+      }
+      setOriginalSteps(JSON.parse(JSON.stringify(stepsForm)));
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      alert('Failed to save sequence changes');
+    }
+    setSavingSteps(false);
+  };
+
   const markReplied = async (leadId: string) => {
     await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ status: 'replied', last_reply_at: new Date().toISOString() }) });
+    await load();
+  };
+
+  const openLeadEdit = (item: any) => {
+    setEditingLead(item);
+    setLeadEditForm({
+      status: item.status,
+      notes: item.notes || '',
+      next_step_order: item.next_step_order || 1,
+    });
+  };
+
+  const saveLeadChanges = async () => {
+    if (!editingLead) return;
+    await fetchJson(`/api/campaigns/${campaignId}/leads/${editingLead.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(leadEditForm),
+    });
+    setEditingLead(null);
     await load();
   };
 
@@ -190,23 +255,47 @@ export default function CampaignDetailPage() {
 
   const maxChartVal = Math.max(1, ...chartData.map(b => b.sent + b.replies));
 
+  const getStatusButtonProps = () => {
+    switch (detail.campaign?.status) {
+      case 'active':
+        return { text: 'Pause Campaign', className: 'status-toggle-btn pause' };
+      case 'paused':
+        return { text: 'Resume Campaign', className: 'status-toggle-btn launch' };
+      case 'draft':
+        return { text: 'Launch Campaign', className: 'status-toggle-btn launch' };
+      case 'completed':
+        return { text: 'Reactivate Campaign', className: 'status-toggle-btn launch' };
+      default:
+        return { text: 'Launch Campaign', className: 'status-toggle-btn launch' };
+    }
+  };
+
+  const statusButton = getStatusButtonProps();
+
   return (
     <div className="page-content">
+      {/* Header Card */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <div>
-            <div className="card-title">{detail.campaign.name}</div>
+            <div className="card-title" style={{ fontSize: 18, fontWeight: 600 }}>{detail.campaign.name}</div>
             <div className="campaign-hero-copy">{detail.campaign.description ?? 'No campaign objective written yet.'}</div>
           </div>
           <div className="btn-row">
-            <span className="badge">{detail.campaign.status}</span>
-            <button className="btn-secondary" onClick={() => setActiveTab('settings')}>{isEditing ? 'Cancel Edit' : 'Edit'}</button>
-            <button className="btn" onClick={launchCampaign}>Launch</button>
-            <button className="btn-secondary" onClick={pauseCampaign}>Pause</button>
+            <span className={`badge ${detail.campaign.status === 'active' ? 'badge-active' : ''}`} style={{ fontSize: 11, padding: '4px 12px' }}>
+              {detail.campaign.status}
+            </span>
+            <button className="btn-secondary" onClick={() => setActiveTab('settings')}>
+              {isEditing ? 'Cancel Edit' : 'Edit'}
+            </button>
+            <button className={statusButton.className} onClick={handleStatusToggle}>
+              {statusButton.text}
+            </button>
           </div>
         </div>
       </div>
 
+      {/* Navigation Tabs */}
       <div className="nav-tabs">
         <button className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>Overview</button>
         <button className={`nav-tab ${activeTab === 'stages' ? 'active' : ''}`} onClick={() => setActiveTab('stages')}>Stages</button>
@@ -214,6 +303,7 @@ export default function CampaignDetailPage() {
         <button className={`nav-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>Settings</button>
       </div>
 
+      {/* Overview Tab */}
       {activeTab === 'overview' && (
         <div className="grid">
           <div className="mini-stat-grid">
@@ -268,6 +358,7 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
+      {/* Stages Tab */}
       {activeTab === 'stages' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -290,15 +381,37 @@ export default function CampaignDetailPage() {
                   {column.items.length ? column.items.map((item: any) => {
                     const lead = leadById.get(item.lead_id);
                     const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
+                    const lastAction = item.last_reply_at || item.last_sent_at;
                     return (
                       <div key={item.id} className="board-card">
-                        <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
-                        <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
-                        <div className="dim">Account: {account?.label ?? 'unassigned'}</div>
-                        <div className="dim">Next step: {item.next_step_order ?? 'done'}</div>
-                        {item.status !== 'replied' && (
-                           <button className="btn-secondary" style={{ width: '100%', marginTop: 8 }} onClick={(e) => { e.stopPropagation(); markReplied(item.id); }}>Mark as Replied</button>
+                        <div className="board-card-header">
+                          <span className="board-card-title">{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</span>
+                        </div>
+                        <div className="board-card-meta">
+                          <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
+                          <div className="dim">Account: {account?.label ?? 'unassigned'}</div>
+                          <div className="dim">Next step: {item.next_step_order ?? 'done'}</div>
+                          {item.notes && <div className="dim" style={{ fontStyle: 'italic' }}>Notes: {item.notes}</div>}
+                        </div>
+                        {lastAction && (
+                          <div className="board-card-timestamp">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="10"/>
+                              <path d="M12 6v6l4 2"/>
+                            </svg>
+                            {formatTimestamp(lastAction)}
+                          </div>
                         )}
+                        <div className="board-card-actions">
+                          <button className="board-card-btn" onClick={(e) => { e.stopPropagation(); openLeadEdit(item); }}>
+                            Edit
+                          </button>
+                          {item.status !== 'replied' && (
+                            <button className="board-card-btn" onClick={(e) => { e.stopPropagation(); markReplied(item.id); }}>
+                              Mark Replied
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   }) : <div className="board-card empty" style={{ border: 'none', background: 'transparent' }}>No leads in this stage.</div>}
@@ -309,6 +422,7 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
+      {/* Leads Tab */}
       {activeTab === 'leads' && (
         <div className="grid">
           <div className="card" style={{ marginBottom: 0 }}>
@@ -335,12 +449,12 @@ export default function CampaignDetailPage() {
               const lead = leadById.get(item.lead_id);
               const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
               return (
-                <div key={item.id} className="table-row">
+                <div key={item.id} className="table-row" style={{ cursor: 'pointer' }} onClick={() => openLeadEdit(item)}>
                   <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
                   <div>{lead?.company_name ?? 'Company'}</div>
                   <div><span className="badge">{item.status}</span></div>
                   <div>{account?.label ?? 'Unassigned'}</div>
-                  <div>{item.last_sent_at ? new Date(item.last_sent_at).toLocaleString() : 'Not yet'}</div>
+                  <div>{item.last_sent_at ? formatTimestamp(item.last_sent_at) : 'Not yet'}</div>
                   <div>{item.next_step_order ?? 'Done'}</div>
                 </div>
               );
@@ -349,6 +463,7 @@ export default function CampaignDetailPage() {
         </div>
       )}
 
+      {/* Settings Tab */}
       {activeTab === 'settings' && (
         <div className="grid">
           <div className="card form-grid">
@@ -376,7 +491,25 @@ export default function CampaignDetailPage() {
           </div>
 
           <div className="card">
-            <div className="card-title">Sequence Editor</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div className="card-title">Sequence Editor</div>
+              {hasUnsavedChanges && (
+                <div className="sequence-unsaved-indicator">
+                  <span className="dot" />
+                  Unsaved changes
+                </div>
+              )}
+            </div>
+            
+            {hasUnsavedChanges && (
+              <div className="sequence-save-bar">
+                <span className="dim" style={{ fontSize: 12 }}>You have unsaved changes to the sequence</span>
+                <button className="btn" onClick={saveSequenceChanges} disabled={savingSteps}>
+                  {savingSteps ? 'Saving...' : 'Save Sequence'}
+                </button>
+              </div>
+            )}
+            
             <div className="card-subtitle" style={{ marginTop: 8 }}>
               Click a placeholder to insert it at cursor position:
             </div>
@@ -393,7 +526,7 @@ export default function CampaignDetailPage() {
                 const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
 
                 return (
-                  <div key={step.id} className="sequence-card" onClick={() => setActiveEditorStep(idx)}>
+                  <div key={step.id} className="sequence-card" onClick={() => setActiveEditorStep(idx)} style={{ borderColor: activeEditorStep === idx ? 'var(--accent)' : undefined }}>
                     <div className="sequence-card-head">
                       <div>Step {step.step_order} {activeEditorStep === idx ? <span className="dim" style={{ fontSize: 10 }}>(editing)</span> : ''}</div>
                       <div className="dim">Delay {step.delay_days} day(s)</div>
@@ -435,6 +568,55 @@ export default function CampaignDetailPage() {
                   </div>
                 );
               }) : <div className="empty-state">No sequence steps have been created for this campaign yet.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Edit Modal */}
+      {editingLead && (
+        <div className="edit-lead-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditingLead(null); }}>
+          <div className="edit-lead-modal">
+            <div className="card-title" style={{ marginBottom: 16 }}>Edit Lead Progress</div>
+            <div className="form-grid">
+              <div className="form-grid">
+                <label className="dim" style={{ fontSize: 11 }}>Status</label>
+                <select 
+                  className="select" 
+                  value={leadEditForm.status} 
+                  onChange={(e) => setLeadEditForm(f => ({ ...f, status: e.target.value }))}
+                >
+                  {stageOrder.map(s => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
+                </select>
+              </div>
+              <div className="form-grid">
+                <label className="dim" style={{ fontSize: 11 }}>Next Step Order</label>
+                <input 
+                  className="input" 
+                  type="number" 
+                  min={1}
+                  value={leadEditForm.next_step_order} 
+                  onChange={(e) => setLeadEditForm(f => ({ ...f, next_step_order: Number(e.target.value) }))} 
+                />
+              </div>
+              <div className="form-grid">
+                <label className="dim" style={{ fontSize: 11 }}>Notes</label>
+                <textarea 
+                  className="textarea" 
+                  style={{ minHeight: 80 }}
+                  value={leadEditForm.notes} 
+                  onChange={(e) => setLeadEditForm(f => ({ ...f, notes: e.target.value }))} 
+                  placeholder="Add notes about this lead..."
+                />
+              </div>
+            </div>
+            <div className="btn-row" style={{ marginTop: 20 }}>
+              <button className="btn" onClick={saveLeadChanges}>
+                Save Changes
+              </button>
+              <button className="btn-secondary" onClick={() => setEditingLead(null)}>
+                Cancel
+              </button>
             </div>
           </div>
         </div>

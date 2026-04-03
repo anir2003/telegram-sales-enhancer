@@ -34,6 +34,12 @@ function renderPreview(template: string) {
 
 type WizardStep = 'setup' | 'accounts' | 'timing' | 'leads' | 'sequence' | 'review';
 
+// Messages per account option type
+type AccountMessageLimit = {
+  accountId: string;
+  limit: number;
+};
+
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [details, setDetails] = useState<CampaignDetail[]>([]);
@@ -43,6 +49,8 @@ export default function CampaignsPage() {
   const [builderMessage, setBuilderMessage] = useState('');
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [accountMessageLimits, setAccountMessageLimits] = useState<AccountMessageLimit[]>([]);
+  const [messagesPerAccount, setMessagesPerAccount] = useState<number | null>(null);
   const [leadSearch, setLeadSearch] = useState('');
   const [leadTagFilter, setLeadTagFilter] = useState('all');
   const [leadCompanyFilter, setLeadCompanyFilter] = useState('all');
@@ -93,6 +101,17 @@ export default function CampaignsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Initialize account message limits when accounts are selected
+  useEffect(() => {
+    setAccountMessageLimits(prev => {
+      const existing = new Map(prev.map(p => [p.accountId, p.limit]));
+      return selectedAccountIds.map(id => ({
+        accountId: id,
+        limit: existing.get(id) ?? 0,
+      }));
+    });
+  }, [selectedAccountIds]);
 
   const accountInsights = useMemo(
     () => buildAccountInsights(accounts, details),
@@ -158,13 +177,19 @@ export default function CampaignsPage() {
       if (selectedAccountIds.length) {
         await fetchJson(`/api/campaigns/${campaign.id}/accounts`, {
           method: 'POST',
-          body: JSON.stringify({ accountIds: selectedAccountIds }),
+          body: JSON.stringify({ 
+            accountIds: selectedAccountIds,
+            messageLimits: messagesPerAccount ? null : accountMessageLimits,
+            messagesPerAccount: messagesPerAccount,
+          }),
         });
       }
 
       setForm({ name: '', description: '', timezone: 'UTC', send_window_start: '09:00', send_window_end: '18:00', start_date: '', end_date: '' });
       setSelectedLeadIds([]);
       setSelectedAccountIds([]);
+      setAccountMessageLimits([]);
+      setMessagesPerAccount(null);
       setLeadSearch('');
       setLeadTagFilter('all');
       setLeadCompanyFilter('all');
@@ -187,6 +212,14 @@ export default function CampaignsPage() {
   const toggleAccount = (accountId: string) => {
     setSelectedAccountIds((current) =>
       current.includes(accountId) ? current.filter((id) => id !== accountId) : [...current, accountId],
+    );
+  };
+
+  const updateAccountLimit = (accountId: string, limit: number) => {
+    setAccountMessageLimits(current =>
+      current.map(item =>
+        item.accountId === accountId ? { ...item, limit } : item
+      )
     );
   };
 
@@ -243,11 +276,21 @@ export default function CampaignsPage() {
     return Math.round(((stats.completed + stats.replies) / stats.totalLeads) * 100);
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return '#26a641';
+      case 'paused': return '#f39c12';
+      case 'completed': return '#3498db';
+      case 'draft': return '#888888';
+      default: return '#888888';
+    }
+  };
+
   return (
     <div className="page-content">
       <div className="grid grid-4">
         <div className="card"><div className="card-title">Campaigns</div><div className="card-value">{campaigns.length}</div><div className="card-subtitle">Total campaigns created.</div></div>
-        <div className="card"><div className="card-title">Live</div><div className="card-value">{campaigns.filter((c) => c.status === 'active').length}</div><div className="card-subtitle">Currently sending tasks to the team.</div></div>
+        <div className="card"><div className="card-title">Live</div><div className="card-value" style={{ color: '#26a641' }}>{campaigns.filter((c) => c.status === 'active').length}</div><div className="card-subtitle">Currently sending tasks to the team.</div></div>
         <div className="card"><div className="card-title">Drafts</div><div className="card-value">{campaigns.filter((c) => c.status === 'draft').length}</div><div className="card-subtitle">Ready for completion and launch.</div></div>
         <div className="card"><div className="card-title">Paused / Completed</div><div className="card-value">{campaigns.filter((c) => c.status === 'paused' || c.status === 'completed').length}</div><div className="card-subtitle">Stopped or finished campaigns.</div></div>
       </div>
@@ -289,6 +332,51 @@ export default function CampaignsPage() {
                 <div className="form-grid">
                   <div className="card-title" style={{ marginBottom: 4 }}>Select Telegram Accounts</div>
                   <div className="card-subtitle">{selectedAccountIds.length} accounts selected. These sender accounts will be used for this campaign.</div>
+                  
+                  {/* Messages per account option */}
+                  <div className="card" style={{ padding: 16, background: 'var(--panel-alt)' }}>
+                    <div className="card-title" style={{ fontSize: 12, marginBottom: 12 }}>Message Distribution</div>
+                    <div className="form-grid columns-2">
+                      <div className="form-grid">
+                        <label className="dim" style={{ fontSize: 11 }}>Messages per account (optional)</label>
+                        <input 
+                          className="input" 
+                          type="number" 
+                          min={1}
+                          placeholder="Auto (uses account daily limits)"
+                          value={messagesPerAccount ?? ''}
+                          onChange={(e) => setMessagesPerAccount(e.target.value ? Number(e.target.value) : null)}
+                        />
+                        <span className="dim" style={{ fontSize: 10 }}>Leave empty to use account daily limits</span>
+                      </div>
+                    </div>
+                    
+                    {!messagesPerAccount && accountMessageLimits.length > 0 && (
+                      <div style={{ marginTop: 16 }}>
+                        <div className="dim" style={{ fontSize: 11, marginBottom: 8 }}>Custom limits per account:</div>
+                        {accountMessageLimits.map(({ accountId, limit }) => {
+                          const account = accounts.find(a => a.id === accountId);
+                          if (!account) return null;
+                          return (
+                            <div key={accountId} className="form-grid columns-2" style={{ marginBottom: 8 }}>
+                              <div className="dim" style={{ fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                                {account.label} (@{account.telegram_username})
+                              </div>
+                              <input 
+                                className="input" 
+                                type="number" 
+                                min={0}
+                                placeholder="Use daily limit"
+                                value={limit || ''}
+                                onChange={(e) => updateAccountLimit(accountId, e.target.value ? Number(e.target.value) : 0)}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="selection-list">
                     {accountInsights.length ? accountInsights.map((account) => (
                       <label key={account.id} className={`selection-row ${selectedAccountIds.includes(account.id) ? 'active' : ''}`}>
@@ -443,6 +531,7 @@ export default function CampaignsPage() {
                     {form.start_date && <div className="metric-row"><span>Start Date</span><span>{form.start_date}</span></div>}
                     {form.end_date && <div className="metric-row"><span>End Date</span><span>{form.end_date}</span></div>}
                     <div className="metric-row"><span>Accounts</span><span>{selectedAccountIds.length} selected</span></div>
+                    {messagesPerAccount && <div className="metric-row"><span>Messages/Account</span><span>{messagesPerAccount}</span></div>}
                     <div className="metric-row"><span>Leads</span><span>{selectedLeadIds.length} selected</span></div>
                     <div className="metric-row"><span>Sequence Steps</span><span>{steps.filter((s) => s.message_template.trim()).length} with messages</span></div>
                   </div>
@@ -484,33 +573,73 @@ export default function CampaignsPage() {
           <option value="completed">Completed</option>
         </select>
       </div>
+      
+      {/* Improved Campaign Cards Grid */}
       <div className="library-grid">
         {campaignRows.length ? campaignRows.map(({ detail, stats }) => (
-          <Link key={detail.campaign?.id} href={`/campaigns/${detail.campaign?.id}`} className="card library-card">
-            <div className="card-header">
-              <div>
-                <div className="card-title">{detail.campaign?.name}</div>
-                <div className="card-subtitle" style={{ marginTop: 8 }}>{detail.campaign?.description ?? 'No description yet.'}</div>
+          <Link key={detail.campaign?.id} href={`/campaigns/${detail.campaign?.id}`} className="campaign-card">
+            <div className="campaign-card-header">
+              <div className="campaign-card-title">{detail.campaign?.name}</div>
+              <span 
+                className="campaign-status-badge"
+                style={{ 
+                  background: `${getStatusColor(detail.campaign?.status ?? 'draft')}20`,
+                  color: getStatusColor(detail.campaign?.status ?? 'draft'),
+                  borderColor: getStatusColor(detail.campaign?.status ?? 'draft'),
+                }}
+              >
+                {detail.campaign?.status ?? 'draft'}
+              </span>
+            </div>
+            
+            <div className="campaign-card-description">
+              {detail.campaign?.description || 'No description yet.'}
+            </div>
+            
+            <div className="campaign-card-stats">
+              <div className="campaign-stat">
+                <span className="campaign-stat-value">{stats.totalLeads}</span>
+                <span className="campaign-stat-label">Leads</span>
               </div>
-              <span className={`badge ${detail.campaign?.status === 'active' ? 'badge-active' : ''}`}>{detail.campaign?.status ?? 'draft'}</span>
+              <div className="campaign-stat">
+                <span className="campaign-stat-value">{stats.assignedAccounts.length}</span>
+                <span className="campaign-stat-label">Accounts</span>
+              </div>
+              <div className="campaign-stat">
+                <span className="campaign-stat-value">{stats.sent}</span>
+                <span className="campaign-stat-label">Sent</span>
+              </div>
+              <div className="campaign-stat">
+                <span className="campaign-stat-value">{completionRate(stats)}%</span>
+                <span className="campaign-stat-label">Complete</span>
+              </div>
             </div>
-            <div className="mini-stat-grid">
-              <div className="mini-stat"><div className="mini-stat-label">Leads</div><div className="mini-stat-value">{stats.totalLeads}</div></div>
-              <div className="mini-stat"><div className="mini-stat-label">Accounts</div><div className="mini-stat-value">{stats.assignedAccounts.length}</div></div>
-              <div className="mini-stat"><div className="mini-stat-label">Sent</div><div className="mini-stat-value">{stats.sent}</div></div>
-              <div className="mini-stat"><div className="mini-stat-label">Completion</div><div className="mini-stat-value">{completionRate(stats)}%</div></div>
-            </div>
+            
             <div className="campaign-progress-bar">
-              <div className="campaign-progress-fill" style={{ width: `${completionRate(stats)}%` }} />
+              <div 
+                className="campaign-progress-fill" 
+                style={{ 
+                  width: `${completionRate(stats)}%`,
+                  background: completionRate(stats) === 100 ? '#26a641' : completionRate(stats) > 50 ? '#3498db' : '#f39c12'
+                }} 
+              />
             </div>
-            <div className="library-card-footer">
-              <span className="dim">{detail.campaign?.timezone ?? 'UTC'} · {detail.campaign ? `${detail.campaign.send_window_start} - ${detail.campaign.send_window_end}` : ''}</span>
-              <span className="dim">{formatPercent(stats.replyRate)} reply rate</span>
-              <span className="btn-secondary">Open</span>
+            
+            <div className="campaign-card-footer">
+              <div className="campaign-meta">
+                <span className="dim">{detail.campaign?.timezone ?? 'UTC'}</span>
+                <span className="dim">•</span>
+                <span className="dim">{detail.campaign ? `${detail.campaign.send_window_start}-${detail.campaign.send_window_end}` : ''}</span>
+              </div>
+              <div className="campaign-reply-rate">
+                <span style={{ color: stats.replyRate > 0 ? '#26a641' : 'var(--text-dim)' }}>
+                  {formatPercent(stats.replyRate)} reply
+                </span>
+              </div>
             </div>
           </Link>
         )) : (
-          <div className="empty-state">No campaigns match the current filter. Create one to get started.</div>
+          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No campaigns match the current filter. Create one to get started.</div>
         )}
       </div>
     </div>
