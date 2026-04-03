@@ -64,6 +64,7 @@ export interface TelegramAccountRecord {
   id: string;
   workspace_id: string;
   owner_id: string | null;
+  telegram_user_id: number | null;
   label: string;
   telegram_username: string;
   daily_limit: number;
