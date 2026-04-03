@@ -146,14 +146,17 @@ export default function CampaignsPage() {
   }, [details, statusFilter]);
 
   const handleCreate = async () => {
+    console.log('[handleCreate] Started with form:', form);
     setIsSubmitting(true);
     setBuilderMessage('');
 
     try {
+      console.log('[handleCreate] Calling POST /api/campaigns');
       const { campaign } = await fetchJson<{ campaign: Campaign }>('/api/campaigns', {
         method: 'POST',
         body: JSON.stringify(form),
       });
+      console.log('[handleCreate] Campaign created:', campaign.id);
 
       const activeSteps = steps
         .filter((step) => step.message_template.trim())
@@ -175,6 +178,7 @@ export default function CampaignsPage() {
       ]);
 
       if (selectedAccountIds.length) {
+        console.log('[handleCreate] Adding accounts');
         await fetchJson(`/api/campaigns/${campaign.id}/accounts`, {
           method: 'POST',
           body: JSON.stringify({ 
@@ -185,6 +189,7 @@ export default function CampaignsPage() {
         });
       }
 
+      console.log('[handleCreate] All API calls succeeded. Resetting form and calling load()');
       setForm({ name: '', description: '', timezone: 'UTC', send_window_start: '09:00', send_window_end: '18:00', start_date: '', end_date: '' });
       setSelectedLeadIds([]);
       setSelectedAccountIds([]);
@@ -538,6 +543,7 @@ export default function CampaignsPage() {
                     <div className="metric-row"><span>Leads</span><span>{selectedLeadIds.length} selected</span></div>
                     <div className="metric-row"><span>Sequence Steps</span><span>{steps.filter((s) => s.message_template.trim()).length} with messages</span></div>
                   </div>
+                  {builderMessage ? <div className={`status-callout ${builderMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>{builderMessage}</div> : null}
                   <div className="btn-row" style={{ marginTop: 8 }}>
                     <button className="btn" onClick={handleCreate} disabled={isSubmitting || !form.name.trim()}>
                       {isSubmitting ? 'Creating...' : 'Create Campaign'}
