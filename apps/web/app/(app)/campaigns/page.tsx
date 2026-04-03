@@ -198,6 +198,9 @@ export default function CampaignsPage() {
       setWizardStep('setup');
       setBuilderMessage('Campaign created successfully.');
       await load();
+    } catch (err: any) {
+      console.error('Campaign creation failed:', err);
+      setBuilderMessage(`Error: ${err?.message ?? 'Failed to create campaign'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -300,7 +303,7 @@ export default function CampaignsPage() {
           <button className="btn" onClick={() => setShowWizard(true)} style={{ padding: '12px 24px', fontSize: 13 }}>
             + Create New Campaign
           </button>
-          {builderMessage ? <div className="status-callout success" style={{ marginTop: 12 }}>{builderMessage}</div> : null}
+          {builderMessage ? <div className={`status-callout ${builderMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>{builderMessage}</div> : null}
         </div>
       ) : (
         <>

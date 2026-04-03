@@ -502,9 +502,9 @@ export async function createCampaign(input: unknown, context?: WorkspaceContext)
   const parsed = campaignInputSchema.parse(input);
   const payload = {
     ...parsed,
-    description: parsed.description ?? null,
-    start_date: parsed.start_date ?? null,
-    end_date: parsed.end_date ?? null,
+    description: parsed.description || null,
+    start_date: parsed.start_date || null,
+    end_date: parsed.end_date || null,
     workspace_id: active.workspaceId,
     created_by: active.profileId,
   };
@@ -535,12 +535,12 @@ export async function updateCampaign(campaignId: string, input: unknown, context
   const parsed = campaignInputSchema.parse(input);
   const payload = {
     name: parsed.name,
-    description: parsed.description ?? null,
+    description: parsed.description || null,
     timezone: parsed.timezone,
     send_window_start: parsed.send_window_start,
     send_window_end: parsed.send_window_end,
-    start_date: parsed.start_date ?? null,
-    end_date: parsed.end_date ?? null,
+    start_date: parsed.start_date || null,
+    end_date: parsed.end_date || null,
   };
 
   if (!isSupabaseConfigured()) {

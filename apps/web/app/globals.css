@@ -285,7 +285,8 @@ button, input, textarea, select {
   color: var(--text);
 }
 
-.status-callout.danger {
+.status-callout.danger,
+.status-callout.error {
   border-color: #8f4b4b;
   color: #f2a6a6;
 }

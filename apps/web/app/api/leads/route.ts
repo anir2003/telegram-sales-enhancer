@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createLead, listLeads } from '@/lib/server/repository';
 import { getWorkspaceContext } from '@/lib/server/context';
 
-// Cache leads for 30 seconds, allow stale-while-revalidate for 5 minutes
-export const revalidate = 30;
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const context = await getWorkspaceContext();
@@ -12,10 +11,9 @@ export async function GET() {
   }
 
   const leads = await listLeads(context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
-  
-  // Add cache headers for better client-side caching
+
   const response = NextResponse.json({ leads });
-  response.headers.set('Cache-Control', 'private, max-age=30, stale-while-revalidate=300');
+  response.headers.set('Cache-Control', 'no-store');
   return response;
 }
 
@@ -25,7 +23,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const body = await request.json();
-  const lead = await createLead(body, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
-  return NextResponse.json({ lead });
+  try {
+    const body = await request.json();
+    const lead = await createLead(body, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
+    return NextResponse.json({ lead });
+  } catch (err: any) {
+    console.error('[POST /api/leads] Error:', err);
+    return NextResponse.json({ error: err?.message ?? 'Failed to create lead' }, { status: 500 });
+  }
 }

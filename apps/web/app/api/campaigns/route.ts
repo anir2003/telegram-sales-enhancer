@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createCampaign, listCampaigns } from '@/lib/server/repository';
 import { getWorkspaceContext } from '@/lib/server/context';
 
-// Cache campaigns for 30 seconds, allow stale-while-revalidate for 5 minutes
-export const revalidate = 30;
+// Force dynamic — never cache this route on the server
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const context = await getWorkspaceContext();
@@ -11,10 +11,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const campaigns = await listCampaigns(context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
-  
-  // Add cache headers for better client-side caching
+
   const response = NextResponse.json({ campaigns });
-  response.headers.set('Cache-Control', 'private, max-age=30, stale-while-revalidate=300');
+  response.headers.set('Cache-Control', 'no-store');
   return response;
 }
 
@@ -23,6 +22,11 @@ export async function POST(request: NextRequest) {
   if (context?.configured && !context.profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const campaign = await createCampaign(await request.json(), context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
-  return NextResponse.json({ campaign });
+  try {
+    const campaign = await createCampaign(await request.json(), context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
+    return NextResponse.json({ campaign });
+  } catch (err: any) {
+    console.error('[POST /api/campaigns] Error:', err);
+    return NextResponse.json({ error: err?.message ?? 'Failed to create campaign' }, { status: 500 });
+  }
 }

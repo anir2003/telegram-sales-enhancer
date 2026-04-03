@@ -57,6 +57,8 @@ export default function CampaignDetailPage() {
   const editorRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
   const [savingSteps, setSavingSteps] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [togglingStatus, setTogglingStatus] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -168,25 +170,44 @@ export default function CampaignDetailPage() {
   }
 
   const handleStatusToggle = async () => {
-    if (detail.campaign?.status === 'active') {
-      await fetchJson(`/api/campaigns/${campaignId}/pause`, { method: 'POST' });
-    } else {
-      await fetchJson(`/api/campaigns/${campaignId}/launch`, { method: 'POST' });
+    setTogglingStatus(true);
+    setStatusMessage('');
+    try {
+      if (detail.campaign?.status === 'active') {
+        await fetchJson(`/api/campaigns/${campaignId}/pause`, { method: 'POST' });
+        setStatusMessage('Campaign paused.');
+      } else {
+        await fetchJson(`/api/campaigns/${campaignId}/launch`, { method: 'POST' });
+        setStatusMessage('Campaign launched.');
+      }
+      await load();
+    } catch (err: any) {
+      console.error('Status toggle failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to change campaign status'}`);
+    } finally {
+      setTogglingStatus(false);
     }
-    await load();
   };
 
   const saveChanges = async () => {
-    await fetchJson(`/api/campaigns/${campaignId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(editForm),
-    });
-    setIsEditing(false);
-    await load();
+    setStatusMessage('');
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(editForm),
+      });
+      setIsEditing(false);
+      setStatusMessage('Campaign settings saved.');
+      await load();
+    } catch (err: any) {
+      console.error('Save changes failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save changes'}`);
+    }
   };
 
   const saveSequenceChanges = async () => {
     setSavingSteps(true);
+    setStatusMessage('');
     try {
       for (const step of stepsForm) {
         await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, {
@@ -196,15 +217,22 @@ export default function CampaignDetailPage() {
       }
       setOriginalSteps(JSON.parse(JSON.stringify(stepsForm)));
       setHasUnsavedChanges(false);
-    } catch (err) {
-      alert('Failed to save sequence changes');
+      setStatusMessage('Sequence saved.');
+    } catch (err: any) {
+      console.error('Save sequence failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save sequence changes'}`);
     }
     setSavingSteps(false);
   };
 
   const markReplied = async (leadId: string) => {
-    await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ status: 'replied', last_reply_at: new Date().toISOString() }) });
-    await load();
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ status: 'replied', last_reply_at: new Date().toISOString() }) });
+      await load();
+    } catch (err: any) {
+      console.error('Mark replied failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to mark as replied'}`);
+    }
   };
 
   const openLeadEdit = (item: any) => {
@@ -218,12 +246,17 @@ export default function CampaignDetailPage() {
 
   const saveLeadChanges = async () => {
     if (!editingLead) return;
-    await fetchJson(`/api/campaigns/${campaignId}/leads/${editingLead.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(leadEditForm),
-    });
-    setEditingLead(null);
-    await load();
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}/leads/${editingLead.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(leadEditForm),
+      });
+      setEditingLead(null);
+      await load();
+    } catch (err: any) {
+      console.error('Save lead changes failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save lead changes'}`);
+    }
   };
 
   const insertPlaceholder = (token: string) => {
@@ -288,11 +321,16 @@ export default function CampaignDetailPage() {
             <button className="btn-secondary" onClick={() => setActiveTab('settings')}>
               {isEditing ? 'Cancel Edit' : 'Edit'}
             </button>
-            <button className={statusButton.className} onClick={handleStatusToggle}>
-              {statusButton.text}
+            <button className={statusButton.className} onClick={handleStatusToggle} disabled={togglingStatus}>
+              {togglingStatus ? 'Processing...' : statusButton.text}
             </button>
           </div>
         </div>
+        {statusMessage && (
+          <div className={`status-callout ${statusMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>
+            {statusMessage}
+          </div>
+        )}
       </div>
 
       {/* Navigation Tabs */}

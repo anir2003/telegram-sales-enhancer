@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { addSequenceStep, getCampaignDetail } from '@/lib/server/repository';
 import { getWorkspaceContext } from '@/lib/server/context';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const context = await getWorkspaceContext();
@@ -18,6 +20,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (context?.configured && !context.profile) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const step = await addSequenceStep(id, await request.json(), context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
-  return NextResponse.json({ step });
+  try {
+    const step = await addSequenceStep(id, await request.json(), context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
+    return NextResponse.json({ step });
+  } catch (err: any) {
+    console.error('[POST /api/campaigns/[id]/steps] Error:', err);
+    return NextResponse.json({ error: err?.message ?? 'Failed to add step' }, { status: 500 });
+  }
 }

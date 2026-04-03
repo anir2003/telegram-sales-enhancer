@@ -38,13 +38,13 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      // Cache API responses for a short period (stale-while-revalidate pattern)
+      // Ensure API responses are never cached by the browser
       {
         source: '/api/:path*',
         headers: [
           {
             key: 'Cache-Control',
-            value: 'public, max-age=60, stale-while-revalidate=300',
+            value: 'no-store, no-cache, must-revalidate',
           },
         ],
       },

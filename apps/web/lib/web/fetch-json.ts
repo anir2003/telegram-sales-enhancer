@@ -1,43 +1,30 @@
-// Simple in-flight request deduplication
+// Simple in-flight request deduplication (no caching)
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
-// Cache for GET requests (short-lived, in-memory only)
-const requestCache = new Map<string, { data: unknown; timestamp: number }>();
-const CACHE_TTL = 5000; // 5 seconds cache for same requests
-
 /**
- * Fetch JSON with automatic request deduplication and caching for GET requests.
- * Prevents duplicate in-flight requests and caches GET responses briefly.
+ * Fetch JSON with automatic request deduplication for GET requests.
+ * Does NOT cache responses — every call after dedup hits the server.
  */
 export async function fetchJson<T = unknown>(
-  url: string, 
-  init?: RequestInit & { cacheDuration?: number }
+  url: string,
+  init?: RequestInit,
 ): Promise<T> {
   const isGetRequest = !init?.method || init.method === 'GET';
   const cacheKey = `${url}:${JSON.stringify(init?.body ?? {})}`;
-  const cacheDuration = init?.cacheDuration ?? CACHE_TTL;
-  
-  // Skip cache/dedup for non-GET requests
+
+  // Skip dedup for non-GET requests
   if (!isGetRequest) {
     return performFetch<T>(url, init);
   }
 
-  // Check in-flight requests (deduplication)
+  // Check in-flight requests (deduplication only — not caching)
   const inFlight = inFlightRequests.get(cacheKey);
   if (inFlight) {
     return inFlight as Promise<T>;
   }
 
-  // Check cache
-  const cached = requestCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < cacheDuration) {
-    return cached.data as T;
-  }
-
   // Perform the fetch and track it
   const promise = performFetch<T>(url, init).then((data) => {
-    // Cache successful GET responses
-    requestCache.set(cacheKey, { data, timestamp: Date.now() });
     inFlightRequests.delete(cacheKey);
     return data;
   }).catch((error) => {
@@ -66,20 +53,15 @@ async function performFetch<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /**
- * Clear the request cache. Useful after mutations.
+ * Clear the in-flight request tracking.
  */
 export function clearRequestCache(): void {
-  requestCache.clear();
   inFlightRequests.clear();
 }
 
 /**
- * Invalidate a specific URL from cache.
+ * No-op for backward compatibility.
  */
-export function invalidateCache(url: string): void {
-  for (const key of requestCache.keys()) {
-    if (key.startsWith(url)) {
-      requestCache.delete(key);
-    }
-  }
+export function invalidateCache(_url: string): void {
+  // no-op — no cache to invalidate
 }
