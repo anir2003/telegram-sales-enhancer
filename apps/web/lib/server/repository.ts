@@ -483,6 +483,24 @@ export async function createAccount(input: unknown, context?: WorkspaceContext) 
   return data as TelegramAccountRecord;
 }
 
+export async function deleteAccount(accountId: string, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    demoState.accounts = demoState.accounts.filter(a => a.id !== accountId);
+    demoState.assignments = demoState.assignments.filter(a => a.telegram_account_id !== accountId);
+    return;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { error } = await supabase!
+    .from('telegram_accounts')
+    .delete()
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId);
+
+  if (error) throw error;
+}
+
 export async function listCampaigns(context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
@@ -937,7 +955,6 @@ export async function createAccountLinkCode(
       expires_at: expiresAt,
       consumed_at: null,
       created_at: nowIso(),
-      purpose: 'account',
       metadata: { label: input.label, daily_limit: input.dailyLimit },
     };
     demoState.botCodes.unshift(record);
@@ -952,7 +969,6 @@ export async function createAccountLinkCode(
       profile_id: active.profileId,
       code,
       expires_at: expiresAt,
-      purpose: 'account',
       metadata: { label: input.label, daily_limit: input.dailyLimit },
     })
     .select('*')
@@ -968,7 +984,7 @@ export async function consumeAccountLinkCode(input: {
 }) {
   if (!isSupabaseConfigured()) {
     const match = demoState.botCodes.find(
-      (item) => item.code === input.code && !item.consumed_at && (item as any).purpose === 'account',
+      (item) => item.code === input.code && !item.consumed_at,
     );
     if (!match) return null;
     match.consumed_at = nowIso();
@@ -993,7 +1009,6 @@ export async function consumeAccountLinkCode(input: {
     .from('bot_link_codes')
     .select('*')
     .eq('code', input.code)
-    .eq('purpose', 'account')
     .is('consumed_at', null)
     .gt('expires_at', nowIso())
     .maybeSingle();
