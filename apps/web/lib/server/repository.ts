@@ -1059,8 +1059,8 @@ export async function getNextBotTask(telegramUserId: number) {
     const claimed = demoState.sendTasks.find(
       (item) =>
         item.workspace_id === workspaceId &&
+        userAccountIds.includes(item.assigned_account_id) &&
         item.status === 'claimed' &&
-        item.claimed_by_profile_id === fallbackProfileId &&
         isDue(item.due_at),
     );
     if (claimed) {
@@ -1098,15 +1098,15 @@ export async function getNextBotTask(telegramUserId: number) {
 
   if (userAccountIds.length === 0) return null;
 
+  // Find already-claimed task for this specific account (don't filter by profile_id —
+  // accounts connected without /link have no owner_id so profile_id would be null)
   const dueNow = nowIso();
-
   const { data: claimedTask } = await supabase!
     .from('send_tasks')
     .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
     .eq('workspace_id', workspaceId)
     .in('assigned_account_id', userAccountIds)
     .eq('status', 'claimed')
-    .eq('claimed_by_profile_id', simulatedProfileId)
     .lte('due_at', dueNow)
     .order('due_at', { ascending: true })
     .limit(1)
@@ -1137,7 +1137,7 @@ export async function getNextBotTask(telegramUserId: number) {
       claimed_at: dueNow,
     })
     .eq('id', pendingTask.id)
-    .eq('status', 'pending')
+    .eq('status', 'pending') // optimistic lock
     .select('*')
     .maybeSingle();
 
@@ -1257,8 +1257,6 @@ async function completeBotTask(
     .update({
       status: options.taskStatus,
       completed_at: nowIso(),
-      claimed_by_profile_id: simulatedProfileId || null,
-      claimed_at: nowIso(),
     })
     .eq('id', task.id);
 
