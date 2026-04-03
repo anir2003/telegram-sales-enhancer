@@ -703,12 +703,23 @@ export async function setCampaignAccounts(campaignId: string, accountIds: string
 
 function distributeAccounts(accounts: TelegramAccountRecord[], total: number) {
   const slots: string[] = [];
-  accounts.forEach((account) => {
-    for (let count = 0; count < account.daily_limit; count += 1) {
-      slots.push(account.id);
-      if (slots.length >= total) break;
+  const caps = new Map(accounts.map((a) => [a.id, a.daily_limit]));
+  const activeAccounts = [...accounts];
+
+  while (slots.length < total && activeAccounts.length > 0) {
+    for (let i = 0; i < activeAccounts.length; i++) {
+      const account = activeAccounts[i];
+      const remaining = caps.get(account.id)!;
+      if (remaining > 0) {
+        slots.push(account.id);
+        caps.set(account.id, remaining - 1);
+        if (slots.length >= total) break;
+      } else {
+        activeAccounts.splice(i, 1);
+        i--; // Adjust index because we removed an element
+      }
     }
-  });
+  }
   return slots;
 }
 
@@ -1099,12 +1110,21 @@ export async function getNextBotTask(telegramUserId: number) {
 
   if (!profile) throw new Error('NOT_LINKED');
 
+  const { data: userAccounts } = await supabase!
+    .from('telegram_accounts')
+    .select('id')
+    .eq('owner_id', profile.id);
+
+  if (!userAccounts || userAccounts.length === 0) return null;
+  const userAccountIds = userAccounts.map(a => a.id);
+
   const dueNow = nowIso();
 
   const { data: claimedTask } = await supabase!
     .from('send_tasks')
     .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
     .eq('workspace_id', profile.workspace_id)
+    .in('assigned_account_id', userAccountIds)
     .eq('status', 'claimed')
     .eq('claimed_by_profile_id', profile.id)
     .lte('due_at', dueNow)
@@ -1120,6 +1140,7 @@ export async function getNextBotTask(telegramUserId: number) {
     .from('send_tasks')
     .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
     .eq('workspace_id', profile.workspace_id)
+    .in('assigned_account_id', userAccountIds)
     .eq('status', 'pending')
     .lte('due_at', dueNow)
     .order('due_at', { ascending: true })
