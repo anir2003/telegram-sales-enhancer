@@ -1207,17 +1207,19 @@ async function completeBotTask(
       } else if (options.taskStatus === 'skipped') {
         campaignLead.status = 'skipped';
         campaignLead.stop_reason = 'Skipped manually';
-      } else if (nextStep) {
+      } else {
+        // Always go to sent_waiting_followup after sending, even on last step.
+        // Leads should stay in "waiting" until a reply is received or manually completed.
         campaignLead.status = 'sent_waiting_followup';
         campaignLead.current_step_order = task.step_order;
-        campaignLead.next_step_order = nextStep.step_order;
-        campaignLead.next_due_at = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
         campaignLead.last_sent_at = nowIso();
-      } else {
-        campaignLead.status = 'completed';
-        campaignLead.current_step_order = task.step_order;
-        campaignLead.next_step_order = null;
-        campaignLead.next_due_at = null;
+        if (nextStep) {
+          campaignLead.next_step_order = nextStep.step_order;
+          campaignLead.next_due_at = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
+        } else {
+          campaignLead.next_step_order = null;
+          campaignLead.next_due_at = null;
+        }
       }
     }
 
@@ -1295,6 +1297,8 @@ async function completeBotTask(
       .limit(1)
       .maybeSingle();
 
+    // Always go to sent_waiting_followup after sending, even on last step.
+    // Leads should stay in "waiting" until a reply is received or manually completed.
     if (nextStep) {
       const nextDueAt = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
       await supabase!
@@ -1311,7 +1315,7 @@ async function completeBotTask(
       await supabase!
         .from('campaign_leads')
         .update({
-          status: 'completed',
+          status: 'sent_waiting_followup',
           current_step_order: task.step_order,
           next_step_order: null,
           next_due_at: null,

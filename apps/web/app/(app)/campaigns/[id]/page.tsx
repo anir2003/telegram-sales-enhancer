@@ -61,6 +61,8 @@ export default function CampaignDetailPage() {
   const [statusMessage, setStatusMessage] = useState('');
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -251,6 +253,55 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, leadId: string) => {
+    setDraggingLeadId(leadId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', leadId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, stage: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverStage(stage);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverStage(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetStage: string) => {
+    e.preventDefault();
+    setDragOverStage(null);
+    const leadId = e.dataTransfer.getData('text/plain');
+    setDraggingLeadId(null);
+    if (!leadId) return;
+
+    // Find the campaign_lead record
+    const item = detail?.attachedLeads?.find((l: any) => l.id === leadId);
+    if (!item || item.status === targetStage) return;
+
+    const patch: Record<string, unknown> = { status: targetStage };
+    if (targetStage === 'replied') {
+      patch.last_reply_at = new Date().toISOString();
+    }
+
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      await load();
+    } catch (err: any) {
+      console.error('Drag move failed:', err);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to move lead'}`);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggingLeadId(null);
+    setDragOverStage(null);
+  };
+
   const openLeadEdit = (item: any) => {
     setEditingLead(item);
     setLeadEditForm({
@@ -438,7 +489,13 @@ export default function CampaignDetailPage() {
           </div>
           <div className="stage-board">
             {leadsByStage.map((column) => (
-              <div key={column.status} className="stage-column">
+              <div
+                key={column.status}
+                className={`stage-column ${dragOverStage === column.status ? 'drag-over' : ''}`}
+                onDragOver={(e) => handleDragOver(e, column.status)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, column.status)}
+              >
                 <div className="stage-column-head">
                   <span>{column.status.replaceAll('_', ' ')}</span>
                   <span className="badge">{column.items.length}</span>
@@ -449,9 +506,16 @@ export default function CampaignDetailPage() {
                     const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
                     const lastAction = item.last_reply_at || item.last_sent_at;
                     return (
-                      <div key={item.id} className="board-card">
+                      <div
+                        key={item.id}
+                        className={`board-card ${draggingLeadId === item.id ? 'dragging' : ''}`}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, item.id)}
+                        onDragEnd={handleDragEnd}
+                      >
                         <div className="board-card-header">
                           <span className="board-card-title">{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</span>
+                          <span className="drag-handle" title="Drag to move">⠿</span>
                         </div>
                         <div className="board-card-meta">
                           <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
