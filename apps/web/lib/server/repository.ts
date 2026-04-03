@@ -6,6 +6,7 @@ import {
   normalizeTelegramUsername,
   renderMessageTemplate,
   sequenceStepInputSchema,
+  sequenceStepUpdateSchema,
   telegramAccountInputSchema,
   type ActivityLogRecord,
   type CampaignLeadRecord,
@@ -1608,7 +1609,7 @@ export async function logActivity(input: {
 
 export async function updateSequenceStep(stepId: string, input: unknown, context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
-  const parsed = sequenceStepInputSchema.partial().parse(input);
+  const parsed = sequenceStepUpdateSchema.parse(input);
   if (!isSupabaseConfigured()) {
     const record = demoState.steps.find((s) => s.id === stepId);
     if (record) {

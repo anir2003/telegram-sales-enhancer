@@ -125,7 +125,13 @@ export const leadInputSchema = z.object({
 export const sequenceStepInputSchema = z.object({
   step_order: z.number().int().min(1),
   delay_days: z.number().int().min(0),
-  message_template: z.string().trim().min(1),
+  message_template: z.string().trim(),
+});
+
+export const sequenceStepUpdateSchema = z.object({
+  step_order: z.number().int().min(1).optional(),
+  delay_days: z.number().int().min(0).optional(),
+  message_template: z.string().trim().optional(),
 });
 
 export const campaignInputSchema = z.object({

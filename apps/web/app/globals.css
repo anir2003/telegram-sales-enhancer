@@ -522,6 +522,12 @@ button, input, textarea, select {
   border-radius: 4px;
   padding: 8px 12px;
   cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.theme-option:hover {
+  background: var(--panel-alt);
+  color: var(--text);
 }
 
 .theme-option.active {
@@ -1429,4 +1435,72 @@ button, input, textarea, select {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* ================================
+   DOTS MENU (3 dots button)
+   ================================ */
+
+.dots-menu-wrapper {
+  position: relative;
+}
+
+.dots-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dots-btn:hover {
+  background: var(--panel);
+  border-color: var(--border-soft);
+  color: var(--text);
+}
+
+.dots-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 120px;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.dots-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dots-menu button:hover {
+  background: var(--panel);
+}
+
+.dots-menu button.danger-item {
+  color: #e74c3c;
+}
+
+.dots-menu button.danger-item:hover {
+  background: rgba(231, 76, 60, 0.1);
 }
