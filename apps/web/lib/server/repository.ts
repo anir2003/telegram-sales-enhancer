@@ -1107,22 +1107,11 @@ export async function consumeAccountLinkCode(input: {
 
 export async function getNextBotTask(telegramUserId: number) {
   if (!isSupabaseConfigured()) {
-    let profile = demoProfile.telegram_user_id === telegramUserId ? demoProfile : null;
-    let userAccountIds: string[] = [];
-    let workspaceId: string;
-    let fallbackProfileId: string;
-
-    if (profile) {
-      workspaceId = profile.workspace_id;
-      fallbackProfileId = profile.id;
-      userAccountIds = demoState.accounts.filter((a) => a.owner_id === profile.id).map((a) => a.id);
-    } else {
-      const account = demoState.accounts.find((a) => a.telegram_user_id === telegramUserId);
-      if (!account) throw new Error('NOT_LINKED');
-      workspaceId = account.workspace_id;
-      userAccountIds = [account.id];
-      fallbackProfileId = account.owner_id ?? demoProfile.id;
-    }
+    const account = demoState.accounts.find((a) => a.telegram_user_id === telegramUserId);
+    if (!account) throw new Error('NOT_LINKED');
+    let workspaceId = account.workspace_id;
+    let userAccountIds = [account.id];
+    let fallbackProfileId = account.owner_id ?? demoProfile.id;
 
     const claimed = demoState.sendTasks.find(
       (item) =>
@@ -1150,43 +1139,19 @@ export async function getNextBotTask(telegramUserId: number) {
   }
 
   const supabase = getAdminSupabaseClient();
-  const { data: profile } = await supabase!
-    .from('profiles')
-    .select('*')
+  const { data: telegramAccount } = await supabase!
+    .from('telegram_accounts')
+    .select('id, workspace_id, owner_id')
     .eq('telegram_user_id', telegramUserId)
     .maybeSingle();
 
-  let userAccountIds: string[] = [];
-  let workspaceId: string;
-  let simulatedProfileId: string;
-
-  if (profile) {
-    workspaceId = profile.workspace_id;
-    simulatedProfileId = profile.id;
-    const { data: userAccounts } = await supabase!
-      .from('telegram_accounts')
-      .select('id')
-      .eq('owner_id', profile.id);
-
-    if (userAccounts && userAccounts.length > 0) {
-      userAccountIds = userAccounts.map(a => a.id);
-    }
-  } else {
-    // Fallback: check if the telegram user is a standalone sender account
-    const { data: telegramAccount } = await supabase!
-      .from('telegram_accounts')
-      .select('id, workspace_id, owner_id')
-      .eq('telegram_user_id', telegramUserId)
-      .maybeSingle();
-
-    if (!telegramAccount) {
-      throw new Error('NOT_LINKED');
-    }
-
-    workspaceId = telegramAccount.workspace_id;
-    userAccountIds = [telegramAccount.id];
-    simulatedProfileId = telegramAccount.owner_id ?? '';
+  if (!telegramAccount) {
+    throw new Error('NOT_LINKED');
   }
+
+  const workspaceId = telegramAccount.workspace_id;
+  const userAccountIds = [telegramAccount.id];
+  const simulatedProfileId = telegramAccount.owner_id ?? '';
 
   if (userAccountIds.length === 0) return null;
 
@@ -1225,7 +1190,7 @@ export async function getNextBotTask(telegramUserId: number) {
     .from('send_tasks')
     .update({
       status: 'claimed',
-      claimed_by_profile_id: profile.id,
+      claimed_by_profile_id: simulatedProfileId || null,
       claimed_at: dueNow,
     })
     .eq('id', pendingTask.id)
@@ -1325,30 +1290,16 @@ async function completeBotTask(
   }
 
   const supabase = getAdminSupabaseClient();
-  const { data: profile } = await supabase!
-    .from('profiles')
-    .select('*')
+
+  const { data: telegramAccount } = await supabase!
+    .from('telegram_accounts')
+    .select('id, workspace_id, owner_id')
     .eq('telegram_user_id', telegramUserId)
     .maybeSingle();
 
-  let workspaceId: string;
-  let simulatedProfileId: string;
-
-  if (profile) {
-    workspaceId = profile.workspace_id;
-    simulatedProfileId = profile.id;
-  } else {
-    // Fallback: check if the telegram user is a standalone sender account
-    const { data: telegramAccount } = await supabase!
-      .from('telegram_accounts')
-      .select('id, workspace_id, owner_id')
-      .eq('telegram_user_id', telegramUserId)
-      .maybeSingle();
-
-    if (!telegramAccount) return null;
-    workspaceId = telegramAccount.workspace_id;
-    simulatedProfileId = telegramAccount.owner_id ?? '';
-  }
+  if (!telegramAccount) return null;
+  const workspaceId = telegramAccount.workspace_id;
+  const simulatedProfileId = telegramAccount.owner_id ?? '';
 
   const { data: task } = await supabase!
     .from('send_tasks')
