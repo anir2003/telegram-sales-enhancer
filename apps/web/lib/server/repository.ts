@@ -459,6 +459,7 @@ export async function createAccount(input: unknown, context?: WorkspaceContext) 
     const record: TelegramAccountRecord = {
       id: demoId('account'),
       created_at: nowIso(),
+      telegram_user_id: null,
       ...payload,
     };
     demoState.accounts.unshift(record);
@@ -1106,7 +1107,7 @@ export async function consumeAccountLinkCode(input: {
 
 export async function getNextBotTask(telegramUserId: number) {
   if (!isSupabaseConfigured()) {
-    let profile = demoState.profiles.find((p) => p.telegram_user_id === telegramUserId);
+    let profile = demoProfile.telegram_user_id === telegramUserId ? demoProfile : null;
     let userAccountIds: string[] = [];
     let workspaceId: string;
     let fallbackProfileId: string;
