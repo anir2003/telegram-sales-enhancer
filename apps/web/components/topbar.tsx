@@ -10,6 +10,7 @@ const labels: Record<string, { title: string; subtitle: string }> = {
   '/accounts': { title: 'Accounts', subtitle: 'Telegram sender availability, workload, and campaign coverage' },
   '/activity': { title: 'Activity', subtitle: 'Audit trail for sends, skips, and replies' },
   '/settings': { title: 'Settings', subtitle: 'Organization and bot linking' },
+  '/experimental/telegram-checker': { title: 'Telegram Checker', subtitle: 'Look up any Telegram username using your personal API credentials' },
 };
 
 export function TopBar({
@@ -21,7 +22,9 @@ export function TopBar({
 }) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
-  const basePath = pathname.startsWith('/campaigns/') ? '/campaigns' : pathname;
+  const basePath = pathname.startsWith('/campaigns/') ? '/campaigns'
+    : pathname.startsWith('/experimental/') ? pathname
+    : pathname;
   const page = labels[basePath] ?? labels['/dashboard'];
 
   return (

@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   transpilePackages: ['@telegram-enhancer/shared'],
   typedRoutes: false,
+  serverExternalPackages: ['telegram'],
 
   // Performance optimizations
   experimental: {

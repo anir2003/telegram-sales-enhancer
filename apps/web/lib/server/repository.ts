@@ -1743,3 +1743,83 @@ export async function updateSequenceStep(stepId: string, input: unknown, context
   if (error) throw error;
   return data as SequenceStepRecord;
 }
+
+// ─── Experimental: Telegram API Credentials ──────────────────────────────────
+
+export type TelegramCredentialRow = {
+  id: string;
+  workspace_id: string;
+  profile_id: string;
+  api_id: string;
+  api_hash: string;
+  phone: string;
+  session_string: string | null;
+  phone_code_hash: string | null;
+  is_authenticated: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function getTelegramCredential(context: WorkspaceContext): Promise<TelegramCredentialRow | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = getAdminSupabaseClient();
+  const { data } = await supabase!
+    .from('telegram_api_credentials')
+    .select('*')
+    .eq('workspace_id', context.workspaceId)
+    .eq('profile_id', context.profileId)
+    .maybeSingle();
+  return data as TelegramCredentialRow | null;
+}
+
+export async function upsertTelegramCredential(
+  context: WorkspaceContext,
+  input: { api_id: string; api_hash: string; phone: string },
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = getAdminSupabaseClient();
+  await supabase!.from('telegram_api_credentials').upsert(
+    {
+      workspace_id: context.workspaceId,
+      profile_id: context.profileId,
+      api_id: input.api_id,
+      api_hash: input.api_hash,
+      phone: input.phone,
+      is_authenticated: false,
+      session_string: null,
+      phone_code_hash: null,
+      updated_at: nowIso(),
+    },
+    { onConflict: 'profile_id,workspace_id' },
+  );
+}
+
+export async function saveTelegramPhoneCodeHash(context: WorkspaceContext, phoneCodeHash: string, sessionString: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = getAdminSupabaseClient();
+  await supabase!
+    .from('telegram_api_credentials')
+    .update({ phone_code_hash: phoneCodeHash, session_string: sessionString, updated_at: nowIso() })
+    .eq('workspace_id', context.workspaceId)
+    .eq('profile_id', context.profileId);
+}
+
+export async function saveTelegramSession(context: WorkspaceContext, sessionString: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = getAdminSupabaseClient();
+  await supabase!
+    .from('telegram_api_credentials')
+    .update({ session_string: sessionString, phone_code_hash: null, is_authenticated: true, updated_at: nowIso() })
+    .eq('workspace_id', context.workspaceId)
+    .eq('profile_id', context.profileId);
+}
+
+export async function deleteTelegramCredential(context: WorkspaceContext): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = getAdminSupabaseClient();
+  await supabase!
+    .from('telegram_api_credentials')
+    .delete()
+    .eq('workspace_id', context.workspaceId)
+    .eq('profile_id', context.profileId);
+}
