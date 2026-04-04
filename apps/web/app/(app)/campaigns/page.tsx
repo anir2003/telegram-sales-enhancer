@@ -778,7 +778,6 @@ export default function CampaignsPage() {
                 display: 'flex', flexDirection: 'column', gap: 0,
                 background: 'var(--card)',
                 border: '1px solid var(--border-soft)',
-                borderTop: `2px solid ${color}`,
                 borderRadius: 6,
                 padding: '14px 16px',
                 textDecoration: 'none', color: 'inherit',
