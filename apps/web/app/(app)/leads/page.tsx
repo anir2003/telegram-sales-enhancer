@@ -252,17 +252,21 @@ export default function LeadsPage() {
         <div className="card form-grid">
           <div className="card-title">Import CSV</div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: 'var(--panel-alt)', border: '1px solid var(--border-soft)', borderRadius: 5, fontSize: 11, lineHeight: 1.7 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ color: 'var(--text-muted)', fontWeight: 600, minWidth: 54 }}>Required</span>
-              <span style={{ color: 'var(--text-muted)' }}>First Name, Telegram Username</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px', background: 'var(--panel-alt)', border: '1px solid var(--border-soft)', borderRadius: 5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase', minWidth: 54 }}>Required</span>
+              {['First Name', 'Telegram Username', 'Company'].map(col => (
+                <span key={col} style={{ padding: '3px 9px', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 4, fontSize: 11, color: 'var(--text)', background: 'rgba(255,255,255,0.06)', fontWeight: 500 }}>{col}</span>
+              ))}
             </div>
-            <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--border-soft)', paddingTop: 6 }}>
-              <span style={{ color: 'var(--text-dim)', fontWeight: 600, minWidth: 54 }}>Optional</span>
-              <span style={{ color: 'var(--text-dim)' }}>Last Name, Company, Tags, Notes, Source</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', letterSpacing: '0.05em', textTransform: 'uppercase', minWidth: 54 }}>Optional</span>
+              {['Last Name', 'Tags', 'Notes', 'Source'].map(col => (
+                <span key={col} style={{ padding: '3px 9px', border: '1px solid var(--border-soft)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', background: 'transparent' }}>{col}</span>
+              ))}
             </div>
-            <div style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 6, color: 'var(--text-dim)', fontSize: 10 }}>
-              Duplicates (same Telegram username) are automatically merged · Do not include the @ symbol
+            <div style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 8, color: 'var(--text-dim)', fontSize: 10, lineHeight: 1.5 }}>
+              Duplicates auto-merged · No @ in username
             </div>
           </div>
 
