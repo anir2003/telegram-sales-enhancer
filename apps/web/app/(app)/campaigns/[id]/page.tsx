@@ -29,23 +29,30 @@ const TIMEZONE_OPTIONS = [
 const STATIC_STAGES_BEFORE = ['queued', 'due'] as const;
 const STATIC_STAGES_AFTER = ['replied', 'meeting_scheduled', 'blocked', 'call_in_future', 'skipped', 'completed'] as const;
 
-const stageLabels: Record<string, string> = {
+const BASE_STAGE_LABELS: Record<string, string> = {
   queued: 'Queued',
   due: 'Due',
-  vfu_1: 'Sent — Waiting FU 1',
-  vfu_2: 'FU 1 Sent — Waiting FU 2',
-  vfu_3: 'FU 2 Sent — Waiting FU 3',
-  vfu_4: 'FU 3 Sent — Waiting FU 4',
   replied: 'Replied',
   meeting_scheduled: 'Meeting Scheduled',
   blocked: 'Blocked',
   call_in_future: 'Call in Future',
   skipped: 'Skipped',
   completed: 'Completed',
-  // legacy
+  // legacy fallbacks
   sent_waiting_followup: 'Sent — Waiting FU 1',
   first_followup_done: 'FU 1 Done',
 };
+
+function getStageLabel(stage: string): string {
+  if (BASE_STAGE_LABELS[stage]) return BASE_STAGE_LABELS[stage];
+  const vfuMatch = stage.match(/^vfu_(\d+)$/);
+  if (vfuMatch) {
+    const n = parseInt(vfuMatch[1]);
+    if (n === 1) return 'Sent — Waiting FU 1';
+    return `FU ${n - 1} Sent — Waiting FU ${n}`;
+  }
+  return stage.replaceAll('_', ' ');
+}
 
 // Stage icons as SVG path data
 const stageIcons: Record<string, { path: string; color: string }> = {
@@ -64,7 +71,9 @@ const stageIcons: Record<string, { path: string; color: string }> = {
 };
 
 function StageIcon({ stage }: { stage: string }) {
-  const icon = stageIcons[stage];
+  // For dynamic vfu_N stages beyond what's hardcoded, fall back to vfu_4 icon style
+  const vfuMatch = !stageIcons[stage] && stage.match(/^vfu_(\d+)$/);
+  const icon = stageIcons[stage] ?? (vfuMatch ? { color: '#a78bfa', path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' } : null);
   if (!icon) return null;
   return (
     <div className="stage-icon" style={{ color: icon.color }}>
@@ -76,10 +85,10 @@ function StageIcon({ stage }: { stage: string }) {
 }
 
 const templatePlaceholders = [
-  { label: 'First Name', token: '{First Name}' },
-  { label: 'Last Name', token: '{Last Name}' },
-  { label: 'Company', token: '{Company}' },
-  { label: 'Telegram Username', token: '{Telegram Username}' },
+  { label: 'First Name', token: '{First Name}', color: '#6366f1' },
+  { label: 'Last Name', token: '{Last Name}', color: '#ec4899' },
+  { label: 'Company', token: '{Company}', color: '#f59e0b' },
+  { label: 'Telegram Username', token: '{Telegram Username}', color: '#14b8a6' },
 ] as const;
 
 function normalizeTelegramUsername(value: string) {
@@ -136,27 +145,28 @@ function AccountPill({ account, colorIndex }: { account: Account | null | undefi
 
 // Map a lead's actual status + next_step_order to a virtual stage ID
 function getVirtualStage(item: any): string {
-  if (item.status === 'sent_waiting_followup') return 'vfu_1';
-  if (item.status === 'first_followup_done') {
-    const next = item.next_step_order;
-    if (!next || next >= 5) return 'vfu_4';
-    if (next === 4) return 'vfu_3';
-    if (next === 3) return 'vfu_2';
-    return 'vfu_2';
+  if (item.status === 'sent_waiting_followup' || item.status === 'first_followup_done') {
+    // current_step_order tells us which step was last sent → vfu_N
+    const sent = item.current_step_order ?? (item.status === 'sent_waiting_followup' ? 1 : 2);
+    return `vfu_${sent}`;
   }
   return item.status;
 }
 
 // Map a virtual stage back to real DB patch values
 function patchForVirtualStage(virtualStage: string, totalSteps: number): Record<string, unknown> {
-  switch (virtualStage) {
-    case 'vfu_1': return { status: 'sent_waiting_followup', next_step_order: 2 };
-    case 'vfu_2': return { status: 'first_followup_done', next_step_order: 3 };
-    case 'vfu_3': return { status: 'first_followup_done', next_step_order: 4 };
-    case 'vfu_4': return { status: 'first_followup_done', next_step_order: totalSteps > 4 ? 5 : null };
-    case 'replied': return { status: 'replied', last_reply_at: new Date().toISOString() };
-    default: return { status: virtualStage };
+  const vfuMatch = virtualStage.match(/^vfu_(\d+)$/);
+  if (vfuMatch) {
+    const stepSent = parseInt(vfuMatch[1]);
+    const nextStepOrder = stepSent + 1;
+    return {
+      status: stepSent === 1 ? 'sent_waiting_followup' : 'first_followup_done',
+      current_step_order: stepSent,
+      next_step_order: nextStepOrder <= totalSteps ? nextStepOrder : null,
+    };
   }
+  if (virtualStage === 'replied') return { status: 'replied', last_reply_at: new Date().toISOString() };
+  return { status: virtualStage };
 }
 
 export default function CampaignDetailPage() {
@@ -254,8 +264,8 @@ export default function CampaignDetailPage() {
     return map;
   }, [detail?.accounts]);
 
-  // Determine follow-up count from steps (max 4)
-  const followUpCount = useMemo(() => Math.min(Math.max((detail?.steps?.length ?? 2) - 1, 1), 4), [detail?.steps]);
+  // Determine follow-up count from steps — one vfu column per step except the last
+  const followUpCount = useMemo(() => Math.max((detail?.steps?.length ?? 1) - 1, 1), [detail?.steps]);
 
   // Build dynamic stage order
   const dynamicStageOrder = useMemo(() => {
@@ -696,7 +706,7 @@ export default function CampaignDetailPage() {
                   <div className="stage-column-head">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <StageIcon stage={column.status} />
-                      <span>{stageLabels[column.status] || column.status.replaceAll('_', ' ')}</span>
+                      <span>{getStageLabel(column.status)}</span>
                     </div>
                     <span className="badge">{column.items.length}</span>
                   </div>
@@ -789,7 +799,7 @@ export default function CampaignDetailPage() {
                       <div>{lead?.company_name ?? 'Company'}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <StageIcon stage={vs} />
-                        <span style={{ fontSize: 11 }}>{stageLabels[vs] || vs}</span>
+                        <span style={{ fontSize: 11 }}>{getStageLabel(vs)}</span>
                       </div>
                       <div><AccountPill account={account} colorIndex={colorIdx} /></div>
                       <div>{item.last_sent_at ? formatTimestamp(item.last_sent_at) : '—'}</div>
@@ -824,7 +834,7 @@ export default function CampaignDetailPage() {
                 style={{ width: 140, flexShrink: 0 }}
                 value={leadStageFilter}
                 onChange={setLeadStageFilter}
-                options={[{ value: 'all', label: 'All Stages' }, ...dynamicStageOrder.map(s => ({ value: s, label: stageLabels[s] || s.replaceAll('_', ' ') }))]}
+                options={[{ value: 'all', label: 'All Stages' }, ...dynamicStageOrder.map(s => ({ value: s, label: getStageLabel(s) }))]}
               />
             </div>
           </div>
@@ -888,7 +898,10 @@ export default function CampaignDetailPage() {
             <div className="card-subtitle" style={{ marginTop: 8 }}>Click a placeholder to insert at cursor:</div>
             <div className="placeholder-pills" style={{ marginTop: 8 }}>
               {templatePlaceholders.map((p) => (
-                <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}>{p.label}</button>
+                <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}
+                  style={{ background: `${p.color}18`, color: p.color, borderColor: `${p.color}50`, borderRadius: 4 }}>
+                  {p.label}
+                </button>
               ))}
             </div>
             <div className="sequence-stack" style={{ marginTop: 24 }}>
@@ -944,7 +957,7 @@ export default function CampaignDetailPage() {
             <div className="form-grid">
               <div className="form-grid">
                 <label className="dim" style={{ fontSize: 11 }}>Status</label>
-                <CustomSelect value={leadEditForm.status} onChange={v => setLeadEditForm(f => ({ ...f, status: v }))} options={dynamicStageOrder.map(s => ({ value: s, label: stageLabels[s] || s.replaceAll('_', ' ') }))} />
+                <CustomSelect value={leadEditForm.status} onChange={v => setLeadEditForm(f => ({ ...f, status: v }))} options={dynamicStageOrder.map(s => ({ value: s, label: getStageLabel(s) }))} />
               </div>
               <div className="form-grid">
                 <label className="dim" style={{ fontSize: 11 }}>Next Step Order</label>
