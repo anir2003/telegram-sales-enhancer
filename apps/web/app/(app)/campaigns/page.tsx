@@ -497,10 +497,16 @@ export default function CampaignsPage() {
                     </div>
                   </div>
 
-                  {leadSelectMode === 'leads' ? (<>
-                    {/* Search + Company + Tag filters */}
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <input className="input" style={{ flex: 1 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+                  {/* Search bar — always visible, filters leads or companies depending on mode */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      className="input"
+                      style={{ flex: 1 }}
+                      placeholder={leadSelectMode === 'leads' ? 'Search leads...' : 'Search companies...'}
+                      value={leadSearch}
+                      onChange={(e) => setLeadSearch(e.target.value)}
+                    />
+                    {leadSelectMode === 'leads' && (<>
                       <CustomSelect
                         value={leadCompanyFilter}
                         onChange={(v) => {
@@ -514,7 +520,10 @@ export default function CampaignsPage() {
                         style={{ width: 170, flexShrink: 0 }}
                       />
                       <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ width: 130, flexShrink: 0 }} />
-                    </div>
+                    </>)}
+                  </div>
+
+                  {leadSelectMode === 'leads' ? (<>
                     <div className="btn-row" style={{ fontSize: 12 }}>
                       <button className="chip" type="button" onClick={selectAllFiltered}>Select all {filteredLeads.length} shown</button>
                       <button className="chip" type="button" onClick={deselectAllFiltered}>Deselect shown</button>
@@ -539,7 +548,8 @@ export default function CampaignsPage() {
                   </>) : (<>
                     {/* Company selection mode */}
                     <div className="selection-list">
-                      {allCompanies.length ? allCompanies.map((company) => {
+                      {allCompanies.filter(c => !leadSearch.trim() || c.toLowerCase().includes(leadSearch.trim().toLowerCase())).length
+                        ? allCompanies.filter(c => !leadSearch.trim() || c.toLowerCase().includes(leadSearch.trim().toLowerCase())).map((company) => {
                         const total = companyLeadCounts[company] ?? 0;
                         const companyLeadIds = leads.filter(l => l.company_name === company).map(l => l.id);
                         const selectedCount = companyLeadIds.filter(id => selectedLeadIds.includes(id)).length;
@@ -574,6 +584,7 @@ export default function CampaignsPage() {
                           </label>
                         );
                       }) : <div style={{ padding: 16, fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>No companies found.</div>}
+
                     </div>
                     <div className="btn-row" style={{ fontSize: 12 }}>
                       <button className="chip" type="button" onClick={() => setSelectedLeadIds(leads.map(l => l.id))}>Select all companies</button>
