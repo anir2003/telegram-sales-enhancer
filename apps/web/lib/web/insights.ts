@@ -94,7 +94,7 @@ export function summariseCampaign(detail: CampaignDetail, activity: Activity[] =
   const totalLeads = detail.attachedLeads.length;
   const replies = detail.attachedLeads.filter((lead) => lead.status === 'replied').length;
   const blocked = detail.attachedLeads.filter((lead) => lead.status === 'blocked').length;
-  const active = detail.attachedLeads.filter((lead) => ['due', 'queued', 'sent_waiting_followup'].includes(lead.status)).length;
+  const active = detail.attachedLeads.filter((lead) => ['due', 'queued', 'sent_waiting_followup', 'first_followup_done'].includes(lead.status)).length;
   const completed = detail.attachedLeads.filter((lead) => lead.status === 'completed').length;
   const sent = detail.attachedLeads.filter((lead) => Boolean(lead.last_sent_at)).length;
   const replyRate = sent ? Math.round((replies / sent) * 100) : 0;

@@ -215,6 +215,25 @@ button, input, textarea, select {
   gap: 10px;
 }
 
+.theme-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.theme-icon-btn:hover {
+  color: var(--text);
+  border-color: var(--border-soft);
+}
+
 .topbar-user {
   font-size: 11px;
   color: var(--text-muted);
@@ -931,37 +950,225 @@ button, input, textarea, select {
   max-width: 540px;
 }
 
-.wizard-steps {
+/* ================================
+   WIZARD STEPPER - Minimal design
+   ================================ */
+
+.wizard-stepper {
   display: flex;
-  overflow-x: auto;
+  align-items: center;
+  padding: 24px 28px;
   border-bottom: 1px solid var(--border-soft);
+  gap: 0;
 }
 
-.wizard-step-btn {
-  flex: 1;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-dim);
-  font-size: 11px;
+.wizard-stepper-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
-  white-space: nowrap;
   transition: all 0.15s ease;
 }
 
-.wizard-step-btn:hover {
-  color: var(--text-muted);
-  background: var(--panel-alt);
+.wizard-stepper-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1.5px solid var(--border-soft);
+  color: var(--text-dim);
+  background: transparent;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.wizard-step-btn.active {
+.wizard-stepper-step.active .wizard-stepper-circle {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.wizard-stepper-step.done .wizard-stepper-circle {
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
+.wizard-stepper-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.wizard-stepper-step.active .wizard-stepper-label {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  font-weight: 500;
 }
 
-.wizard-step-btn.done {
+.wizard-stepper-step.done .wizard-stepper-label {
   color: var(--text-muted);
+}
+
+.wizard-stepper-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+  margin: 0 12px;
+  min-width: 16px;
+}
+
+.wizard-stepper-line.done {
+  background: var(--text-dim);
+}
+
+.wizard-body {
+  padding: 28px;
+}
+
+.wizard-section-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.wizard-section-subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+
+/* Sequence step cards — cleaner */
+.sequence-step-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--panel-alt);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.sequence-step-card.active {
+  border-color: var(--border-strong);
+}
+
+.sequence-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+
+.sequence-step-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sequence-step-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--panel-strong);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.sequence-step-card.active .sequence-step-number {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.sequence-step-name-input {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 2px 0;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+}
+
+.sequence-step-name-input::placeholder {
+  color: var(--text-dim);
+}
+
+.sequence-step-name-input:focus {
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.sequence-step-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.sequence-step-delay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sequence-step-delay input {
+  width: 48px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  text-align: center;
+}
+
+.sequence-step-delete {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s ease;
+}
+
+.sequence-step-delete:hover {
+  color: #e74c3c;
+  border-color: #e74c3c40;
+  background: #e74c3c10;
+}
+
+.sequence-step-delete:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  color: var(--text-dim);
+  border-color: transparent;
+  background: transparent;
+}
+
+.sequence-step-body {
+  padding: 16px;
 }
 
 .campaign-progress-bar {

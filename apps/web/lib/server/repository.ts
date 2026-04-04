@@ -638,6 +638,7 @@ export async function addSequenceStep(campaignId: string, input: unknown, contex
   const parsed = sequenceStepInputSchema.parse(input);
   const payload = {
     ...parsed,
+    step_name: parsed.step_name ?? null,
     workspace_id: active.workspaceId,
     campaign_id: campaignId,
   };
@@ -685,6 +686,7 @@ export async function attachLeadToCampaign(campaignId: string, leadId: string, c
       last_reply_at: null,
       stop_reason: null,
       notes: null,
+      step_events: [],
     };
     demoState.campaignLeads.push(record);
     return record;
@@ -1204,13 +1206,26 @@ async function completeBotTask(
         campaignLead.status = 'replied';
         campaignLead.stop_reason = options.replyStatus;
         campaignLead.last_reply_at = nowIso();
+        // Record reply event
+        const events = campaignLead.step_events || [];
+        events.push({ step_order: task.step_order, event: 'replied', at: nowIso(), account_id: task.assigned_account_id });
+        campaignLead.step_events = events;
       } else if (options.taskStatus === 'skipped') {
         campaignLead.status = 'skipped';
         campaignLead.stop_reason = 'Skipped manually';
       } else {
-        // Always go to sent_waiting_followup after sending, even on last step.
-        // Leads should stay in "waiting" until a reply is received or manually completed.
-        campaignLead.status = 'sent_waiting_followup';
+        // Record sent event
+        const events = campaignLead.step_events || [];
+        const eventType: 'sent' | 'followup_sent' = task.step_order === 1 ? 'sent' : 'followup_sent';
+        events.push({ step_order: task.step_order, event: eventType, at: nowIso(), account_id: task.assigned_account_id });
+        campaignLead.step_events = events;
+
+        // Determine status based on step
+        if (task.step_order === 1) {
+          campaignLead.status = 'sent_waiting_followup';
+        } else {
+          campaignLead.status = 'first_followup_done';
+        }
         campaignLead.current_step_order = task.step_order;
         campaignLead.last_sent_at = nowIso();
         if (nextStep) {
@@ -1277,6 +1292,7 @@ async function completeBotTask(
         status: 'replied',
         stop_reason: options.replyStatus,
         last_reply_at: nowIso(),
+        step_events: [...(campaignLead.step_events || []), { step_order: task.step_order, event: 'replied', at: nowIso(), account_id: task.assigned_account_id }],
       })
       .eq('id', campaignLead.id);
   } else if (options.taskStatus === 'skipped') {
@@ -1297,29 +1313,34 @@ async function completeBotTask(
       .limit(1)
       .maybeSingle();
 
-    // Always go to sent_waiting_followup after sending, even on last step.
-    // Leads should stay in "waiting" until a reply is received or manually completed.
+    // Always go to sent_waiting_followup or first_followup_done after sending
+    const newStatus = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
+    const eventType = task.step_order === 1 ? 'sent' : 'followup_sent';
+    const newEvents = [...(campaignLead.step_events || []), { step_order: task.step_order, event: eventType, at: nowIso(), account_id: task.assigned_account_id }];
+
     if (nextStep) {
       const nextDueAt = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
       await supabase!
         .from('campaign_leads')
         .update({
-          status: 'sent_waiting_followup',
+          status: newStatus,
           current_step_order: task.step_order,
           next_step_order: nextStep.step_order,
           next_due_at: nextDueAt,
           last_sent_at: nowIso(),
+          step_events: newEvents,
         })
         .eq('id', campaignLead.id);
     } else {
       await supabase!
         .from('campaign_leads')
         .update({
-          status: 'sent_waiting_followup',
+          status: newStatus,
           current_step_order: task.step_order,
           next_step_order: null,
           next_due_at: null,
           last_sent_at: nowIso(),
+          step_events: newEvents,
         })
         .eq('id', campaignLead.id);
     }
