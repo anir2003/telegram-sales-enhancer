@@ -179,6 +179,7 @@ export default function CampaignDetailPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [togglingStatus, setTogglingStatus] = useState(false);
+  const [runningScheduler, setRunningScheduler] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
@@ -344,6 +345,18 @@ export default function CampaignDetailPage() {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to change status'}`);
     } finally {
       setTogglingStatus(false);
+    }
+  };
+
+  const handleRunScheduler = async () => {
+    setRunningScheduler(true);
+    try {
+      await fetchJson('/api/scheduler/run', { method: 'POST' });
+      await load();
+    } catch (err: any) {
+      setStatusMessage(`Scheduler error: ${err?.message ?? 'Failed'}`);
+    } finally {
+      setRunningScheduler(false);
     }
   };
 
@@ -654,6 +667,23 @@ export default function CampaignDetailPage() {
                 Table
               </button>
             </div>
+            <button
+              onClick={handleRunScheduler}
+              disabled={runningScheduler}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', fontSize: 11, cursor: runningScheduler ? 'not-allowed' : 'pointer',
+                background: 'var(--panel-alt)', border: '1px solid var(--border-soft)',
+                borderRadius: 4, color: runningScheduler ? 'var(--text-dim)' : 'var(--text)',
+                fontFamily: 'inherit', opacity: runningScheduler ? 0.6 : 1, transition: 'opacity 0.15s',
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+              </svg>
+              {runningScheduler ? 'Running…' : 'Run Scheduler'}
+            </button>
           </div>
 
           {stageView === 'board' ? (
