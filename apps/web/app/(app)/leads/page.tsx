@@ -255,8 +255,12 @@ export default function LeadsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px', background: 'var(--panel-alt)', border: '1px solid var(--border-soft)', borderRadius: 5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase', minWidth: 54 }}>Required</span>
-              {['First Name', 'Telegram Username', 'Company'].map(col => (
-                <span key={col} style={{ padding: '3px 9px', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 4, fontSize: 11, color: 'var(--text)', background: 'rgba(255,255,255,0.06)', fontWeight: 500 }}>{col}</span>
+              {[
+                { label: 'First Name',         color: '#6366f1' },
+                { label: 'Telegram Username',  color: '#14b8a6' },
+                { label: 'Company',            color: '#f59e0b' },
+              ].map(({ label, color }) => (
+                <span key={label} style={{ padding: '3px 9px', border: `1px solid ${color}50`, borderRadius: 4, fontSize: 11, color, background: `${color}18`, fontWeight: 500 }}>{label}</span>
               ))}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
