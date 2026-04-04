@@ -997,52 +997,69 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .wizard-stepper {
   display: flex;
-  align-items: center;
-  padding: 24px 28px;
+  align-items: stretch;
   border-bottom: 1px solid var(--border-soft);
   gap: 0;
+  padding: 0 28px;
 }
 
 .wizard-stepper-step {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  padding: 14px 0;
+  position: relative;
+  transition: opacity 0.15s ease;
+}
+
+/* Active underline — same pattern as .tab-btn */
+.wizard-stepper-step.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px 1px 0 0;
 }
 
 .wizard-stepper-circle {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1.5px solid var(--border-soft);
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--panel-alt);
   color: var(--text-dim);
-  background: transparent;
-  transition: all 0.2s ease;
+  border: 1px solid var(--border-soft);
   flex-shrink: 0;
+  transition: all 0.15s ease;
 }
 
 .wizard-stepper-step.active .wizard-stepper-circle {
-  border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-contrast);
+  border-color: var(--accent);
 }
 
 .wizard-stepper-step.done .wizard-stepper-circle {
-  border-color: var(--text-muted);
-  color: var(--text-muted);
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 .wizard-stepper-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-dim);
   white-space: nowrap;
   transition: color 0.15s ease;
+  letter-spacing: 0.01em;
 }
 
 .wizard-stepper-step.active .wizard-stepper-label {
@@ -1051,19 +1068,20 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .wizard-stepper-step.done .wizard-stepper-label {
-  color: var(--text-muted);
+  color: var(--text-dim);
 }
 
 .wizard-stepper-line {
   flex: 1;
   height: 1px;
   background: var(--border-soft);
-  margin: 0 12px;
-  min-width: 16px;
+  margin: 0 10px;
+  align-self: center;
+  min-width: 12px;
 }
 
 .wizard-stepper-line.done {
-  background: var(--text-dim);
+  background: var(--border-strong);
 }
 
 .wizard-body {

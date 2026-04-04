@@ -366,7 +366,9 @@ export default function CampaignsPage() {
                     onClick={() => setWizardStep(s.key)}
                   >
                     <div className="wizard-stepper-circle">
-                      {i < wizardStepIndex ? '✓' : i + 1}
+                      {i < wizardStepIndex
+                        ? <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,6 5,9 10,3"/></svg>
+                        : i + 1}
                     </div>
                     <span className="wizard-stepper-label">{s.label}</span>
                   </div>
