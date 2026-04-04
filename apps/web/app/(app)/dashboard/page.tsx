@@ -5,6 +5,93 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchJson, invalidateCache } from '@/lib/web/fetch-json';
 import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
 
+function MiniCalendar() {
+  const today = new Date();
+  const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<Date | null>(today);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const monthName = viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+  // Build calendar cells
+  const cells: { date: Date; isCurrentMonth: boolean; isToday: boolean }[] = [];
+
+  // Previous month days
+  for (let i = firstDay - 1; i >= 0; i--) {
+    cells.push({ date: new Date(year, month - 1, daysInPrevMonth - i), isCurrentMonth: false, isToday: false });
+  }
+  // Current month days
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(year, month, d);
+    const isToday = date.toDateString() === today.toDateString();
+    cells.push({ date, isCurrentMonth: true, isToday });
+  }
+  // Next month days to complete grid
+  const remaining = 35 - cells.length;
+  for (let d = 1; d <= remaining; d++) {
+    cells.push({ date: new Date(year, month + 1, d), isCurrentMonth: false, isToday: false });
+  }
+
+  const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
+
+  const selectedLabel = selectedDate
+    ? selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+    : null;
+
+  const isSelected = (date: Date) => selectedDate && date.toDateString() === selectedDate.toDateString();
+
+  return (
+    <div className="mini-calendar">
+      <div className="mini-calendar-header">
+        <button className="mini-calendar-nav" onClick={prevMonth}>‹</button>
+        <div className="mini-calendar-title">{monthName}</div>
+        <button className="mini-calendar-nav" onClick={nextMonth}>›</button>
+      </div>
+      <div className="mini-calendar-grid">
+        {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+          <div key={d} className="mini-calendar-day-label">{d}</div>
+        ))}
+        {cells.map((cell, i) => (
+          <div
+            key={i}
+            className={[
+              'mini-calendar-cell',
+              cell.isToday ? 'today' : '',
+              !cell.isCurrentMonth ? 'other-month' : '',
+              isSelected(cell.date) && !cell.isToday ? 'selected' : '',
+            ].filter(Boolean).join(' ')}
+            onClick={() => setSelectedDate(cell.date)}
+          >
+            {cell.date.getDate()}
+          </div>
+        ))}
+      </div>
+      {selectedDate && (
+        <div className="mini-calendar-event-list">
+          <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            {selectedLabel}
+          </div>
+          {selectedDate.toDateString() === today.toDateString() ? (
+            <div className="mini-calendar-event-item">
+              <div className="mini-calendar-event-dot" />
+              <span>Today — check your active campaigns</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>No events scheduled</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -13,89 +100,53 @@ export default function DashboardPage() {
   const [details, setDetails] = useState<CampaignDetail[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Use useCallback to prevent recreating the load function on every render
   const load = useCallback(async () => {
     setLoading(true);
-    
-    // Parallel fetch of all main data sources
     const [campaignResponse, accountResponse, leadResponse, activityResponse] = await Promise.all([
       fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
       fetchJson<{ accounts: Account[] }>('/api/accounts'),
       fetchJson<{ leads: Lead[] }>('/api/leads'),
       fetchJson<{ activity: Activity[] }>('/api/activity'),
     ]);
-
     const nextCampaigns = campaignResponse.campaigns ?? [];
     setCampaigns(nextCampaigns);
     setAccounts(accountResponse.accounts ?? []);
     setLeads(leadResponse.leads ?? []);
     setActivity(activityResponse.activity ?? []);
-
-    // Only fetch campaign details if there are campaigns
     if (nextCampaigns.length > 0) {
-      const nextDetails = await Promise.all(
-        nextCampaigns.map((campaign: Campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
-      );
+      const nextDetails = await Promise.all(nextCampaigns.map((c: Campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)));
       setDetails(nextDetails);
     } else {
       setDetails([]);
     }
-    
     setLoading(false);
   }, []);
 
-  // Refresh data function that clears cache first
-  const refresh = useCallback(async () => {
-    invalidateCache('/api/');
-    await load();
-  }, [load]);
+  const refresh = useCallback(async () => { invalidateCache('/api/'); await load(); }, [load]);
 
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Auto-refresh data every 60 seconds (for live dashboard feel)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      void refresh();
-    }, 60000);
+    const interval = setInterval(() => { void refresh(); }, 60000);
     return () => clearInterval(interval);
   }, [refresh]);
 
   const metrics = useMemo(() => {
-    const campaignSummaries = details.map((detail) => ({
-      campaign: detail.campaign,
-      ...summariseCampaign(detail, activity),
-    }));
-    const activeAccounts = accounts.filter((account) => account.is_active).length;
-    const sentEvents = activity.filter((item) => item.event_type === 'task.sent').length;
-    const replyEvents = activity.filter((item) => item.event_type === 'task.sent' && item.payload?.reply_status).length;
-    const avgReplyRate = sentEvents ? Math.round((replyEvents / sentEvents) * 100) : campaignSummaries.length
-      ? Math.round(campaignSummaries.reduce((sum, item) => sum + item.replyRate, 0) / campaignSummaries.length)
+    const campaignSummaries = details.map((detail) => ({ campaign: detail.campaign, ...summariseCampaign(detail, activity) }));
+    const activeAccounts = accounts.filter((a) => a.is_active).length;
+    const sentEvents = activity.filter((i) => i.event_type === 'task.sent').length;
+    const replyEvents = activity.filter((i) => i.event_type === 'task.sent' && i.payload?.reply_status).length;
+    const avgReplyRate = sentEvents
+      ? Math.round((replyEvents / sentEvents) * 100)
+      : campaignSummaries.length
+      ? Math.round(campaignSummaries.reduce((sum, i) => sum + i.replyRate, 0) / campaignSummaries.length)
       : 0;
-    const liveCampaigns = campaigns.filter((campaign) => campaign.status === 'active').length;
-    const openLeads = campaignSummaries.reduce((sum, item) => sum + item.active, 0);
-    const blockedLeads = campaignSummaries.reduce((sum, item) => sum + item.blocked, 0);
-    const heatmap = buildHeatmap(activity, 12);
-    const accountInsights = buildAccountInsights(accounts, details)
-      .sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount)
-      .slice(0, 4);
-    const campaignPulse = campaignSummaries
-      .sort((a, b) => b.sentToday - a.sentToday || b.totalLeads - a.totalLeads)
-      .slice(0, 4);
-
-    return {
-      activeAccounts,
-      avgReplyRate,
-      liveCampaigns,
-      openLeads,
-      blockedLeads,
-      heatmap,
-      accountInsights,
-      campaignPulse,
-      sentEvents,
-      totalLeads: leads.length,
-    };
+    const liveCampaigns = campaigns.filter((c) => c.status === 'active').length;
+    const openLeads = campaignSummaries.reduce((sum, i) => sum + i.active, 0);
+    const blockedLeads = campaignSummaries.reduce((sum, i) => sum + i.blocked, 0);
+    const heatmap = buildHeatmap(activity, 36);
+    const accountInsights = buildAccountInsights(accounts, details).sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount).slice(0, 4);
+    const campaignPulse = campaignSummaries.sort((a, b) => b.sentToday - a.sentToday || b.totalLeads - a.totalLeads).slice(0, 4);
+    return { activeAccounts, avgReplyRate, liveCampaigns, openLeads, blockedLeads, heatmap, accountInsights, campaignPulse, sentEvents, totalLeads: leads.length };
   }, [accounts, activity, campaigns, details, leads.length]);
 
   return (
@@ -104,66 +155,67 @@ export default function DashboardPage() {
         <div className="card">
           <div className="card-title">Telegram Accounts Active</div>
           <div className="card-value">{loading ? '...' : metrics.activeAccounts}</div>
-          <div className="card-subtitle">Sender accounts currently available for campaign assignment.</div>
+          <div className="card-subtitle">Sender accounts available for campaigns.</div>
         </div>
         <div className="card">
           <div className="card-title">Avg Reply Rate</div>
           <div className="card-value">{loading ? '...' : formatPercent(metrics.avgReplyRate)}</div>
-          <div className="card-subtitle">Replies captured across campaign activity and lead progression.</div>
+          <div className="card-subtitle">Replies across all campaign activity.</div>
         </div>
         <div className="card">
           <div className="card-title">Active Campaigns</div>
           <div className="card-value">{loading ? '...' : metrics.liveCampaigns}</div>
-          <div className="card-subtitle">Campaigns currently feeding Telegram tasks to the team.</div>
+          <div className="card-subtitle">Currently feeding Telegram tasks.</div>
         </div>
         <div className="card">
           <div className="card-title">Leads In Motion</div>
           <div className="card-value">{loading ? '...' : metrics.openLeads}</div>
-          <div className="card-subtitle">{metrics.blockedLeads} blocked. {metrics.totalLeads} reusable leads in CRM.</div>
+          <div className="card-subtitle">{metrics.blockedLeads} blocked. {metrics.totalLeads} total in CRM.</div>
         </div>
       </div>
 
       <div className="section-label">Message Heatmap</div>
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">Daily Message Volume</div>
-            <div className="card-subtitle" style={{ marginTop: 8 }}>Tasks completed each day over the last 12 weeks.</div>
+      <div className="dashboard-split">
+        <div className="dashboard-main">
+          <div className="card">
+            <div className="card-header">
+              <div>
+                <div className="card-title">Daily Message Volume</div>
+                <div className="card-subtitle" style={{ marginTop: 8 }}>Tasks completed each day over the last 12 weeks.</div>
+              </div>
+              <div className="badge">{metrics.sentEvents} total sends</div>
+            </div>
+            <div className="gh-heatmap">
+              <div className="gh-heatmap-days">
+                {['', 'Mon', '', 'Wed', '', 'Fri', ''].map((d, i) => (
+                  <div key={i} className="gh-heatmap-day-label">{d}</div>
+                ))}
+              </div>
+              <div className="gh-heatmap-body">
+                <div className="gh-heatmap-months" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 16px)` }}>
+                  {metrics.heatmap.weekLabels.map((label, i) => (
+                    <div key={i} className="gh-heatmap-month-label">{label}</div>
+                  ))}
+                </div>
+                <div className="gh-heatmap-grid" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 16px)` }}>
+                  {metrics.heatmap.days.map((day) => (
+                    <div key={day.iso} className={`gh-heatmap-cell level-${day.count === 0 ? 0 : day.intensity < 0.25 ? 1 : day.intensity < 0.5 ? 2 : day.intensity < 0.75 ? 3 : 4}`}
+                      style={{ gridColumn: day.weekIndex + 1, gridRow: day.dayOfWeek + 1 }}
+                      title={`${day.label}: ${day.count} messages`} />
+                  ))}
+                </div>
+              </div>
+              <div className="gh-heatmap-legend">
+                <span className="dim">Less</span>
+                <div className="gh-heatmap-cell level-0" /><div className="gh-heatmap-cell level-1" /><div className="gh-heatmap-cell level-2" /><div className="gh-heatmap-cell level-3" /><div className="gh-heatmap-cell level-4" />
+                <span className="dim">More</span>
+              </div>
+            </div>
           </div>
-          <div className="badge">{metrics.sentEvents} total sends</div>
         </div>
-        <div className="gh-heatmap">
-          <div className="gh-heatmap-days">
-            {['', 'Mon', '', 'Wed', '', 'Fri', ''].map((d, i) => (
-              <div key={i} className="gh-heatmap-day-label">{d}</div>
-            ))}
-          </div>
-          <div className="gh-heatmap-body">
-            <div className="gh-heatmap-months" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 13px)` }}>
-              {metrics.heatmap.weekLabels.map((label, i) => (
-                <div key={i} className="gh-heatmap-month-label">{label}</div>
-              ))}
-            </div>
-            <div className="gh-heatmap-grid" style={{ gridTemplateColumns: `repeat(${metrics.heatmap.weeks}, 13px)` }}>
-              {metrics.heatmap.days.map((day) => (
-                <div
-                  key={day.iso}
-                  className={`gh-heatmap-cell level-${day.count === 0 ? 0 : day.intensity < 0.25 ? 1 : day.intensity < 0.5 ? 2 : day.intensity < 0.75 ? 3 : 4}`}
-                  style={{ gridColumn: day.weekIndex + 1, gridRow: day.dayOfWeek + 1 }}
-                  title={`${day.label}: ${day.count} messages`}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="gh-heatmap-legend">
-            <span className="dim">Less</span>
-            <div className="gh-heatmap-cell level-0" />
-            <div className="gh-heatmap-cell level-1" />
-            <div className="gh-heatmap-cell level-2" />
-            <div className="gh-heatmap-cell level-3" />
-            <div className="gh-heatmap-cell level-4" />
-            <span className="dim">More</span>
-          </div>
+
+        <div className="dashboard-sidebar">
+          <MiniCalendar />
         </div>
       </div>
 
@@ -189,7 +241,7 @@ export default function DashboardPage() {
                   <span className="dim">{formatPercent(item.replyRate)} reply</span>
                 </div>
               </div>
-            )) : <div className="empty-state">Create campaigns and launch them to fill the dashboard pulse.</div>}
+            )) : <div className="empty-state">Create and launch campaigns to see data here.</div>}
           </div>
         </div>
 
@@ -197,7 +249,7 @@ export default function DashboardPage() {
           <div className="card-header">
             <div>
               <div className="card-title">Account Utilization</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>How loaded each Telegram sending account is today.</div>
+              <div className="card-subtitle" style={{ marginTop: 8 }}>How loaded each Telegram account is today.</div>
             </div>
             <Link href="/accounts" className="btn-secondary">Open Accounts</Link>
           </div>
@@ -213,7 +265,7 @@ export default function DashboardPage() {
                   <span className="dim">{account.utilization}% used</span>
                 </div>
               </div>
-            )) : <div className="empty-state">Add Telegram sender accounts to track utilization here.</div>}
+            )) : <div className="empty-state">Add Telegram sender accounts to track utilization.</div>}
           </div>
         </div>
       </div>

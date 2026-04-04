@@ -773,8 +773,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
 
   const slots = distributeAccounts(assignedAccounts, detail.attachedLeads.length);
   const leadById = new Map(detail.leads.map((lead) => [lead.id, lead]));
-  const firstStep = detail.steps[0];
-  const createdTasks: SendTaskRecord[] = [];
+  let queuedCount = 0;
 
   for (const [index, campaignLead] of detail.attachedLeads.entries()) {
     const lead = leadById.get(campaignLead.lead_id);
@@ -784,37 +783,19 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
     if (!assignedAccountId) {
       await updateCampaignLead(campaignLead.id, {
         status: 'blocked',
-        stop_reason: 'Daily cap reached before launch',
+        stop_reason: 'No account capacity at launch',
       }, active);
       continue;
     }
 
-    const dueAt = nowIso();
+    // Set to queued — scheduler will promote to due based on daily limits
     await updateCampaignLead(campaignLead.id, {
       assigned_account_id: assignedAccountId,
-      status: 'due',
-      next_due_at: dueAt,
+      status: 'queued',
+      next_due_at: null,
       next_step_order: 1,
     }, active);
-
-    const task = await createSendTask({
-      workspace_id: active.workspaceId,
-      campaign_id: campaignId,
-      campaign_lead_id: campaignLead.id,
-      lead_id: campaignLead.lead_id,
-      sequence_step_id: firstStep.id,
-      assigned_account_id: assignedAccountId,
-      step_order: firstStep.step_order,
-      due_at: dueAt,
-      rendered_message: renderMessageTemplate(firstStep.message_template, lead),
-      lead_snapshot: {
-        first_name: lead.first_name,
-        company_name: lead.company_name,
-        telegram_username: lead.telegram_username,
-        profile_url: buildTelegramProfileUrl(lead.telegram_username),
-      },
-    }, active);
-    createdTasks.push(task);
+    queuedCount++;
   }
 
   if (!isSupabaseConfigured()) {
@@ -825,9 +806,9 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
       profileId: active.profileId,
       event_type: 'campaign.launched',
       event_label: `${campaign.name} launched`,
-      payload: { campaign_id: campaignId, created_tasks: createdTasks.length },
+      payload: { campaign_id: campaignId, queued_leads: queuedCount },
     });
-    return createdTasks;
+    return queuedCount;
   }
 
   const supabase = getAdminSupabaseClient();
@@ -842,10 +823,10 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
     profileId: active.profileId,
     event_type: 'campaign.launched',
     event_label: `${detail.campaign.name} launched`,
-    payload: { campaign_id: campaignId, created_tasks: createdTasks.length },
+    payload: { campaign_id: campaignId, queued_leads: queuedCount },
   });
 
-  return createdTasks;
+  return queuedCount;
 }
 
 export async function pauseCampaign(campaignId: string, context?: WorkspaceContext) {
@@ -1220,18 +1201,15 @@ async function completeBotTask(
         events.push({ step_order: task.step_order, event: eventType, at: nowIso(), account_id: task.assigned_account_id });
         campaignLead.step_events = events;
 
-        // Determine status based on step
-        if (task.step_order === 1) {
-          campaignLead.status = 'sent_waiting_followup';
-        } else {
-          campaignLead.status = 'first_followup_done';
-        }
         campaignLead.current_step_order = task.step_order;
         campaignLead.last_sent_at = nowIso();
         if (nextStep) {
+          campaignLead.status = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
           campaignLead.next_step_order = nextStep.step_order;
           campaignLead.next_due_at = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
         } else {
+          // No more steps — sequence complete
+          campaignLead.status = 'completed';
           campaignLead.next_step_order = null;
           campaignLead.next_due_at = null;
         }
@@ -1313,13 +1291,42 @@ async function completeBotTask(
       .limit(1)
       .maybeSingle();
 
-    // Always go to sent_waiting_followup or first_followup_done after sending
-    const newStatus = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
     const eventType = task.step_order === 1 ? 'sent' : 'followup_sent';
-    const newEvents = [...(campaignLead.step_events || []), { step_order: task.step_order, event: eventType, at: nowIso(), account_id: task.assigned_account_id }];
+    const sentAt = Date.now();
+    const newEvents = [...(campaignLead.step_events || []), { step_order: task.step_order, event: eventType, at: new Date(sentAt).toISOString(), account_id: task.assigned_account_id }];
 
     if (nextStep) {
-      const nextDueAt = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
+      const newStatus = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
+      // Delay-based date: when this lead's next step is due by message settings
+      const delayBasedDate = sentAt + nextStep.delay_days * 86400000;
+
+      // Batch-based date: estimate when all remaining queued/due leads for this account
+      // in this campaign will have been sent (so follow-ups don't overlap active outreach)
+      let batchBasedDate = delayBasedDate;
+      if (task.assigned_account_id) {
+        const [{ count: remainingQueued }, { data: accountRow }] = await Promise.all([
+          supabase!
+            .from('campaign_leads')
+            .select('id', { count: 'exact', head: true })
+            .eq('assigned_account_id', task.assigned_account_id)
+            .eq('campaign_id', task.campaign_id)
+            .in('status', ['queued', 'due']),
+          supabase!
+            .from('telegram_accounts')
+            .select('daily_limit')
+            .eq('id', task.assigned_account_id)
+            .maybeSingle(),
+        ]);
+        const remaining = remainingQueued ?? 0;
+        const dailyLimit = accountRow?.daily_limit ?? 20;
+        const daysUntilBatchDone = Math.ceil(remaining / dailyLimit);
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        batchBasedDate = todayMidnight.getTime() + daysUntilBatchDone * 86400000;
+      }
+
+      const nextDueAt = new Date(Math.max(delayBasedDate, batchBasedDate)).toISOString();
+
       await supabase!
         .from('campaign_leads')
         .update({
@@ -1327,19 +1334,20 @@ async function completeBotTask(
           current_step_order: task.step_order,
           next_step_order: nextStep.step_order,
           next_due_at: nextDueAt,
-          last_sent_at: nowIso(),
+          last_sent_at: new Date(sentAt).toISOString(),
           step_events: newEvents,
         })
         .eq('id', campaignLead.id);
     } else {
+      // No more steps — sequence complete
       await supabase!
         .from('campaign_leads')
         .update({
-          status: newStatus,
+          status: 'completed',
           current_step_order: task.step_order,
           next_step_order: null,
           next_due_at: null,
-          last_sent_at: nowIso(),
+          last_sent_at: new Date(sentAt).toISOString(),
           step_events: newEvents,
         })
         .eq('id', campaignLead.id);
@@ -1363,10 +1371,47 @@ export async function runBotScheduler() {
     let created = 0;
     let blocked = 0;
 
-    for (const campaignLead of demoState.campaignLeads) {
-      if (!campaignLead.next_step_order || !isDue(campaignLead.next_due_at)) {
-        continue;
+    // Phase 1: promote queued step-1 leads to due, respecting daily limits
+    for (const account of demoState.accounts.filter(a => a.is_active)) {
+      const dueCount = demoState.campaignLeads.filter(
+        cl => cl.assigned_account_id === account.id && cl.status === 'due'
+      ).length;
+      let available = Math.max(0, account.daily_limit - dueCount);
+      if (available <= 0) continue;
+
+      const queued = demoState.campaignLeads
+        .filter(cl => cl.assigned_account_id === account.id && cl.status === 'queued' && cl.next_step_order === 1)
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      for (const campaignLead of queued) {
+        if (available <= 0) break;
+        const lead = demoState.leads.find(l => l.id === campaignLead.lead_id);
+        const step = demoState.steps.find(s => s.campaign_id === campaignLead.campaign_id && s.step_order === 1);
+        if (!lead || !step) continue;
+        const taskDueAt = nowIso();
+        await createSendTask({
+          workspace_id: campaignLead.workspace_id,
+          campaign_id: campaignLead.campaign_id,
+          campaign_lead_id: campaignLead.id,
+          lead_id: campaignLead.lead_id,
+          sequence_step_id: step.id,
+          assigned_account_id: account.id,
+          step_order: step.step_order,
+          due_at: taskDueAt,
+          rendered_message: renderMessageTemplate(step.message_template, lead),
+          lead_snapshot: { first_name: lead.first_name, last_name: lead.last_name, company_name: lead.company_name, telegram_username: lead.telegram_username, profile_url: buildTelegramProfileUrl(lead.telegram_username) },
+        }, active);
+        campaignLead.status = 'due';
+        campaignLead.next_due_at = taskDueAt;
+        created += 1;
+        available -= 1;
       }
+    }
+
+    // Phase 2: promote follow-up leads whose next_due_at has arrived
+    for (const campaignLead of demoState.campaignLeads) {
+      if (!['sent_waiting_followup', 'first_followup_done'].includes(campaignLead.status ?? '')) continue;
+      if (!campaignLead.next_step_order || !isDue(campaignLead.next_due_at)) continue;
 
       const hasExistingTask = demoState.sendTasks.some(
         (task) =>
@@ -1374,10 +1419,7 @@ export async function runBotScheduler() {
           task.step_order === campaignLead.next_step_order &&
           (task.status === 'pending' || task.status === 'claimed'),
       );
-
-      if (hasExistingTask) {
-        continue;
-      }
+      if (hasExistingTask) continue;
 
       const assignedAccount = demoState.accounts.find((account) => account.id === campaignLead.assigned_account_id);
       if (!assignedAccount?.is_active) {
@@ -1392,9 +1434,7 @@ export async function runBotScheduler() {
         (item) => item.campaign_id === campaignLead.campaign_id && item.step_order === campaignLead.next_step_order,
       );
 
-      if (!lead || !step || !campaignLead.assigned_account_id || !campaignLead.next_due_at) {
-        continue;
-      }
+      if (!lead || !step || !campaignLead.assigned_account_id || !campaignLead.next_due_at) continue;
 
       await createSendTask({
         workspace_id: campaignLead.workspace_id,
@@ -1406,13 +1446,7 @@ export async function runBotScheduler() {
         step_order: step.step_order,
         due_at: campaignLead.next_due_at,
         rendered_message: renderMessageTemplate(step.message_template, lead),
-        lead_snapshot: {
-          first_name: lead.first_name,
-          last_name: lead.last_name,
-          company_name: lead.company_name,
-          telegram_username: lead.telegram_username,
-          profile_url: buildTelegramProfileUrl(lead.telegram_username),
-        },
+        lead_snapshot: { first_name: lead.first_name, last_name: lead.last_name, company_name: lead.company_name, telegram_username: lead.telegram_username, profile_url: buildTelegramProfileUrl(lead.telegram_username) },
       }, active);
       campaignLead.status = 'due';
       created += 1;
@@ -1447,10 +1481,78 @@ export async function runBotScheduler() {
   let created = 0;
   let blocked = 0;
 
+  // ── Phase 1: Daily promotion — move queued step-1 leads to due, respecting daily limits ──
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { data: activeAccounts } = await supabase!
+    .from('telegram_accounts')
+    .select('id, daily_limit, workspace_id')
+    .eq('is_active', true);
+
+  for (const account of activeAccounts ?? []) {
+    // Count leads that are already due (tasks exist, not yet sent) — they occupy capacity
+    const { count: dueCount } = await supabase!
+      .from('campaign_leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('assigned_account_id', account.id)
+      .eq('status', 'due');
+
+    const available = Math.max(0, account.daily_limit - (dueCount ?? 0));
+    if (available <= 0) continue;
+
+    // Get oldest queued step-1 leads for this account
+    const { data: queuedLeads } = await supabase!
+      .from('campaign_leads')
+      .select('*, leads(*), campaign_sequence_steps!inner(*)')
+      .eq('assigned_account_id', account.id)
+      .eq('status', 'queued')
+      .eq('next_step_order', 1)
+      .order('created_at', { ascending: true })
+      .limit(available);
+
+    for (const campaignLead of queuedLeads ?? []) {
+      const lead = Array.isArray(campaignLead.leads) ? campaignLead.leads[0] : campaignLead.leads;
+      const step = Array.isArray(campaignLead.campaign_sequence_steps)
+        ? campaignLead.campaign_sequence_steps.find((s: any) => s.step_order === 1)
+        : campaignLead.campaign_sequence_steps;
+
+      if (!lead || !step) continue;
+
+      const taskDueAt = nowIso();
+      await createSendTask({
+        workspace_id: campaignLead.workspace_id,
+        campaign_id: campaignLead.campaign_id,
+        campaign_lead_id: campaignLead.id,
+        lead_id: campaignLead.lead_id,
+        sequence_step_id: step.id,
+        assigned_account_id: account.id,
+        step_order: step.step_order,
+        due_at: taskDueAt,
+        rendered_message: renderMessageTemplate(step.message_template, lead),
+        lead_snapshot: {
+          first_name: lead.first_name,
+          last_name: lead.last_name,
+          company_name: lead.company_name,
+          telegram_username: lead.telegram_username,
+          profile_url: buildTelegramProfileUrl(lead.telegram_username),
+        },
+      }, { workspaceId: account.workspace_id, profileId: null });
+
+      await supabase!
+        .from('campaign_leads')
+        .update({ status: 'due', next_due_at: taskDueAt })
+        .eq('id', campaignLead.id);
+
+      created += 1;
+    }
+  }
+
+  // ── Phase 2: Follow-up promotion — create tasks for leads whose next_due_at has arrived ──
   const { data: dueCampaignLeads } = await supabase!
     .from('campaign_leads')
     .select('*')
-    .in('status', ['queued', 'sent_waiting_followup', 'due'])
+    .in('status', ['sent_waiting_followup', 'first_followup_done'])
     .not('next_step_order', 'is', null)
     .not('next_due_at', 'is', null)
     .lte('next_due_at', dueNow);
