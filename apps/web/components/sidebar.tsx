@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { IconAccounts, IconActivity, IconBusinessTracker, IconCampaigns, IconDashboard, IconLeads, IconSettings } from '@/components/icons';
 
@@ -20,11 +21,8 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <div className="sidebar-logo-mark">T</div>
-        <div>
-          <div className="sidebar-logo-text">TG Sales Enhancer</div>
-          <div className="sidebar-logo-sub">Manual-send CRM</div>
-        </div>
+        <Image src="/logoteg.png" alt="Logo" width={28} height={28} style={{ borderRadius: 4, objectFit: 'contain' }} />
+        <div className="sidebar-logo-text">TG Sales Enhancer</div>
       </div>
       <div className="sidebar-section-label">Organization</div>
       <nav className="sidebar-nav">

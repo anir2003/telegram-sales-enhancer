@@ -120,26 +120,9 @@ button, input, textarea, select {
   padding: 0 12px 24px;
 }
 
-.sidebar-logo-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-weight: 700;
-}
-
 .sidebar-logo-text {
   font-size: 13px;
   font-weight: 600;
-}
-
-.sidebar-logo-sub {
-  font-size: 10px;
-  color: var(--text-dim);
 }
 
 .sidebar-section-label {
