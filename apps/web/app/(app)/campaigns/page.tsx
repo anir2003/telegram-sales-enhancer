@@ -7,12 +7,19 @@ import { buildAccountInsights, formatPercent, summariseCampaign, type Account, t
 
 type SequenceDraft = {
   step_order: number;
+  step_name: string;
   delay_days: number;
   message_template: string;
 };
 
+const defaultStepName = (index: number): string => {
+  if (index === 0) return 'Reachout';
+  return `Follow Up ${index}`;
+};
+
 const emptyStep = (stepOrder: number): SequenceDraft => ({
   step_order: stepOrder,
+  step_name: defaultStepName(stepOrder - 1),
   delay_days: stepOrder === 1 ? 0 : 2,
   message_template: '',
 });
@@ -71,7 +78,6 @@ export default function CampaignsPage() {
   const [steps, setSteps] = useState<SequenceDraft[]>([
     emptyStep(1),
     emptyStep(2),
-    emptyStep(3),
   ]);
 
   // Use useCallback to prevent recreating the load function on every render
@@ -146,17 +152,14 @@ export default function CampaignsPage() {
   }, [details, statusFilter]);
 
   const handleCreate = async () => {
-    console.log('[handleCreate] Started with form:', form);
     setIsSubmitting(true);
     setBuilderMessage('');
 
     try {
-      console.log('[handleCreate] Calling POST /api/campaigns');
       const { campaign } = await fetchJson<{ campaign: Campaign }>('/api/campaigns', {
         method: 'POST',
         body: JSON.stringify(form),
       });
-      console.log('[handleCreate] Campaign created:', campaign.id);
 
       const activeSteps = steps
         .filter((step) => step.message_template.trim())
@@ -178,7 +181,6 @@ export default function CampaignsPage() {
       ]);
 
       if (selectedAccountIds.length) {
-        console.log('[handleCreate] Adding accounts');
         await fetchJson(`/api/campaigns/${campaign.id}/accounts`, {
           method: 'POST',
           body: JSON.stringify({ 
@@ -189,7 +191,6 @@ export default function CampaignsPage() {
         });
       }
 
-      console.log('[handleCreate] All API calls succeeded. Resetting form and calling load()');
       setForm({ name: '', description: '', timezone: 'UTC', send_window_start: '09:00', send_window_end: '18:00', start_date: '', end_date: '' });
       setSelectedLeadIds([]);
       setSelectedAccountIds([]);
@@ -198,7 +199,7 @@ export default function CampaignsPage() {
       setLeadSearch('');
       setLeadTagFilter('all');
       setLeadCompanyFilter('all');
-      setSteps([emptyStep(1), emptyStep(2), emptyStep(3)]);
+      setSteps([emptyStep(1), emptyStep(2)]);
       setShowWizard(false);
       setWizardStep('setup');
       setBuilderMessage('Campaign created successfully.');
@@ -239,6 +240,22 @@ export default function CampaignsPage() {
     setSteps((current) => [...current, emptyStep(current.length + 1)]);
   };
 
+  const removeStep = (index: number) => {
+    if (steps.length <= 2) return; // minimum 2
+    setSteps((current) => {
+      const next = current.filter((_, i) => i !== index);
+      // Re-order and re-name
+      return next.map((step, i) => ({
+        ...step,
+        step_order: i + 1,
+        step_name: step.step_name === defaultStepName(index) ? defaultStepName(i) : step.step_name,
+      }));
+    });
+    if (activeStepIdx >= steps.length - 1) {
+      setActiveStepIdx(Math.max(0, steps.length - 2));
+    }
+  };
+
   const insertPlaceholder = (token: string) => {
     const ta = textareaRefs.current[activeStepIdx];
     if (!ta) {
@@ -267,12 +284,12 @@ export default function CampaignsPage() {
   };
 
   const wizardSteps: { key: WizardStep; label: string }[] = [
-    { key: 'setup', label: '1. Name & Details' },
-    { key: 'accounts', label: '2. Telegram Accounts' },
-    { key: 'timing', label: '3. Timing' },
-    { key: 'leads', label: '4. Leads' },
-    { key: 'sequence', label: '5. Message Sequence' },
-    { key: 'review', label: '6. Review & Create' },
+    { key: 'setup', label: 'Details' },
+    { key: 'accounts', label: 'Accounts' },
+    { key: 'timing', label: 'Timing' },
+    { key: 'leads', label: 'Leads' },
+    { key: 'sequence', label: 'Sequence' },
+    { key: 'review', label: 'Review' },
   ];
 
   const wizardStepIndex = wizardSteps.findIndex((s) => s.key === wizardStep);
@@ -312,77 +329,55 @@ export default function CampaignsPage() {
         </div>
       ) : (
         <>
-          <div className="section-label">New Campaign Wizard</div>
-          <div className="card" style={{ padding: 0 }}>
-            <div className="wizard-steps">
+          <div className="section-label">New Campaign</div>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {/* Stepper */}
+            <div className="wizard-stepper">
               {wizardSteps.map((s, i) => (
-                <button
-                  key={s.key}
-                  className={`wizard-step-btn ${wizardStep === s.key ? 'active' : ''} ${i < wizardStepIndex ? 'done' : ''}`}
-                  onClick={() => setWizardStep(s.key)}
-                  type="button"
-                >
-                  {s.label}
-                </button>
+                <React.Fragment key={s.key}>
+                  <div
+                    className={`wizard-stepper-step ${wizardStep === s.key ? 'active' : ''} ${i < wizardStepIndex ? 'done' : ''}`}
+                    onClick={() => setWizardStep(s.key)}
+                  >
+                    <div className="wizard-stepper-circle">
+                      {i < wizardStepIndex ? '✓' : i + 1}
+                    </div>
+                    <span className="wizard-stepper-label">{s.label}</span>
+                  </div>
+                  {i < wizardSteps.length - 1 && (
+                    <div className={`wizard-stepper-line ${i < wizardStepIndex ? 'done' : ''}`} />
+                  )}
+                </React.Fragment>
               ))}
             </div>
 
-            <div style={{ padding: 20 }}>
+            {/* Body */}
+            <div className="wizard-body">
               {wizardStep === 'setup' && (
                 <div className="form-grid">
-                  <div className="card-title" style={{ marginBottom: 4 }}>Campaign Details</div>
+                  <div className="wizard-section-title">Campaign Details</div>
+                  <div className="wizard-section-subtitle">Give your campaign a name and describe its goal.</div>
                   <input className="input" placeholder="Campaign name" value={form.name} onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))} required />
-                  <textarea className="textarea" placeholder="What is this campaign trying to achieve?" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} />
+                  <textarea className="textarea" placeholder="What is this campaign trying to achieve?" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} style={{ minHeight: 80 }} />
                 </div>
               )}
 
               {wizardStep === 'accounts' && (
                 <div className="form-grid">
-                  <div className="card-title" style={{ marginBottom: 4 }}>Select Telegram Accounts</div>
-                  <div className="card-subtitle">{selectedAccountIds.length} accounts selected. These sender accounts will be used for this campaign.</div>
-                  
-                  {/* Messages per account option */}
-                  <div className="card" style={{ padding: 16, background: 'var(--panel-alt)' }}>
-                    <div className="card-title" style={{ fontSize: 12, marginBottom: 12 }}>Message Distribution</div>
-                    <div className="form-grid columns-2">
-                      <div className="form-grid">
-                        <label className="dim" style={{ fontSize: 11 }}>Messages per account (optional)</label>
-                        <input 
-                          className="input" 
-                          type="number" 
-                          min={1}
-                          placeholder="Auto (uses account daily limits)"
-                          value={messagesPerAccount ?? ''}
-                          onChange={(e) => setMessagesPerAccount(e.target.value ? Number(e.target.value) : null)}
-                        />
-                        <span className="dim" style={{ fontSize: 10 }}>Leave empty to use account daily limits</span>
-                      </div>
-                    </div>
-                    
-                    {!messagesPerAccount && accountMessageLimits.length > 0 && (
-                      <div style={{ marginTop: 16 }}>
-                        <div className="dim" style={{ fontSize: 11, marginBottom: 8 }}>Custom limits per account:</div>
-                        {accountMessageLimits.map(({ accountId, limit }) => {
-                          const account = accounts.find(a => a.id === accountId);
-                          if (!account) return null;
-                          return (
-                            <div key={accountId} className="form-grid columns-2" style={{ marginBottom: 8 }}>
-                              <div className="dim" style={{ fontSize: 12, display: 'flex', alignItems: 'center' }}>
-                                {account.label} (@{account.telegram_username})
-                              </div>
-                              <input 
-                                className="input" 
-                                type="number" 
-                                min={0}
-                                placeholder="Use daily limit"
-                                value={limit || ''}
-                                onChange={(e) => updateAccountLimit(accountId, e.target.value ? Number(e.target.value) : 0)}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                  <div className="wizard-section-title">Telegram Accounts</div>
+                  <div className="wizard-section-subtitle">{selectedAccountIds.length} accounts selected — these will be used to send messages.</div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                    <label className="dim" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>Messages per account</label>
+                    <input 
+                      className="input" 
+                      type="number" 
+                      min={1}
+                      placeholder="Auto (daily limits)"
+                      value={messagesPerAccount ?? ''}
+                      onChange={(e) => setMessagesPerAccount(e.target.value ? Number(e.target.value) : null)}
+                      style={{ maxWidth: 180 }}
+                    />
                   </div>
 
                   <div className="selection-list">
@@ -404,7 +399,8 @@ export default function CampaignsPage() {
 
               {wizardStep === 'timing' && (
                 <div className="form-grid">
-                  <div className="card-title" style={{ marginBottom: 4 }}>Timing & Send Window</div>
+                  <div className="wizard-section-title">Timing & Send Window</div>
+                  <div className="wizard-section-subtitle">Control when messages are sent.</div>
                   <div className="form-grid columns-3">
                     <div className="form-grid">
                       <label className="dim" style={{ fontSize: 11 }}>Timezone</label>
@@ -434,8 +430,8 @@ export default function CampaignsPage() {
 
               {wizardStep === 'leads' && (
                 <div className="form-grid">
-                  <div className="card-title" style={{ marginBottom: 4 }}>Attach Leads</div>
-                  <div className="card-subtitle">{selectedLeadIds.length} leads selected from {leads.length} available.</div>
+                  <div className="wizard-section-title">Attach Leads</div>
+                  <div className="wizard-section-subtitle">{selectedLeadIds.length} of {leads.length} leads selected.</div>
 
                   <div className="lead-select-toolbar">
                     <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
@@ -476,62 +472,95 @@ export default function CampaignsPage() {
 
               {wizardStep === 'sequence' && (
                 <div className="form-grid">
-                  <div className="card-title" style={{ marginBottom: 4 }}>Message Sequence</div>
-                  <div className="card-subtitle">Click a placeholder to insert it at cursor position:</div>
-                  <div className="placeholder-pills">
-                    {placeholders.map((p) => (
-                      <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}>
-                        {p.label}
-                      </button>
-                    ))}
+                  <div className="wizard-section-title">Message Sequence</div>
+                  <div className="wizard-section-subtitle">
+                    Build your outreach messages. Minimum 2 messages required.
+                    <span style={{ marginLeft: 8 }}>
+                      {placeholders.map((p) => (
+                        <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)} style={{ marginLeft: 4 }}>
+                          {p.label}
+                        </button>
+                      ))}
+                    </span>
                   </div>
+
                   <div className="sequence-stack">
                     {steps.map((step, index) => (
-                      <div key={index} className="sequence-card" onClick={() => setActiveStepIdx(index)}>
-                        <div className="sequence-card-head">
-                          <div>Step {index + 1} {activeStepIdx === index ? <span className="dim" style={{ fontSize: 10 }}>(editing)</span> : ''}</div>
-                          <div className="form-grid columns-2" style={{ width: 200 }}>
-                            <div>
-                              <label className="dim" style={{ fontSize: 10 }}>Delay (days)</label>
-                              <input className="input" type="number" min={index === 0 ? 0 : 1} value={step.delay_days} onChange={(e) => updateStep(index, { delay_days: Number(e.target.value) })} />
-                            </div>
-                          </div>
-                        </div>
-                        <div className="editor-wrapper">
-                          <div className="editor-pane">
-                            <textarea
-                              className="message-input"
-                              ref={(el) => { textareaRefs.current[index] = el; }}
-                              placeholder="Write your message..."
-                              value={step.message_template}
-                              onFocus={() => setActiveStepIdx(index)}
-                              onChange={(e) => updateStep(index, { message_template: e.target.value })}
+                      <div key={index} className={`sequence-step-card ${activeStepIdx === index ? 'active' : ''}`}>
+                        <div className="sequence-step-header" onClick={() => setActiveStepIdx(index)}>
+                          <div className="sequence-step-header-left">
+                            <div className="sequence-step-number">{index + 1}</div>
+                            <input
+                              className="sequence-step-name-input"
+                              value={step.step_name}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => updateStep(index, { step_name: e.target.value })}
+                              placeholder={defaultStepName(index)}
                             />
                           </div>
-                          <div className="preview-pane">
-                            <div className="preview-header">
-                              <div className="preview-avatar">A</div>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Ava Patel</div>
-                                <div className="dim" style={{ fontSize: 11 }}>@avapatel</div>
-                              </div>
+                          <div className="sequence-step-meta">
+                            <div className="sequence-step-delay">
+                              <span>Delay</span>
+                              <input
+                                type="number"
+                                min={index === 0 ? 0 : 1}
+                                value={step.delay_days}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => updateStep(index, { delay_days: Number(e.target.value) })}
+                              />
+                              <span>days</span>
                             </div>
-                            <div className="preview-bubble">
-                              {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
-                            </div>
-                            <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
+                            <button
+                              type="button"
+                              className="sequence-step-delete"
+                              disabled={steps.length <= 2}
+                              onClick={(e) => { e.stopPropagation(); removeStep(index); }}
+                              title={steps.length <= 2 ? 'Minimum 2 messages required' : 'Remove this step'}
+                            >
+                              ×
+                            </button>
                           </div>
                         </div>
+                        {activeStepIdx === index && (
+                          <div className="sequence-step-body">
+                            <div className="editor-wrapper">
+                              <div className="editor-pane">
+                                <textarea
+                                  className="message-input"
+                                  ref={(el) => { textareaRefs.current[index] = el; }}
+                                  placeholder="Write your message..."
+                                  value={step.message_template}
+                                  onFocus={() => setActiveStepIdx(index)}
+                                  onChange={(e) => updateStep(index, { message_template: e.target.value })}
+                                />
+                              </div>
+                              <div className="preview-pane">
+                                <div className="preview-header">
+                                  <div className="preview-avatar">A</div>
+                                  <div>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Ava Patel</div>
+                                    <div className="dim" style={{ fontSize: 11 }}>@avapatel</div>
+                                  </div>
+                                </div>
+                                <div className="preview-bubble">
+                                  {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
+                                </div>
+                                <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
-                  <button className="btn-secondary" type="button" onClick={addStep}>+ Add Another Step</button>
+                  <button className="btn-secondary" type="button" onClick={addStep} style={{ marginTop: 8 }}>+ Add Another Step</button>
                 </div>
               )}
 
               {wizardStep === 'review' && (
                 <div className="form-grid">
-                  <div className="card-title" style={{ marginBottom: 4 }}>Review Campaign</div>
+                  <div className="wizard-section-title">Review Campaign</div>
+                  <div className="wizard-section-subtitle">Verify everything before creating.</div>
                   <div className="list-stack">
                     <div className="metric-row"><span>Name</span><span>{form.name || '(not set)'}</span></div>
                     <div className="metric-row"><span>Timezone</span><span>{form.timezone}</span></div>
@@ -542,6 +571,12 @@ export default function CampaignsPage() {
                     {messagesPerAccount && <div className="metric-row"><span>Messages/Account</span><span>{messagesPerAccount}</span></div>}
                     <div className="metric-row"><span>Leads</span><span>{selectedLeadIds.length} selected</span></div>
                     <div className="metric-row"><span>Sequence Steps</span><span>{steps.filter((s) => s.message_template.trim()).length} with messages</span></div>
+                    {steps.filter(s => s.message_template.trim()).map((s, i) => (
+                      <div key={i} className="metric-row" style={{ fontSize: 12 }}>
+                        <span className="dim">{s.step_name || defaultStepName(i)}</span>
+                        <span className="dim">delay {s.delay_days}d</span>
+                      </div>
+                    ))}
                   </div>
                   {builderMessage ? <div className={`status-callout ${builderMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>{builderMessage}</div> : null}
                   <div className="btn-row" style={{ marginTop: 8 }}>
@@ -555,7 +590,7 @@ export default function CampaignsPage() {
                 </div>
               )}
 
-              <div className="btn-row" style={{ marginTop: 16, justifyContent: 'space-between' }}>
+              <div className="btn-row" style={{ marginTop: 20, justifyContent: 'space-between' }}>
                 {canGoBack ? (
                   <button className="btn-secondary" type="button" onClick={() => setWizardStep(wizardSteps[wizardStepIndex - 1].key)}>
                     Back
@@ -583,7 +618,7 @@ export default function CampaignsPage() {
         </select>
       </div>
       
-      {/* Improved Campaign Cards Grid */}
+      {/* Campaign Cards Grid */}
       <div className="library-grid">
         {campaignRows.length ? campaignRows.map(({ detail, stats }) => (
           <Link key={detail.campaign?.id} href={`/campaigns/${detail.campaign?.id}`} className="campaign-card">
@@ -654,3 +689,6 @@ export default function CampaignsPage() {
     </div>
   );
 }
+
+// Need React for Fragment usage in the stepper
+import React from 'react';

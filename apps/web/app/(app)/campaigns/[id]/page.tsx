@@ -5,7 +5,23 @@ import { useParams, useRouter } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
 
-const stageOrder = ['queued', 'due', 'sent_waiting_followup', 'replied', 'completed', 'blocked', 'skipped'] as const;
+const stageOrder = [
+  'queued', 'due', 'sent_waiting_followup', 'first_followup_done',
+  'replied', 'meeting_scheduled', 'blocked', 'call_in_future', 'skipped', 'completed',
+] as const;
+
+const stageLabels: Record<string, string> = {
+  queued: 'Queued',
+  due: 'Due',
+  sent_waiting_followup: 'Sent — Waiting Follow Up',
+  first_followup_done: 'Follow Up Done',
+  replied: 'Replied',
+  meeting_scheduled: 'Meeting Scheduled',
+  blocked: 'Blocked',
+  call_in_future: 'Call In Future',
+  skipped: 'Skipped',
+  completed: 'Completed',
+};
 
 const templatePlaceholders = [
   { label: 'First Name', token: '{First Name}' },
@@ -43,6 +59,17 @@ function formatTimestamp(date: string | null | undefined) {
   return d.toLocaleDateString();
 }
 
+function formatDate(date: string | null | undefined) {
+  if (!date) return '—';
+  return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// Account colors for the chart
+const ACCOUNT_COLORS = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316',
+  '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
+];
+
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -63,6 +90,7 @@ export default function CampaignDetailPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [hoveredBar, setHoveredBar] = useState<{ dayIdx: number; x: number; y: number } | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -144,30 +172,63 @@ export default function CampaignDetailPage() {
     });
   }, [detail?.attachedLeads, leadById, leadStageFilter, leadSearch]);
 
-  const chartData = useMemo(() => {
-    const bars = Array.from({ length: 24 }).map((_, i) => ({ label: `${i}:00`, sent: 0, replies: 0 }));
-    const now = Date.now();
-    detail?.attachedLeads?.forEach((lead) => {
-      if (lead.last_sent_at) {
-        const diffHours = Math.floor((now - new Date(lead.last_sent_at).getTime()) / (1000 * 60 * 60));
-        if (diffHours >= 0 && diffHours < 24) bars[23 - diffHours].sent++;
-      }
-      if (lead.last_reply_at) {
-        const diffHours = Math.floor((now - new Date(lead.last_reply_at).getTime()) / (1000 * 60 * 60));
-        if (diffHours >= 0 && diffHours < 24) bars[23 - diffHours].replies++;
-      }
-    });
-
-    const hasData = bars.some(b => b.sent > 0 || b.replies > 0);
-    if (!hasData) {
-      return bars.map((b, i) => {
-        const p = i / 23;
-        return { ...b, sent: Math.round(Math.sin(p * Math.PI) * 10), replies: Math.round(Math.sin(p * Math.PI) * 4) };
+  // Daily messages sent chart (last 7 days, grouped by account)
+  const dailyChartData = useMemo(() => {
+    const days: { label: string; iso: string; accounts: Record<string, number>; total: number }[] = [];
+    const today = new Date();
+    
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      days.push({
+        label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+        iso,
+        accounts: {},
+        total: 0,
       });
     }
 
-    return bars;
+    // Use step_events if available, otherwise fall back to last_sent_at
+    detail?.attachedLeads?.forEach((lead: any) => {
+      const accountId = lead.assigned_account_id;
+      if (!accountId) return;
+
+      // Check step_events first
+      const events = lead.step_events || [];
+      events.forEach((evt: any) => {
+        if (evt.event === 'sent' || evt.event === 'followup_sent') {
+          const eventIso = evt.at?.slice(0, 10);
+          const day = days.find(d => d.iso === eventIso);
+          if (day) {
+            const accId = evt.account_id || accountId;
+            day.accounts[accId] = (day.accounts[accId] || 0) + 1;
+            day.total++;
+          }
+        }
+      });
+
+      // Fallback: count last_sent_at
+      if (events.length === 0 && lead.last_sent_at) {
+        const sentIso = lead.last_sent_at.slice(0, 10);
+        const day = days.find(d => d.iso === sentIso);
+        if (day) {
+          day.accounts[accountId] = (day.accounts[accountId] || 0) + 1;
+          day.total++;
+        }
+      }
+    });
+
+    return days;
   }, [detail?.attachedLeads]);
+
+  const maxDailyValue = useMemo(() => Math.max(1, ...dailyChartData.map(d => d.total)), [dailyChartData]);
+  const hasChartData = dailyChartData.some(d => d.total > 0);
+  const chartAccountIds = useMemo(() => {
+    const ids = new Set<string>();
+    dailyChartData.forEach(d => Object.keys(d.accounts).forEach(id => ids.add(id)));
+    return Array.from(ids);
+  }, [dailyChartData]);
 
   if (!detail?.campaign || !metrics) {
     return <div className="page-content"><div className="empty-state">Loading campaign…</div></div>;
@@ -276,7 +337,6 @@ export default function CampaignDetailPage() {
     setDraggingLeadId(null);
     if (!leadId) return;
 
-    // Find the campaign_lead record
     const item = detail?.attachedLeads?.find((l: any) => l.id === leadId);
     if (!item || item.status === targetStage) return;
 
@@ -353,8 +413,6 @@ export default function CampaignDetailPage() {
     });
   };
 
-  const maxChartVal = Math.max(1, ...chartData.map(b => b.sent + b.replies));
-
   const getStatusButtonProps = () => {
     switch (detail.campaign?.status) {
       case 'active':
@@ -430,25 +488,114 @@ export default function CampaignDetailPage() {
             <div className="mini-stat"><div className="mini-stat-label">Reply rate</div><div className="mini-stat-value">{metrics.replyRate}%</div></div>
           </div>
 
+          {/* Daily Messages Sent Chart */}
           <div className="card">
-            <div className="card-title">Prospects Activity</div>
-            <div className="card-subtitle">Activity flowing in the last 24 hours</div>
-            <div className="chart-container">
-              {chartData.map((bar, i) => (
-                <div key={i} className="chart-bar-group">
-                  {bar.replies > 0 && (
-                    <div className="chart-bar reply" style={{ height: `${(bar.replies / maxChartVal) * 100}%` }} title={`${bar.replies} replies`} />
-                  )}
-                  {bar.sent > 0 && (
-                    <div className="chart-bar" style={{ height: `${(bar.sent / maxChartVal) * 100}%` }} title={`${bar.sent} sent`} />
+            <div className="card-title">Daily Messages Sent</div>
+            <div className="card-subtitle">Messages sent per day over the last 7 days, grouped by account</div>
+            
+            {hasChartData ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 180, marginTop: 24, paddingTop: 10, borderBottom: '1px solid var(--border-soft)', position: 'relative' }}>
+                  {dailyChartData.map((day, dayIdx) => (
+                    <div 
+                      key={dayIdx} 
+                      style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', height: '100%', position: 'relative', cursor: 'pointer' }}
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setHoveredBar({ dayIdx, x: rect.left + rect.width / 2, y: rect.top });
+                      }}
+                      onMouseLeave={() => setHoveredBar(null)}
+                    >
+                      {/* Stacked bars per account */}
+                      {chartAccountIds.map((accId, accIdx) => {
+                        const count = day.accounts[accId] || 0;
+                        if (count === 0) return null;
+                        return (
+                          <div
+                            key={accId}
+                            style={{
+                              width: '70%',
+                              maxWidth: 32,
+                              height: `${(count / maxDailyValue) * 100}%`,
+                              minHeight: count > 0 ? 3 : 0,
+                              background: ACCOUNT_COLORS[accIdx % ACCOUNT_COLORS.length],
+                              borderRadius: accIdx === 0 ? '4px 4px 0 0' : '0',
+                              transition: 'height 0.3s ease',
+                            }}
+                          />
+                        );
+                      })}
+                      {day.total === 0 && (
+                        <div style={{ width: '70%', maxWidth: 32, height: 3, background: 'var(--border-soft)', borderRadius: 2 }} />
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Hover tooltip */}
+                  {hoveredBar !== null && (
+                    <div style={{
+                      position: 'fixed',
+                      left: hoveredBar.x,
+                      top: hoveredBar.y - 10,
+                      transform: 'translate(-50%, -100%)',
+                      background: 'var(--card)',
+                      border: '1px solid var(--border-strong)',
+                      borderRadius: 8,
+                      padding: '10px 14px',
+                      fontSize: 11,
+                      zIndex: 100,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                      minWidth: 140,
+                      pointerEvents: 'none',
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text)' }}>
+                        {dailyChartData[hoveredBar.dayIdx].label}
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
+                        Total: {dailyChartData[hoveredBar.dayIdx].total} messages
+                      </div>
+                      {chartAccountIds.map((accId, accIdx) => {
+                        const count = dailyChartData[hoveredBar.dayIdx].accounts[accId] || 0;
+                        if (count === 0) return null;
+                        const acc = accountById.get(accId);
+                        return (
+                          <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: ACCOUNT_COLORS[accIdx % ACCOUNT_COLORS.length] }} />
+                            <span style={{ color: 'var(--text-dim)' }}>{acc?.label || 'Account'}: {count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-              <span className="dim" style={{ fontSize: 10 }}>24 hrs ago</span>
-              <span className="dim" style={{ fontSize: 10 }}>Now</span>
-            </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                  {dailyChartData.map((day, i) => (
+                    <span key={i} className="dim" style={{ fontSize: 9, flex: 1, textAlign: 'center' }}>
+                      {day.label.split(',')[0]}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Legend */}
+                {chartAccountIds.length > 0 && (
+                  <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap' }}>
+                    {chartAccountIds.map((accId, idx) => {
+                      const acc = accountById.get(accId);
+                      return (
+                        <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)' }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 2, background: ACCOUNT_COLORS[idx % ACCOUNT_COLORS.length] }} />
+                          {acc?.label || 'Account'}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="empty-state" style={{ marginTop: 16 }}>
+                No messages sent in the last 7 days. Launch the campaign to start seeing data here.
+              </div>
+            )}
           </div>
 
           <div className="card">
@@ -497,7 +644,7 @@ export default function CampaignDetailPage() {
                 onDrop={(e) => handleDrop(e, column.status)}
               >
                 <div className="stage-column-head">
-                  <span>{column.status.replaceAll('_', ' ')}</span>
+                  <span>{stageLabels[column.status] || column.status.replaceAll('_', ' ')}</span>
                   <span className="badge">{column.items.length}</span>
                 </div>
                 <div className="stage-column-body">
@@ -521,6 +668,8 @@ export default function CampaignDetailPage() {
                           <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
                           <div className="dim">Account: {account?.label ?? 'unassigned'}</div>
                           <div className="dim">Next step: {item.next_step_order ?? 'done'}</div>
+                          {item.last_sent_at && <div className="dim">Sent: {formatDate(item.last_sent_at)}</div>}
+                          {item.last_reply_at && <div className="dim">Replied: {formatDate(item.last_reply_at)}</div>}
                           {item.notes && <div className="dim" style={{ fontStyle: 'italic' }}>Notes: {item.notes}</div>}
                         </div>
                         {lastAction && (
@@ -561,7 +710,7 @@ export default function CampaignDetailPage() {
                 <input className="input" style={{ flex: 1 }} placeholder="Search leads by name, company, or username" value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
                 <select className="select" style={{ width: 'auto', minWidth: 150 }} value={leadStageFilter} onChange={(e) => setLeadStageFilter(e.target.value)}>
                   <option value="all">All Stages</option>
-                  {stageOrder.map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
+                  {stageOrder.map((s) => <option key={s} value={s}>{stageLabels[s] || s.replaceAll('_', ' ')}</option>)}
                 </select>
               </div>
             </div>
@@ -582,7 +731,7 @@ export default function CampaignDetailPage() {
                 <div key={item.id} className="table-row" style={{ cursor: 'pointer' }} onClick={() => openLeadEdit(item)}>
                   <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
                   <div>{lead?.company_name ?? 'Company'}</div>
-                  <div><span className="badge">{item.status}</span></div>
+                  <div><span className="badge">{stageLabels[item.status] || item.status}</span></div>
                   <div>{account?.label ?? 'Unassigned'}</div>
                   <div>{item.last_sent_at ? formatTimestamp(item.last_sent_at) : 'Not yet'}</div>
                   <div>{item.next_step_order ?? 'Done'}</div>
@@ -656,45 +805,56 @@ export default function CampaignDetailPage() {
                 const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
 
                 return (
-                  <div key={step.id} className="sequence-card" onClick={() => setActiveEditorStep(idx)} style={{ borderColor: activeEditorStep === idx ? 'var(--accent)' : undefined }}>
-                    <div className="sequence-card-head">
-                      <div>Step {step.step_order} {activeEditorStep === idx ? <span className="dim" style={{ fontSize: 10 }}>(editing)</span> : ''}</div>
-                      <div className="dim">Delay {step.delay_days} day(s)</div>
+                  <div key={step.id} className={`sequence-step-card ${activeEditorStep === idx ? 'active' : ''}`}>
+                    <div className="sequence-step-header" onClick={() => setActiveEditorStep(idx)}>
+                      <div className="sequence-step-header-left">
+                        <div className="sequence-step-number">{step.step_order}</div>
+                        <span style={{ fontSize: 13, color: 'var(--text)' }}>
+                          {step.step_name || `Step ${step.step_order}`}
+                        </span>
+                      </div>
+                      <div className="sequence-step-meta">
+                        <span className="dim" style={{ fontSize: 11 }}>Delay {step.delay_days} day(s)</span>
+                        {activeEditorStep === idx && <span className="badge" style={{ fontSize: 9 }}>editing</span>}
+                      </div>
                     </div>
 
-                    <div className="editor-wrapper">
-                      <div className="editor-pane">
-                        <textarea
-                          className="message-input"
-                          ref={(el) => { editorRefs.current[idx] = el; }}
-                          value={step.message_template}
-                          onFocus={() => setActiveEditorStep(idx)}
-                          onChange={(e) => {
-                            setStepsForm(current => {
-                              const next = [...current];
-                              next[idx] = { ...next[idx], message_template: e.target.value };
-                              return next;
-                            });
-                          }}
-                          placeholder="Type your message here..."
-                        />
-                      </div>
+                    {activeEditorStep === idx && (
+                      <div className="sequence-step-body">
+                        <div className="editor-wrapper">
+                          <div className="editor-pane">
+                            <textarea
+                              className="message-input"
+                              ref={(el) => { editorRefs.current[idx] = el; }}
+                              value={step.message_template}
+                              onFocus={() => setActiveEditorStep(idx)}
+                              onChange={(e) => {
+                                setStepsForm(current => {
+                                  const next = [...current];
+                                  next[idx] = { ...next[idx], message_template: e.target.value };
+                                  return next;
+                                });
+                              }}
+                              placeholder="Type your message here..."
+                            />
+                          </div>
 
-                      <div className="preview-pane">
-                        <div className="preview-header">
-                          <div className="preview-avatar">L</div>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Light ✨ ✓</div>
-                            <div className="dim" style={{ fontSize: 11 }}>@lightwaslost</div>
+                          <div className="preview-pane">
+                            <div className="preview-header">
+                              <div className="preview-avatar">L</div>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Light ✨ ✓</div>
+                                <div className="dim" style={{ fontSize: 11 }}>@lightwaslost</div>
+                              </div>
+                            </div>
+                            <div className="preview-bubble">
+                              {renderMessageTemplate(step.message_template, randomLead)}
+                            </div>
+                            <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                           </div>
                         </div>
-                        <div className="preview-bubble">
-                          {renderMessageTemplate(step.message_template, randomLead)}
-                        </div>
-                        <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                       </div>
-                    </div>
-
+                    )}
                   </div>
                 );
               }) : <div className="empty-state">No sequence steps have been created for this campaign yet.</div>}
@@ -716,7 +876,7 @@ export default function CampaignDetailPage() {
                   value={leadEditForm.status} 
                   onChange={(e) => setLeadEditForm(f => ({ ...f, status: e.target.value }))}
                 >
-                  {stageOrder.map(s => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
+                  {stageOrder.map(s => <option key={s} value={s}>{stageLabels[s] || s.replaceAll('_', ' ')}</option>)}
                 </select>
               </div>
               <div className="form-grid">

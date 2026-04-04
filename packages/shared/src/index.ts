@@ -5,10 +5,13 @@ export const campaignLeadStatusValues = [
   'queued',
   'due',
   'sent_waiting_followup',
+  'first_followup_done',
   'replied',
+  'meeting_scheduled',
+  'blocked',
+  'call_in_future',
   'skipped',
   'completed',
-  'blocked',
 ] as const;
 export const sendTaskStatusValues = ['pending', 'claimed', 'sent', 'skipped', 'expired'] as const;
 
@@ -51,11 +54,20 @@ export interface CampaignRecord {
   created_at: string;
 }
 
+export interface StepEvent {
+  step_order: number;
+  step_name?: string;
+  event: 'sent' | 'replied' | 'followup_sent';
+  at: string;
+  account_id?: string;
+}
+
 export interface SequenceStepRecord {
   id: string;
   workspace_id: string;
   campaign_id: string;
   step_order: number;
+  step_name: string | null;
   delay_days: number;
   message_template: string;
 }
@@ -86,6 +98,7 @@ export interface CampaignLeadRecord {
   last_reply_at: string | null;
   stop_reason: string | null;
   notes: string | null;
+  step_events: StepEvent[];
 }
 
 export interface SendTaskRecord {
@@ -125,12 +138,14 @@ export const leadInputSchema = z.object({
 
 export const sequenceStepInputSchema = z.object({
   step_order: z.number().int().min(1),
+  step_name: z.string().trim().nullish(),
   delay_days: z.number().int().min(0),
   message_template: z.string().trim(),
 });
 
 export const sequenceStepUpdateSchema = z.object({
   step_order: z.number().int().min(1).optional(),
+  step_name: z.string().trim().nullish(),
   delay_days: z.number().int().min(0).optional(),
   message_template: z.string().trim().optional(),
 });
