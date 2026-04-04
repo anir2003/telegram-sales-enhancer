@@ -353,6 +353,37 @@ function MiniCalendar({ activity, campaigns, details, accounts }: {
             </div>
           )}
 
+          {/* Saved comment */}
+          {selectedHighlight?.comment && !showCommentInput && (
+            <div
+              className="calendar-detail-comment"
+              onClick={() => { setShowCommentInput(true); setCommentText(selectedHighlight.comment ?? ''); }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              <span>{selectedHighlight.comment}</span>
+            </div>
+          )}
+
+          {/* Comment input form */}
+          {showCommentInput && (
+            <div className="calendar-comment-form">
+              <textarea
+                ref={commentInputRef}
+                autoFocus
+                className="calendar-comment-input"
+                value={commentText}
+                onChange={e => setCommentText(e.target.value)}
+                placeholder="Note for this day…"
+              />
+              <div className="calendar-comment-actions">
+                <button className="calendar-comment-cancel" onClick={() => setShowCommentInput(false)}>Cancel</button>
+                <button className="calendar-comment-save" onClick={saveComment} disabled={savingComment}>
+                  {savingComment ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Actions Strip */}
           {!showCommentInput && (
             <div className="calendar-action-row">
@@ -550,16 +581,19 @@ export default function DashboardPage() {
             </div>
             <Link href="/campaigns" className="btn-secondary">Open Campaigns</Link>
           </div>
-          <div className="list-stack">
+          <div className="pulse-table">
             {metrics.campaignPulse.length ? metrics.campaignPulse.map((item) => (
-              <div key={item.campaign?.id} className="metric-row">
-                <div>
-                  <div>{item.campaign?.name ?? 'Campaign'}</div>
-                  <div className="dim">{item.totalLeads} leads · {item.assignedAccounts.length} accounts · {item.sentToday} sent today</div>
+              <div key={item.campaign?.id} className="pulse-table-row">
+                <div className="pulse-table-main">
+                  <div className="pulse-table-name">
+                    <span className={`pulse-status-dot ${item.campaign?.status ?? 'draft'}`} />
+                    {item.campaign?.name ?? 'Campaign'}
+                  </div>
+                  <div className="pulse-table-meta">{item.totalLeads} leads · {item.assignedAccounts.length} accounts · {item.sentToday} sent today</div>
                 </div>
-                <div className="metric-row-side">
-                  <span className="badge">{item.campaign?.status ?? 'draft'}</span>
-                  <span className="dim">{formatPercent(item.replyRate)} reply</span>
+                <div className="pulse-table-right">
+                  <span className="pulse-table-rate">{formatPercent(item.replyRate)}</span>
+                  <span className="pulse-table-rate-label">reply rate</span>
                 </div>
               </div>
             )) : <div className="empty-state">Create and launch campaigns to see data here.</div>}
@@ -574,16 +608,18 @@ export default function DashboardPage() {
             </div>
             <Link href="/accounts" className="btn-secondary">Open Accounts</Link>
           </div>
-          <div className="list-stack">
+          <div className="pulse-table">
             {metrics.accountInsights.length ? metrics.accountInsights.map((account) => (
-              <div key={account.id} className="metric-row">
-                <div>
-                  <div>{account.label}</div>
-                  <div className="dim">@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentYesterday} yesterday</div>
+              <div key={account.id} className="pulse-table-row">
+                <div className="pulse-table-main">
+                  <div className="pulse-table-name">{account.label}</div>
+                  <div className="pulse-table-meta">@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentYesterday} yesterday</div>
                 </div>
-                <div className="metric-row-side">
-                  <span className="badge">{account.sentToday}/{account.daily_limit} today</span>
-                  <span className="dim">{account.utilization}% used</span>
+                <div className="pulse-table-right">
+                  <div className="util-bar">
+                    <div className="util-bar-fill" style={{ width: `${account.utilization}%` }} />
+                  </div>
+                  <span className="pulse-table-count">{account.sentToday}/{account.daily_limit} <span className="pulse-table-rate-label">today</span></span>
                 </div>
               </div>
             )) : <div className="empty-state">Add Telegram sender accounts to track utilization.</div>}
