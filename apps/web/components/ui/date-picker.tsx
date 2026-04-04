@@ -49,7 +49,7 @@ export function DatePicker({
   const handleOpen = () => {
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
-      setDropPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 240) });
+      setDropPos({ top: rect.bottom + 4, left: rect.left, width: 220 });
     }
     if (selected) {
       setViewYear(selected.getFullYear());
@@ -109,28 +109,28 @@ export function DatePicker({
       {open && dropPos && (
         <div style={{
           position: 'fixed', zIndex: 9999,
-          top: dropPos.top, left: dropPos.left, width: dropPos.width,
+          top: dropPos.top, left: dropPos.left,
+          width: 220,
           background: 'var(--panel-strong)', border: '1px solid var(--border-soft)',
-          borderRadius: 6, padding: '12px',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-          minWidth: 240,
+          borderRadius: 6, padding: '10px',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
         }}>
           {/* Month nav */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <button type="button" onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px 6px', borderRadius: 3, fontSize: 14, lineHeight: 1 }}>‹</button>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{MONTHS[viewMonth]} {viewYear}</span>
-            <button type="button" onClick={nextMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px 6px', borderRadius: 3, fontSize: 14, lineHeight: 1 }}>›</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <button type="button" onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px 5px', borderRadius: 3, fontSize: 13, lineHeight: 1 }}>‹</button>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{MONTHS[viewMonth].slice(0, 3)} {viewYear}</span>
+            <button type="button" onClick={nextMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px 5px', borderRadius: 3, fontSize: 13, lineHeight: 1 }}>›</button>
           </div>
 
           {/* Day headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, marginBottom: 2 }}>
             {DAYS.map(d => (
-              <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 600, color: 'var(--text-dim)', padding: '2px 0', letterSpacing: '0.04em' }}>{d}</div>
+              <div key={d} style={{ textAlign: 'center', fontSize: 8, fontWeight: 600, color: 'var(--text-dim)', padding: '2px 0', letterSpacing: '0.04em' }}>{d}</div>
             ))}
           </div>
 
           {/* Day cells */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
             {cells.map((day, i) => {
               if (!day) return <div key={i} />;
               const thisDate = new Date(viewYear, viewMonth, day);
@@ -143,8 +143,8 @@ export function DatePicker({
                   type="button"
                   onClick={() => selectDay(day)}
                   style={{
-                    padding: '5px 2px', borderRadius: 3, border: 'none', cursor: 'pointer',
-                    fontSize: 11, fontFamily: 'inherit', textAlign: 'center',
+                    padding: '4px 2px', borderRadius: 3, border: 'none', cursor: 'pointer',
+                    fontSize: 10, fontFamily: 'inherit', textAlign: 'center',
                     background: isSelected ? 'var(--accent)' : 'transparent',
                     color: isSelected ? 'var(--bg)' : isToday ? 'var(--accent)' : 'var(--text)',
                     fontWeight: isSelected || isToday ? 600 : 400,
@@ -165,7 +165,7 @@ export function DatePicker({
             <button
               type="button"
               onClick={() => { onChange(''); setOpen(false); }}
-              style={{ marginTop: 10, width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-dim)', padding: '4px 0', textAlign: 'center' }}
+              style={{ marginTop: 8, width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: 'var(--text-dim)', padding: '3px 0', textAlign: 'center' }}
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
             >
