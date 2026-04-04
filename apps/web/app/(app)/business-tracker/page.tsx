@@ -325,7 +325,7 @@ export default function BusinessTrackerPage() {
           <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Business Tracker</div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>Track company-level sales progress and follow-ups</div>
         </div>
-        <button className="btn" onClick={openAdd} style={{ padding: '10px 20px' }}>+ Add Company</button>
+        <button className="btn" onClick={openAdd} style={{ padding: '7px 14px', fontSize: 12 }}>+ Add Company</button>
       </div>
 
       {/* Stats */}

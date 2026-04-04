@@ -65,9 +65,6 @@ export function InfoTooltip({ text }: { text: string }) {
           boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
           letterSpacing: '0.01em',
           lineHeight: 1.4,
-          maxWidth: 280,
-          whiteSpace: 'normal' as const,
-          textAlign: 'left' as const,
         }}>
           {text}
           <span style={{

@@ -197,10 +197,10 @@ export default function LeadsPage() {
   return (
     <div className="page-content">
       <div className="grid grid-4">
-        <div className="card"><div className="card-title-row"><div className="card-title">Reusable Leads</div><InfoTooltip text="One CRM, shared across every campaign." /></div><div className="card-value">{leads.length}</div></div>
-        <div className="card"><div className="card-title-row"><div className="card-title">Companies</div><InfoTooltip text="Company-first grouping for outreach." /></div><div className="card-value">{new Set(leads.map((lead) => lead.company_name)).size}</div></div>
-        <div className="card"><div className="card-title-row"><div className="card-title">Tagged Leads</div><InfoTooltip text="Filter by persona, source, or stage." /></div><div className="card-value">{leads.filter((lead) => lead.tags.length).length}</div></div>
-        <div className="card"><div className="card-title-row"><div className="card-title">In Campaigns</div><InfoTooltip text="Attached to at least one campaign." /></div><div className="card-value">{leadRows.filter((lead) => lead.campaignCount > 0).length}</div></div>
+        <div className="card"><div className="card-title">Reusable Leads</div><div className="card-value">{leads.length}</div><div className="card-subtitle">Shared across every campaign.</div></div>
+        <div className="card"><div className="card-title">Companies</div><div className="card-value">{new Set(leads.map((lead) => lead.company_name)).size}</div><div className="card-subtitle">Company-first grouping.</div></div>
+        <div className="card"><div className="card-title">Tagged Leads</div><div className="card-value">{leads.filter((lead) => lead.tags.length).length}</div><div className="card-subtitle">Filter by persona or stage.</div></div>
+        <div className="card"><div className="card-title">In Campaigns</div><div className="card-value">{leadRows.filter((lead) => lead.campaignCount > 0).length}</div><div className="card-subtitle">Attached to a campaign.</div></div>
       </div>
 
       <div className="section-label">Lead Intake</div>
@@ -252,7 +252,7 @@ export default function LeadsPage() {
         <div className="card form-grid">
           <div className="card-title-row">
             <div className="card-title">Import CSV</div>
-            <InfoTooltip text="Upload CSV. Duplicates auto-merged. Required: First Name, Telegram Username. Optional: Last Name, Company, Tags, Notes, Source. No @ in username." />
+            <InfoTooltip text="Upload CSV — duplicates auto-merged. No @ in username." />
           </div>
           <div>
             <label className="btn-secondary" style={{ width: 'fit-content', cursor: 'pointer', fontSize: 12, padding: '6px 14px' }}>
