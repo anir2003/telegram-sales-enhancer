@@ -4,24 +4,76 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
+import { CustomSelect } from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
 
-const stageOrder = [
-  'queued', 'due', 'sent_waiting_followup', 'first_followup_done',
-  'replied', 'meeting_scheduled', 'blocked', 'call_in_future', 'skipped', 'completed',
-] as const;
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Kolkata',        label: 'IST — India Standard Time (UTC+5:30)' },
+  { value: 'UTC',                 label: 'UTC — Coordinated Universal Time' },
+  { value: 'America/New_York',    label: 'EST/EDT — New York (UTC−5/−4)' },
+  { value: 'America/Chicago',     label: 'CST/CDT — Chicago (UTC−6/−5)' },
+  { value: 'America/Denver',      label: 'MST/MDT — Denver (UTC−7/−6)' },
+  { value: 'America/Los_Angeles', label: 'PST/PDT — Los Angeles (UTC−8/−7)' },
+  { value: 'America/Sao_Paulo',   label: 'BRT — São Paulo (UTC−3)' },
+  { value: 'Europe/London',       label: 'GMT/BST — London (UTC+0/+1)' },
+  { value: 'Europe/Paris',        label: 'CET/CEST — Paris (UTC+1/+2)' },
+  { value: 'Europe/Berlin',       label: 'CET/CEST — Berlin (UTC+1/+2)' },
+  { value: 'Asia/Dubai',          label: 'GST — Dubai (UTC+4)' },
+  { value: 'Asia/Singapore',      label: 'SGT — Singapore (UTC+8)' },
+  { value: 'Asia/Shanghai',       label: 'CST — Shanghai (UTC+8)' },
+  { value: 'Asia/Tokyo',          label: 'JST — Tokyo (UTC+9)' },
+  { value: 'Australia/Sydney',    label: 'AEST/AEDT — Sydney (UTC+10/+11)' },
+];
+
+// Virtual stage IDs
+const STATIC_STAGES_BEFORE = ['queued', 'due'] as const;
+const STATIC_STAGES_AFTER = ['replied', 'meeting_scheduled', 'blocked', 'call_in_future', 'skipped', 'completed'] as const;
 
 const stageLabels: Record<string, string> = {
   queued: 'Queued',
   due: 'Due',
-  sent_waiting_followup: 'Sent — Waiting Follow Up',
-  first_followup_done: 'Follow Up Done',
+  vfu_1: 'Sent — Waiting FU 1',
+  vfu_2: 'FU 1 Sent — Waiting FU 2',
+  vfu_3: 'FU 2 Sent — Waiting FU 3',
+  vfu_4: 'FU 3 Sent — Waiting FU 4',
   replied: 'Replied',
   meeting_scheduled: 'Meeting Scheduled',
   blocked: 'Blocked',
-  call_in_future: 'Call In Future',
+  call_in_future: 'Call in Future',
   skipped: 'Skipped',
   completed: 'Completed',
+  // legacy
+  sent_waiting_followup: 'Sent — Waiting FU 1',
+  first_followup_done: 'FU 1 Done',
 };
+
+// Stage icons as SVG path data
+const stageIcons: Record<string, { path: string; color: string }> = {
+  queued: { color: '#6b7280', path: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  due: { color: '#f59e0b', path: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z' },
+  vfu_1: { color: '#6366f1', path: 'M12 19l9 2-9-18-9 18 9-2zm0 0v-8' },
+  vfu_2: { color: '#8b5cf6', path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+  vfu_3: { color: '#a78bfa', path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+  vfu_4: { color: '#c4b5fd', path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+  replied: { color: '#10b981', path: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
+  meeting_scheduled: { color: '#3b82f6', path: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+  blocked: { color: '#ef4444', path: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636' },
+  call_in_future: { color: '#f97316', path: 'M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z' },
+  skipped: { color: '#6b7280', path: 'M13 5l7 7-7 7M5 5l7 7-7 7' },
+  completed: { color: '#22c55e', path: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+};
+
+function StageIcon({ stage }: { stage: string }) {
+  const icon = stageIcons[stage];
+  if (!icon) return null;
+  return (
+    <div className="stage-icon" style={{ color: icon.color }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d={icon.path} />
+      </svg>
+    </div>
+  );
+}
 
 const templatePlaceholders = [
   { label: 'First Name', token: '{First Name}' },
@@ -51,7 +103,6 @@ function formatTimestamp(date: string | null | undefined) {
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
-  
   if (diffMins < 1) return 'Just now';
   if (diffMins < 60) return `${diffMins}m ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
@@ -64,11 +115,49 @@ function formatDate(date: string | null | undefined) {
   return new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-// Account colors for the chart
 const ACCOUNT_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316',
   '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6',
 ];
+
+function AccountPill({ account, colorIndex }: { account: Account | null | undefined; colorIndex: number }) {
+  if (!account) return <span style={{ color: 'var(--text-dim)', fontSize: 10 }}>Unassigned</span>;
+  const color = ACCOUNT_COLORS[colorIndex % ACCOUNT_COLORS.length];
+  return (
+    <span className="account-pill" style={{
+      background: `${color}20`,
+      color,
+      border: `1px solid ${color}40`,
+    }}>
+      {account.label}
+    </span>
+  );
+}
+
+// Map a lead's actual status + next_step_order to a virtual stage ID
+function getVirtualStage(item: any): string {
+  if (item.status === 'sent_waiting_followup') return 'vfu_1';
+  if (item.status === 'first_followup_done') {
+    const next = item.next_step_order;
+    if (!next || next >= 5) return 'vfu_4';
+    if (next === 4) return 'vfu_3';
+    if (next === 3) return 'vfu_2';
+    return 'vfu_2';
+  }
+  return item.status;
+}
+
+// Map a virtual stage back to real DB patch values
+function patchForVirtualStage(virtualStage: string, totalSteps: number): Record<string, unknown> {
+  switch (virtualStage) {
+    case 'vfu_1': return { status: 'sent_waiting_followup', next_step_order: 2 };
+    case 'vfu_2': return { status: 'first_followup_done', next_step_order: 3 };
+    case 'vfu_3': return { status: 'first_followup_done', next_step_order: 4 };
+    case 'vfu_4': return { status: 'first_followup_done', next_step_order: totalSteps > 4 ? 5 : null };
+    case 'replied': return { status: 'replied', last_reply_at: new Date().toISOString() };
+    default: return { status: virtualStage };
+  }
+}
 
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -78,9 +167,12 @@ export default function CampaignDetailPage() {
   const [stepsForm, setStepsForm] = useState<any[]>([]);
   const [originalSteps, setOriginalSteps] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'stages' | 'leads' | 'settings'>('overview');
+  const [stageView, setStageView] = useState<'board' | 'table'>('board');
   const [stageFilterAccount, setStageFilterAccount] = useState('all');
   const [leadSearch, setLeadSearch] = useState('');
   const [leadStageFilter, setLeadStageFilter] = useState('all');
+  const [leadCompanyFilter, setLeadCompanyFilter] = useState('all');
+  const [leadAccountFilter, setLeadAccountFilter] = useState('all');
   const [activeEditorStep, setActiveEditorStep] = useState(0);
   const editorRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
   const [savingSteps, setSavingSteps] = useState(false);
@@ -91,7 +183,6 @@ export default function CampaignDetailPage() {
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<{ dayIdx: number; x: number; y: number } | null>(null);
-
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '',
@@ -102,17 +193,18 @@ export default function CampaignDetailPage() {
     start_date: '',
     end_date: '',
   });
-
-  // Lead edit modal state
   const [editingLead, setEditingLead] = useState<any>(null);
-  const [leadEditForm, setLeadEditForm] = useState({
-    status: '',
-    notes: '',
-    next_step_order: 1,
-  });
+  const [leadEditForm, setLeadEditForm] = useState({ status: '', notes: '', next_step_order: 1 });
+  const [trackerSaving, setTrackerSaving] = useState(false);
+  const [trackerDoneIds, setTrackerDoneIds] = useState<Set<string>>(new Set());
+  const [inlineNoteItem, setInlineNoteItem] = useState<string | null>(null);
+  const [inlineNoteText, setInlineNoteText] = useState('');
 
   const load = useCallback(async () => {
-    const response = await fetchJson<CampaignDetail>(`/api/campaigns/${campaignId}`);
+    const [response, btData] = await Promise.all([
+      fetchJson<CampaignDetail>(`/api/campaigns/${campaignId}`),
+      fetchJson<{ entries: any[] }>('/api/business-tracker'),
+    ]);
     setDetail(response);
     setStepsForm(response.steps || []);
     setOriginalSteps(JSON.parse(JSON.stringify(response.steps || [])));
@@ -128,13 +220,22 @@ export default function CampaignDetailPage() {
         end_date: response.campaign.end_date ?? '',
       });
     }
+    // Restore "added to BT" state from existing entries
+    const btLeadIds = new Set(
+      (btData.entries ?? [])
+        .filter((e: any) => e.campaign_id === campaignId && e.lead_id)
+        .map((e: any) => e.lead_id)
+    );
+    const doneIds = new Set<string>(
+      (response.attachedLeads ?? [])
+        .filter((item: any) => btLeadIds.has(item.lead_id))
+        .map((item: any) => item.id)
+    );
+    setTrackerDoneIds(doneIds);
   }, [campaignId]);
 
-  useEffect(() => {
-    if (campaignId) void load();
-  }, [campaignId, load]);
+  useEffect(() => { if (campaignId) void load(); }, [campaignId, load]);
 
-  // Check for unsaved changes
   useEffect(() => {
     const current = JSON.stringify(stepsForm);
     const original = JSON.stringify(originalSteps);
@@ -142,83 +243,78 @@ export default function CampaignDetailPage() {
   }, [stepsForm, originalSteps]);
 
   const metrics = useMemo(() => (detail ? summariseCampaign(detail) : null), [detail]);
-  const leadById = useMemo(
-    () => new Map<string, Lead>((detail?.leads ?? []).map((lead) => [lead.id, lead])),
-    [detail?.leads],
-  );
-  const accountById = useMemo(
-    () => new Map<string, Account>((detail?.accounts ?? []).map((account) => [account.id, account])),
-    [detail?.accounts],
-  );
+  const leadById = useMemo(() => new Map<string, Lead>((detail?.leads ?? []).map((l) => [l.id, l])), [detail?.leads]);
+  const accountById = useMemo(() => new Map<string, Account>((detail?.accounts ?? []).map((a) => [a.id, a])), [detail?.accounts]);
+
+  // Build account color index map
+  const accountColorIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    (detail?.accounts ?? []).forEach((acc, idx) => map.set(acc.id, idx));
+    return map;
+  }, [detail?.accounts]);
+
+  // Determine follow-up count from steps (max 4)
+  const followUpCount = useMemo(() => Math.min(Math.max((detail?.steps?.length ?? 2) - 1, 1), 4), [detail?.steps]);
+
+  // Build dynamic stage order
+  const dynamicStageOrder = useMemo(() => {
+    const fuStages = Array.from({ length: followUpCount }, (_, i) => `vfu_${i + 1}`);
+    return [...STATIC_STAGES_BEFORE, ...fuStages, ...STATIC_STAGES_AFTER];
+  }, [followUpCount]);
+
   const leadsByStage = useMemo(() => {
-    return stageOrder.map((status) => ({
-      status,
-      items: (detail?.attachedLeads ?? []).filter((lead: any) => {
-        if (lead.status !== status) return false;
-        if (stageFilterAccount !== 'all' && lead.assigned_account_id !== stageFilterAccount) return false;
+    return dynamicStageOrder.map((virtualStage) => ({
+      status: virtualStage,
+      items: (detail?.attachedLeads ?? []).filter((item: any) => {
+        const vs = getVirtualStage(item);
+        if (vs !== virtualStage) return false;
+        if (stageFilterAccount !== 'all' && item.assigned_account_id !== stageFilterAccount) return false;
         return true;
       }),
     }));
-  }, [detail?.attachedLeads, stageFilterAccount]);
+  }, [detail?.attachedLeads, stageFilterAccount, dynamicStageOrder]);
 
   const filteredAttachedLeads = useMemo(() => {
     return (detail?.attachedLeads ?? []).filter((item: any) => {
       const lead = leadById.get(item.lead_id);
-      const matchesStage = leadStageFilter === 'all' || item.status === leadStageFilter;
+      const virtualStage = getVirtualStage(item);
+      const matchesStage = leadStageFilter === 'all' || virtualStage === leadStageFilter || item.status === leadStageFilter;
       const matchesSearch = !leadSearch.trim() || [
         lead?.first_name, lead?.last_name, lead?.company_name, lead?.telegram_username,
       ].join(' ').toLowerCase().includes(leadSearch.trim().toLowerCase());
-      return matchesStage && matchesSearch;
+      const matchesCompany = leadCompanyFilter === 'all' || lead?.company_name === leadCompanyFilter;
+      const matchesAccount = leadAccountFilter === 'all' || item.assigned_account_id === leadAccountFilter;
+      return matchesStage && matchesSearch && matchesCompany && matchesAccount;
     });
-  }, [detail?.attachedLeads, leadById, leadStageFilter, leadSearch]);
+  }, [detail?.attachedLeads, leadById, leadStageFilter, leadSearch, leadCompanyFilter, leadAccountFilter]);
 
-  // Daily messages sent chart (last 7 days, grouped by account)
+  // Daily messages sent chart (last 7 days)
   const dailyChartData = useMemo(() => {
     const days: { label: string; iso: string; accounts: Record<string, number>; total: number }[] = [];
     const today = new Date();
-    
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const iso = d.toISOString().slice(0, 10);
-      days.push({
-        label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
-        iso,
-        accounts: {},
-        total: 0,
-      });
+      days.push({ label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }), iso, accounts: {}, total: 0 });
     }
-
-    // Use step_events if available, otherwise fall back to last_sent_at
     detail?.attachedLeads?.forEach((lead: any) => {
       const accountId = lead.assigned_account_id;
       if (!accountId) return;
-
-      // Check step_events first
       const events = lead.step_events || [];
       events.forEach((evt: any) => {
         if (evt.event === 'sent' || evt.event === 'followup_sent') {
           const eventIso = evt.at?.slice(0, 10);
           const day = days.find(d => d.iso === eventIso);
-          if (day) {
-            const accId = evt.account_id || accountId;
-            day.accounts[accId] = (day.accounts[accId] || 0) + 1;
-            day.total++;
-          }
+          if (day) { day.accounts[accountId] = (day.accounts[accountId] || 0) + 1; day.total++; }
         }
       });
-
-      // Fallback: count last_sent_at
       if (events.length === 0 && lead.last_sent_at) {
         const sentIso = lead.last_sent_at.slice(0, 10);
         const day = days.find(d => d.iso === sentIso);
-        if (day) {
-          day.accounts[accountId] = (day.accounts[accountId] || 0) + 1;
-          day.total++;
-        }
+        if (day) { day.accounts[accountId] = (day.accounts[accountId] || 0) + 1; day.total++; }
       }
     });
-
     return days;
   }, [detail?.attachedLeads]);
 
@@ -240,78 +336,53 @@ export default function CampaignDetailPage() {
     try {
       if (detail.campaign?.status === 'active') {
         await fetchJson(`/api/campaigns/${campaignId}/pause`, { method: 'POST' });
-        setStatusMessage('Campaign paused.');
       } else {
         await fetchJson(`/api/campaigns/${campaignId}/launch`, { method: 'POST' });
-        setStatusMessage('Campaign launched.');
       }
       await load();
     } catch (err: any) {
-      console.error('Status toggle failed:', err);
-      setStatusMessage(`Error: ${err?.message ?? 'Failed to change campaign status'}`);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to change status'}`);
     } finally {
       setTogglingStatus(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this campaign? This action cannot be undone.')) return;
+    if (!confirm('Delete this campaign? This cannot be undone.')) return;
     setIsDeleting(true);
-    setStatusMessage('');
     try {
       await fetchJson(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
       router.push('/campaigns');
     } catch (err: any) {
-      console.error('Delete campaign failed:', err);
-      setStatusMessage(`Error: ${err?.message ?? 'Failed to delete campaign'}`);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to delete'}`);
       setIsDeleting(false);
     }
   };
 
   const saveChanges = async () => {
-    setStatusMessage('');
     try {
-      await fetchJson(`/api/campaigns/${campaignId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(editForm),
-      });
+      await fetchJson(`/api/campaigns/${campaignId}`, { method: 'PATCH', body: JSON.stringify(editForm) });
       setIsEditing(false);
-      setStatusMessage('Campaign settings saved.');
+      setStatusMessage('Saved.');
       await load();
     } catch (err: any) {
-      console.error('Save changes failed:', err);
-      setStatusMessage(`Error: ${err?.message ?? 'Failed to save changes'}`);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save'}`);
     }
   };
 
   const saveSequenceChanges = async () => {
     setSavingSteps(true);
-    setStatusMessage('');
     try {
       for (const step of stepsForm) {
-        await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ message_template: step.message_template }),
-        });
+        await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, { method: 'PATCH', body: JSON.stringify({ message_template: step.message_template }) });
       }
       setOriginalSteps(JSON.parse(JSON.stringify(stepsForm)));
       setHasUnsavedChanges(false);
       setStatusMessage('Sequence saved.');
     } catch (err: any) {
-      console.error('Save sequence failed:', err);
-      setStatusMessage(`Error: ${err?.message ?? 'Failed to save sequence changes'}`);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save'}`);
     }
     setSavingSteps(false);
-  };
-
-  const markReplied = async (leadId: string) => {
-    try {
-      await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify({ status: 'replied', last_reply_at: new Date().toISOString() }) });
-      await load();
-    } catch (err: any) {
-      console.error('Mark replied failed:', err);
-      setStatusMessage(`Error: ${err?.message ?? 'Failed to mark as replied'}`);
-    }
   };
 
   const handleDragStart = (e: React.DragEvent, leadId: string) => {
@@ -326,151 +397,171 @@ export default function CampaignDetailPage() {
     setDragOverStage(stage);
   };
 
-  const handleDragLeave = () => {
-    setDragOverStage(null);
-  };
+  const handleDragLeave = () => setDragOverStage(null);
 
-  const handleDrop = async (e: React.DragEvent, targetStage: string) => {
+  const handleDrop = async (e: React.DragEvent, targetVirtualStage: string) => {
     e.preventDefault();
     setDragOverStage(null);
     const leadId = e.dataTransfer.getData('text/plain');
     setDraggingLeadId(null);
     if (!leadId) return;
-
     const item = detail?.attachedLeads?.find((l: any) => l.id === leadId);
-    if (!item || item.status === targetStage) return;
-
-    const patch: Record<string, unknown> = { status: targetStage };
-    if (targetStage === 'replied') {
-      patch.last_reply_at = new Date().toISOString();
-    }
-
+    if (!item) return;
+    const currentVS = getVirtualStage(item);
+    if (currentVS === targetVirtualStage) return;
+    const patch = patchForVirtualStage(targetVirtualStage, detail?.steps?.length ?? 2);
     try {
-      await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      });
+      await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify(patch) });
       await load();
     } catch (err: any) {
-      console.error('Drag move failed:', err);
       setStatusMessage(`Error: ${err?.message ?? 'Failed to move lead'}`);
     }
   };
 
-  const handleDragEnd = () => {
-    setDraggingLeadId(null);
-    setDragOverStage(null);
-  };
+  const handleDragEnd = () => { setDraggingLeadId(null); setDragOverStage(null); };
 
   const openLeadEdit = (item: any) => {
     setEditingLead(item);
-    setLeadEditForm({
-      status: item.status,
-      notes: item.notes || '',
-      next_step_order: item.next_step_order || 1,
-    });
+    setLeadEditForm({ status: item.status, notes: item.notes || '', next_step_order: item.next_step_order || 1 });
   };
 
   const saveLeadChanges = async () => {
     if (!editingLead) return;
     try {
-      await fetchJson(`/api/campaigns/${campaignId}/leads/${editingLead.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(leadEditForm),
-      });
+      await fetchJson(`/api/campaigns/${campaignId}/leads/${editingLead.id}`, { method: 'PATCH', body: JSON.stringify(leadEditForm) });
       setEditingLead(null);
       await load();
     } catch (err: any) {
-      console.error('Save lead changes failed:', err);
-      setStatusMessage(`Error: ${err?.message ?? 'Failed to save lead changes'}`);
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save'}`);
+    }
+  };
+
+  const saveInlineNote = async (itemId: string) => {
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}/leads/${itemId}`, { method: 'PATCH', body: JSON.stringify({ notes: inlineNoteText }) });
+      setInlineNoteItem(null);
+      await load();
+    } catch (err: any) {
+      setStatusMessage(`Error: ${err?.message ?? 'Failed to save note'}`);
+    }
+  };
+
+  const sendToBusinessTracker = async (item: any) => {
+    if (trackerDoneIds.has(item.id)) return;
+    const lead = leadById.get(item.lead_id);
+    if (!lead) return;
+    setTrackerSaving(true);
+    try {
+      const res = await fetchJson<any>('/api/business-tracker', {
+        method: 'POST',
+        body: JSON.stringify({
+          company_name: lead.company_name || `${lead.first_name} ${lead.last_name}`,
+          lead_id: item.lead_id,
+          campaign_id: campaignId,
+          account_id: item.assigned_account_id,
+          current_status: 'Opportunity',
+          comments: item.notes || '',
+        }),
+      });
+      if (res?.error) throw new Error(res.error);
+      setTrackerDoneIds(prev => new Set([...prev, item.id]));
+    } catch (err: any) {
+      setStatusMessage(`Error adding to Business Tracker: ${err?.message ?? 'Unknown error'}`);
+    } finally {
+      setTrackerSaving(false);
     }
   };
 
   const insertPlaceholder = (token: string) => {
     const ta = editorRefs.current[activeEditorStep];
     if (!ta) {
-      setStepsForm(current => {
-        const next = [...current];
-        if (next[activeEditorStep]) {
-          next[activeEditorStep] = { ...next[activeEditorStep], message_template: next[activeEditorStep].message_template + token };
-        }
-        return next;
-      });
+      setStepsForm(current => { const next = [...current]; if (next[activeEditorStep]) { next[activeEditorStep] = { ...next[activeEditorStep], message_template: next[activeEditorStep].message_template + token }; } return next; });
       return;
     }
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     const current = stepsForm[activeEditorStep]?.message_template ?? '';
     const updated = current.substring(0, start) + token + current.substring(end);
-    setStepsForm(prev => {
-      const next = [...prev];
-      next[activeEditorStep] = { ...next[activeEditorStep], message_template: updated };
-      return next;
-    });
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + token.length, start + token.length);
-    });
+    setStepsForm(prev => { const next = [...prev]; next[activeEditorStep] = { ...next[activeEditorStep], message_template: updated }; return next; });
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + token.length, start + token.length); });
   };
 
   const getStatusButtonProps = () => {
     switch (detail.campaign?.status) {
-      case 'active':
-        return { text: 'Pause Campaign', className: 'status-toggle-btn pause' };
-      case 'paused':
-        return { text: 'Resume Campaign', className: 'status-toggle-btn launch' };
-      case 'draft':
-        return { text: 'Launch Campaign', className: 'status-toggle-btn launch' };
-      case 'completed':
-        return { text: 'Reactivate Campaign', className: 'status-toggle-btn launch' };
-      default:
-        return { text: 'Launch Campaign', className: 'status-toggle-btn launch' };
+      case 'active': return { text: 'Pause Campaign', className: 'status-toggle-btn pause' };
+      case 'paused': return { text: 'Resume Campaign', className: 'status-toggle-btn launch' };
+      case 'draft': return { text: 'Launch Campaign', className: 'status-toggle-btn launch' };
+      case 'completed': return { text: 'Reactivate Campaign', className: 'status-toggle-btn launch' };
+      default: return { text: 'Launch Campaign', className: 'status-toggle-btn launch' };
     }
   };
 
   const statusButton = getStatusButtonProps();
 
+  const statusColor: Record<string, string> = {
+    active: '#22c55e', paused: '#f97316', draft: 'var(--text-dim)', completed: '#3b82f6',
+  };
+  const sColor = statusColor[detail.campaign.status ?? 'draft'] ?? 'var(--text-dim)';
+
   return (
     <div className="page-content">
-      {/* Header Card */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-header">
-          <div>
-            <div className="card-title" style={{ fontSize: 18, fontWeight: 600 }}>{detail.campaign.name}</div>
-            <div className="campaign-hero-copy">{detail.campaign.description ?? 'No campaign objective written yet.'}</div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, gap: 16 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{detail.campaign.name}</h1>
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 3,
+              background: `${sColor}18`, color: sColor, border: `1px solid ${sColor}40`,
+              textTransform: 'uppercase', letterSpacing: '0.06em',
+            }}>{detail.campaign.status}</span>
           </div>
-          <div className="btn-row">
-            <span className={`badge ${detail.campaign.status === 'active' ? 'badge-active' : ''}`} style={{ fontSize: 11, padding: '4px 12px' }}>
-              {detail.campaign.status}
-            </span>
-            <button className="btn-secondary" onClick={() => setActiveTab('settings')}>
-              {isEditing ? 'Cancel Edit' : 'Edit'}
-            </button>
-            <button
-              className="btn"
-              onClick={handleDelete}
-              disabled={isDeleting || togglingStatus}
-              style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-danger)', borderColor: 'var(--text-danger)' }}
-            >
-              {isDeleting ? 'Deleting...' : 'Delete'}
-            </button>
-            <button 
-              className={statusButton.className} 
-              onClick={handleStatusToggle} 
-              disabled={togglingStatus}
-            >
-              {togglingStatus ? 'Processing...' : statusButton.text}
-            </button>
-          </div>
+          {detail.campaign.description && (
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 5 }}>{detail.campaign.description}</div>
+          )}
         </div>
-        {statusMessage && (
-          <div className={`status-callout ${statusMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>
-            {statusMessage}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button
+            className="board-card-btn"
+            onClick={() => setActiveTab('settings')}
+            title="Settings"
+            style={{ padding: '6px 8px' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          </button>
+          <button
+            className="board-card-btn"
+            onClick={handleDelete}
+            disabled={isDeleting || togglingStatus}
+            title="Delete campaign"
+            style={{ padding: '6px 8px', color: '#ef4444' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+          </button>
+          <button
+            className="board-card-btn"
+            onClick={handleStatusToggle}
+            disabled={togglingStatus}
+            title={statusButton.text}
+            style={{ padding: '6px 8px', color: detail.campaign.status === 'active' ? '#f97316' : '#22c55e' }}
+          >
+            {detail.campaign.status === 'active' ? (
+              /* Pause icon */
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            ) : (
+              /* Play icon */
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            )}
+          </button>
+        </div>
       </div>
+      {statusMessage && (
+        <div className={`status-callout ${statusMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginBottom: 16 }}>
+          {statusMessage}
+        </div>
+      )}
 
-      {/* Navigation Tabs */}
+      {/* Tabs */}
       <div className="nav-tabs">
         <button className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>Overview</button>
         <button className={`nav-tab ${activeTab === 'stages' ? 'active' : ''}`} onClick={() => setActiveTab('stages')}>Stages</button>
@@ -488,132 +579,58 @@ export default function CampaignDetailPage() {
             <div className="mini-stat"><div className="mini-stat-label">Reply rate</div><div className="mini-stat-value">{metrics.replyRate}%</div></div>
           </div>
 
-          {/* Daily Messages Sent Chart */}
           <div className="card">
             <div className="card-title">Daily Messages Sent</div>
             <div className="card-subtitle">Messages sent per day over the last 7 days, grouped by account</div>
-            
             {hasChartData ? (
               <>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 180, marginTop: 24, paddingTop: 10, borderBottom: '1px solid var(--border-soft)', position: 'relative' }}>
                   {dailyChartData.map((day, dayIdx) => (
-                    <div 
-                      key={dayIdx} 
-                      style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', height: '100%', position: 'relative', cursor: 'pointer' }}
-                      onMouseEnter={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setHoveredBar({ dayIdx, x: rect.left + rect.width / 2, y: rect.top });
-                      }}
-                      onMouseLeave={() => setHoveredBar(null)}
-                    >
-                      {/* Stacked bars per account */}
+                    <div key={dayIdx} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', height: '100%', position: 'relative', cursor: 'pointer' }}
+                      onMouseEnter={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setHoveredBar({ dayIdx, x: rect.left + rect.width / 2, y: rect.top }); }}
+                      onMouseLeave={() => setHoveredBar(null)}>
                       {chartAccountIds.map((accId, accIdx) => {
                         const count = day.accounts[accId] || 0;
                         if (count === 0) return null;
-                        return (
-                          <div
-                            key={accId}
-                            style={{
-                              width: '70%',
-                              maxWidth: 32,
-                              height: `${(count / maxDailyValue) * 100}%`,
-                              minHeight: count > 0 ? 3 : 0,
-                              background: ACCOUNT_COLORS[accIdx % ACCOUNT_COLORS.length],
-                              borderRadius: accIdx === 0 ? '4px 4px 0 0' : '0',
-                              transition: 'height 0.3s ease',
-                            }}
-                          />
-                        );
+                        return <div key={accId} style={{ width: '70%', maxWidth: 32, height: `${(count / maxDailyValue) * 100}%`, minHeight: count > 0 ? 3 : 0, background: ACCOUNT_COLORS[accIdx % ACCOUNT_COLORS.length], borderRadius: accIdx === 0 ? '4px 4px 0 0' : '0', transition: 'height 0.3s ease' }} />;
                       })}
-                      {day.total === 0 && (
-                        <div style={{ width: '70%', maxWidth: 32, height: 3, background: 'var(--border-soft)', borderRadius: 2 }} />
-                      )}
+                      {day.total === 0 && <div style={{ width: '70%', maxWidth: 32, height: 3, background: 'var(--border-soft)', borderRadius: 2 }} />}
                     </div>
                   ))}
-
-                  {/* Hover tooltip */}
                   {hoveredBar !== null && (
-                    <div style={{
-                      position: 'fixed',
-                      left: hoveredBar.x,
-                      top: hoveredBar.y - 10,
-                      transform: 'translate(-50%, -100%)',
-                      background: 'var(--card)',
-                      border: '1px solid var(--border-strong)',
-                      borderRadius: 8,
-                      padding: '10px 14px',
-                      fontSize: 11,
-                      zIndex: 100,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                      minWidth: 140,
-                      pointerEvents: 'none',
-                    }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text)' }}>
-                        {dailyChartData[hoveredBar.dayIdx].label}
-                      </div>
-                      <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
-                        Total: {dailyChartData[hoveredBar.dayIdx].total} messages
-                      </div>
-                      {chartAccountIds.map((accId, accIdx) => {
-                        const count = dailyChartData[hoveredBar.dayIdx].accounts[accId] || 0;
-                        if (count === 0) return null;
-                        const acc = accountById.get(accId);
-                        return (
-                          <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: 2, background: ACCOUNT_COLORS[accIdx % ACCOUNT_COLORS.length] }} />
-                            <span style={{ color: 'var(--text-dim)' }}>{acc?.label || 'Account'}: {count}</span>
-                          </div>
-                        );
-                      })}
+                    <div style={{ position: 'fixed', left: hoveredBar.x, top: hoveredBar.y - 10, transform: 'translate(-50%, -100%)', background: 'var(--card)', border: '1px solid var(--border-strong)', borderRadius: 8, padding: '10px 14px', fontSize: 11, zIndex: 100, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', minWidth: 140, pointerEvents: 'none' }}>
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>{dailyChartData[hoveredBar.dayIdx].label}</div>
+                      <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>Total: {dailyChartData[hoveredBar.dayIdx].total}</div>
+                      {chartAccountIds.map((accId, accIdx) => { const count = dailyChartData[hoveredBar.dayIdx].accounts[accId] || 0; if (count === 0) return null; const acc = accountById.get(accId); return <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}><div style={{ width: 8, height: 8, borderRadius: 2, background: ACCOUNT_COLORS[accIdx % ACCOUNT_COLORS.length] }} /><span style={{ color: 'var(--text-dim)' }}>{acc?.label || 'Account'}: {count}</span></div>; })}
                     </div>
                   )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                  {dailyChartData.map((day, i) => (
-                    <span key={i} className="dim" style={{ fontSize: 9, flex: 1, textAlign: 'center' }}>
-                      {day.label.split(',')[0]}
-                    </span>
-                  ))}
+                  {dailyChartData.map((day, i) => <span key={i} className="dim" style={{ fontSize: 9, flex: 1, textAlign: 'center' }}>{day.label.split(',')[0]}</span>)}
                 </div>
-
-                {/* Legend */}
                 {chartAccountIds.length > 0 && (
                   <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap' }}>
-                    {chartAccountIds.map((accId, idx) => {
-                      const acc = accountById.get(accId);
-                      return (
-                        <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)' }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 2, background: ACCOUNT_COLORS[idx % ACCOUNT_COLORS.length] }} />
-                          {acc?.label || 'Account'}
-                        </div>
-                      );
-                    })}
+                    {chartAccountIds.map((accId, idx) => { const acc = accountById.get(accId); return <div key={accId} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-dim)' }}><div style={{ width: 10, height: 10, borderRadius: 2, background: ACCOUNT_COLORS[idx % ACCOUNT_COLORS.length] }} />{acc?.label || 'Account'}</div>; })}
                   </div>
                 )}
               </>
-            ) : (
-              <div className="empty-state" style={{ marginTop: 16 }}>
-                No messages sent in the last 7 days. Launch the campaign to start seeing data here.
-              </div>
-            )}
+            ) : <div className="empty-state" style={{ marginTop: 16 }}>No messages sent in the last 7 days.</div>}
           </div>
 
           <div className="card">
             <div className="card-title">Telegram Accounts In Use</div>
             <div className="list-stack" style={{ marginTop: 12 }}>
-              {metrics.assignedAccounts.length ? metrics.assignedAccounts.map((account: any) => {
+              {metrics.assignedAccounts.length ? metrics.assignedAccounts.map((account: any, idx: number) => {
                 const accountLeads = (detail?.attachedLeads ?? []).filter((l: any) => l.assigned_account_id === account.id);
                 const sentFromAccount = accountLeads.filter((l: any) => l.last_sent_at).length;
                 const repliesFromAccount = accountLeads.filter((l: any) => l.status === 'replied').length;
                 return (
                   <div key={account.id} className="metric-row">
-                    <div>
-                      <div>{account.label}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <AccountPill account={account} colorIndex={idx} />
                       <div className="dim">@{account.telegram_username} · {sentFromAccount} sent · {repliesFromAccount} replies · cap {account.daily_limit}/day</div>
                     </div>
-                    <div className="metric-row-side">
-                      <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
-                    </div>
+                    <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
                   </div>
                 );
               }) : <div className="empty-state">No accounts assigned yet.</div>}
@@ -625,79 +642,133 @@ export default function CampaignDetailPage() {
       {/* Stages Tab */}
       {activeTab === 'stages' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span className="dim" style={{ fontSize: 13 }}>Filter by account:</span>
-            <select className="input" style={{ width: 220 }} value={stageFilterAccount} onChange={(e) => setStageFilterAccount(e.target.value)}>
-              <option value="all">All Accounts</option>
-              {metrics.assignedAccounts.map((account: any) => (
-                <option key={account.id} value={account.id}>{account.label} (@{account.telegram_username})</option>
-              ))}
-            </select>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <CustomSelect style={{ width: 220 }} value={stageFilterAccount} onChange={setStageFilterAccount} options={[{ value: 'all', label: 'All Accounts' }, ...metrics.assignedAccounts.map((a: any) => ({ value: a.id, label: `${a.label} (@${a.telegram_username})` }))]} />
+            <div className="view-toggle">
+              <button className={`view-toggle-btn ${stageView === 'board' ? 'active' : ''}`} onClick={() => setStageView('board')}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/><rect x="14" y="17" width="7" height="4" rx="1"/></svg>
+                Board
+              </button>
+              <button className={`view-toggle-btn ${stageView === 'table' ? 'active' : ''}`} onClick={() => setStageView('table')}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 10h18M3 14h18M10 3v18"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                Table
+              </button>
+            </div>
           </div>
-          <div className="stage-board">
-            {leadsByStage.map((column) => (
-              <div
-                key={column.status}
-                className={`stage-column ${dragOverStage === column.status ? 'drag-over' : ''}`}
-                onDragOver={(e) => handleDragOver(e, column.status)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, column.status)}
-              >
-                <div className="stage-column-head">
-                  <span>{stageLabels[column.status] || column.status.replaceAll('_', ' ')}</span>
-                  <span className="badge">{column.items.length}</span>
-                </div>
-                <div className="stage-column-body">
-                  {column.items.length ? column.items.map((item: any) => {
-                    const lead = leadById.get(item.lead_id);
-                    const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
-                    const lastAction = item.last_reply_at || item.last_sent_at;
-                    return (
-                      <div
-                        key={item.id}
-                        className={`board-card ${draggingLeadId === item.id ? 'dragging' : ''}`}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, item.id)}
-                        onDragEnd={handleDragEnd}
-                      >
-                        <div className="board-card-header">
-                          <span className="board-card-title">{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</span>
-                          <span className="drag-handle" title="Drag to move">⠿</span>
-                        </div>
-                        <div className="board-card-meta">
-                          <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
-                          <div className="dim">Account: {account?.label ?? 'unassigned'}</div>
-                          <div className="dim">Next step: {item.next_step_order ?? 'done'}</div>
-                          {item.last_sent_at && <div className="dim">Sent: {formatDate(item.last_sent_at)}</div>}
-                          {item.last_reply_at && <div className="dim">Replied: {formatDate(item.last_reply_at)}</div>}
-                          {item.notes && <div className="dim" style={{ fontStyle: 'italic' }}>Notes: {item.notes}</div>}
-                        </div>
-                        {lastAction && (
-                          <div className="board-card-timestamp">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <circle cx="12" cy="12" r="10"/>
-                              <path d="M12 6v6l4 2"/>
-                            </svg>
-                            {formatTimestamp(lastAction)}
+
+          {stageView === 'board' ? (
+            <div className="stage-board">
+              {leadsByStage.map((column) => (
+                <div key={column.status} className={`stage-column ${dragOverStage === column.status ? 'drag-over' : ''}`}
+                  onDragOver={(e) => handleDragOver(e, column.status)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, column.status)}>
+                  <div className="stage-column-head">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <StageIcon stage={column.status} />
+                      <span>{stageLabels[column.status] || column.status.replaceAll('_', ' ')}</span>
+                    </div>
+                    <span className="badge">{column.items.length}</span>
+                  </div>
+                  <div className="stage-column-body">
+                    {column.items.length ? column.items.map((item: any) => {
+                      const lead = leadById.get(item.lead_id);
+                      const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
+                      const colorIdx = item.assigned_account_id ? (accountColorIndex.get(item.assigned_account_id) ?? 0) : 0;
+                      const lastAction = item.last_reply_at || item.last_sent_at;
+                      const isInlineNote = inlineNoteItem === item.id;
+                      return (
+                        <div key={item.id} className={`board-card ${draggingLeadId === item.id ? 'dragging' : ''}`}
+                          draggable onDragStart={(e) => handleDragStart(e, item.id)} onDragEnd={handleDragEnd}>
+                          <div className="board-card-header">
+                            <span className="board-card-title">{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</span>
+                            <span className="drag-handle" title="Drag to move">⠿</span>
                           </div>
-                        )}
-                        <div className="board-card-actions">
-                          <button className="board-card-btn" onClick={(e) => { e.stopPropagation(); openLeadEdit(item); }}>
-                            Edit
-                          </button>
-                          {item.status !== 'replied' && (
-                            <button className="board-card-btn" onClick={(e) => { e.stopPropagation(); markReplied(item.id); }}>
-                              Mark Replied
+                          <div className="board-card-meta">
+                            <div className="dim">{lead?.company_name ?? 'Company'} · @{lead?.telegram_username ?? 'unknown'}</div>
+                            <div style={{ marginTop: 2 }}><AccountPill account={account} colorIndex={colorIdx} /></div>
+                            {item.last_sent_at && <div className="dim">Sent: {formatDate(item.last_sent_at)}</div>}
+                            {item.last_reply_at && <div className="dim">Replied: {formatDate(item.last_reply_at)}</div>}
+                            {item.next_step_order && <div className="dim">Next step: {item.next_step_order}</div>}
+                          </div>
+                          {item.notes ? (
+                            <div className="board-card-comment" onClick={() => { setInlineNoteItem(item.id); setInlineNoteText(item.notes || ''); }}>
+                              {item.notes}
+                            </div>
+                          ) : (
+                            <button className="board-card-note-btn" onClick={() => { setInlineNoteItem(item.id); setInlineNoteText(''); }}>
+                              + Add note
                             </button>
                           )}
+                          {isInlineNote && (
+                            <div style={{ display: 'grid', gap: 6 }}>
+                              <textarea
+                                className="textarea"
+                                style={{ minHeight: 60, fontSize: 11 }}
+                                value={inlineNoteText}
+                                onChange={e => setInlineNoteText(e.target.value)}
+                                placeholder="Add a note..."
+                                autoFocus
+                              />
+                              <div className="btn-row">
+                                <button className="board-card-btn" onClick={() => saveInlineNote(item.id)}>Save</button>
+                                <button className="board-card-btn" onClick={() => setInlineNoteItem(null)}>Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                          {lastAction && (
+                            <div className="board-card-timestamp">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                              {formatTimestamp(lastAction)}
+                            </div>
+                          )}
+                          <div className="board-card-actions">
+                            <button className="board-card-btn" onClick={(e) => { e.stopPropagation(); openLeadEdit(item); }}>Edit</button>
+                            <button className="board-card-btn" onClick={(e) => { e.stopPropagation(); sendToBusinessTracker(item); }} disabled={trackerDoneIds.has(item.id)}>
+                              {trackerDoneIds.has(item.id) ? '✓ Added' : '+ Business Tracker'}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  }) : <div className="board-card empty" style={{ border: 'none', background: 'transparent' }}>No leads in this stage.</div>}
+                      );
+                    }) : <div className="board-card empty" style={{ border: 'none', background: 'transparent' }}>No leads in this stage.</div>}
+                  </div>
                 </div>
+              ))}
+            </div>
+          ) : (
+            /* Table view */
+            <div className="table campaign-detail-table">
+              <div className="table-header">
+                <div>Lead</div>
+                <div>Company</div>
+                <div>Stage</div>
+                <div>Account</div>
+                <div>Last Sent</div>
+                <div>Next Step</div>
               </div>
-            ))}
-          </div>
+              {(detail?.attachedLeads ?? [])
+                .filter((item: any) => stageFilterAccount === 'all' || item.assigned_account_id === stageFilterAccount)
+                .map((item: any) => {
+                  const lead = leadById.get(item.lead_id);
+                  const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
+                  const colorIdx = item.assigned_account_id ? (accountColorIndex.get(item.assigned_account_id) ?? 0) : 0;
+                  const vs = getVirtualStage(item);
+                  return (
+                    <div key={item.id} className="table-row" style={{ cursor: 'pointer' }} onClick={() => openLeadEdit(item)}>
+                      <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
+                      <div>{lead?.company_name ?? 'Company'}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <StageIcon stage={vs} />
+                        <span style={{ fontSize: 11 }}>{stageLabels[vs] || vs}</span>
+                      </div>
+                      <div><AccountPill account={account} colorIndex={colorIdx} /></div>
+                      <div>{item.last_sent_at ? formatTimestamp(item.last_sent_at) : '—'}</div>
+                      <div>{item.next_step_order ?? 'Done'}</div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       )}
 
@@ -705,36 +776,46 @@ export default function CampaignDetailPage() {
       {activeTab === 'leads' && (
         <div className="grid">
           <div className="card" style={{ marginBottom: 0 }}>
-            <div className="form-grid">
-              <div className="lead-select-toolbar">
-                <input className="input" style={{ flex: 1 }} placeholder="Search leads by name, company, or username" value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
-                <select className="select" style={{ width: 'auto', minWidth: 150 }} value={leadStageFilter} onChange={(e) => setLeadStageFilter(e.target.value)}>
-                  <option value="all">All Stages</option>
-                  {stageOrder.map((s) => <option key={s} value={s}>{stageLabels[s] || s.replaceAll('_', ' ')}</option>)}
-                </select>
-              </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input className="input" style={{ flex: 1, minWidth: 0 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+              <CustomSelect
+                style={{ width: 150, flexShrink: 0 }}
+                value={leadCompanyFilter}
+                onChange={setLeadCompanyFilter}
+                options={[{ value: 'all', label: 'All Companies' }, ...([...new Set((detail?.leads ?? []).map((l) => l.company_name).filter(Boolean))].map(c => ({ value: c, label: c })))]}
+              />
+              <CustomSelect
+                style={{ width: 140, flexShrink: 0 }}
+                value={leadAccountFilter}
+                onChange={setLeadAccountFilter}
+                options={[{ value: 'all', label: 'All Accounts' }, ...(detail?.accounts ?? []).map(a => ({ value: a.id, label: a.label }))]}
+              />
+              <CustomSelect
+                style={{ width: 140, flexShrink: 0 }}
+                value={leadStageFilter}
+                onChange={setLeadStageFilter}
+                options={[{ value: 'all', label: 'All Stages' }, ...dynamicStageOrder.map(s => ({ value: s, label: stageLabels[s] || s.replaceAll('_', ' ') }))]}
+              />
             </div>
           </div>
-          <div className="table campaign-detail-table">
+          <div className="table campaign-leads-table">
             <div className="table-header">
               <div>Lead</div>
               <div>Company</div>
-              <div>Stage</div>
               <div>Account</div>
-              <div>Last Sent</div>
-              <div>Next Step</div>
             </div>
             {filteredAttachedLeads.length ? filteredAttachedLeads.map((item: any) => {
               const lead = leadById.get(item.lead_id);
               const account = item.assigned_account_id ? accountById.get(item.assigned_account_id) : null;
+              const colorIdx = item.assigned_account_id ? (accountColorIndex.get(item.assigned_account_id) ?? 0) : 0;
               return (
                 <div key={item.id} className="table-row" style={{ cursor: 'pointer' }} onClick={() => openLeadEdit(item)}>
-                  <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
-                  <div>{lead?.company_name ?? 'Company'}</div>
-                  <div><span className="badge">{stageLabels[item.status] || item.status}</span></div>
-                  <div>{account?.label ?? 'Unassigned'}</div>
-                  <div>{item.last_sent_at ? formatTimestamp(item.last_sent_at) : 'Not yet'}</div>
-                  <div>{item.next_step_order ?? 'Done'}</div>
+                  <div>
+                    <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
+                    <div className="dim" style={{ fontSize: 11 }}>@{lead?.telegram_username}</div>
+                  </div>
+                  <div>{lead?.company_name ?? '—'}</div>
+                  <div><AccountPill account={account} colorIndex={colorIdx} /></div>
                 </div>
               );
             }) : <div className="empty-state">No leads match the current filters.</div>}
@@ -747,109 +828,71 @@ export default function CampaignDetailPage() {
         <div className="grid">
           <div className="card form-grid">
             <div className="card-title" style={{ marginBottom: 12 }}>Campaign Properties</div>
-            <div className="form-grid columns-2">
-              <input className="input" placeholder="Campaign Name" value={editForm.name} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} />
-              <input className="input" placeholder="Timezone" value={editForm.timezone} onChange={(event) => setEditForm((current) => ({ ...current, timezone: event.target.value }))} />
-              <input className="input" placeholder="Window Start" value={editForm.send_window_start} onChange={(event) => setEditForm((current) => ({ ...current, send_window_start: event.target.value }))} />
-              <input className="input" placeholder="Window End" value={editForm.send_window_end} onChange={(event) => setEditForm((current) => ({ ...current, send_window_end: event.target.value }))} />
+            <div className="form-grid">
+              <input className="input" placeholder="Campaign Name" value={editForm.name} onChange={(e) => setEditForm(c => ({ ...c, name: e.target.value }))} />
+              <CustomSelect value={editForm.timezone} onChange={(v) => setEditForm(c => ({ ...c, timezone: v }))} options={TIMEZONE_OPTIONS} />
             </div>
             <div className="form-grid columns-2">
-              <div className="form-grid">
-                <label className="dim" style={{ fontSize: 11 }}>Start Date</label>
-                <input className="input" type="date" value={editForm.start_date} onChange={(event) => setEditForm((current) => ({ ...current, start_date: event.target.value }))} />
-              </div>
-              <div className="form-grid">
-                <label className="dim" style={{ fontSize: 11 }}>End Date</label>
-                <input className="input" type="date" value={editForm.end_date} onChange={(event) => setEditForm((current) => ({ ...current, end_date: event.target.value }))} />
-              </div>
+              <input className="input" type="time" placeholder="Window Start" value={editForm.send_window_start} onChange={(e) => setEditForm(c => ({ ...c, send_window_start: e.target.value }))} />
+              <input className="input" type="time" placeholder="Window End" value={editForm.send_window_end} onChange={(e) => setEditForm(c => ({ ...c, send_window_end: e.target.value }))} />
             </div>
-            <textarea className="textarea" placeholder="Description" value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} />
-            <div className="btn-row">
-              <button className="btn" type="button" onClick={saveChanges}>Save Campaign</button>
+            <div className="form-grid columns-2">
+              <div className="form-grid"><label className="dim" style={{ fontSize: 11 }}>Start Date</label><DatePicker value={editForm.start_date} onChange={(v) => setEditForm(c => ({ ...c, start_date: v }))} placeholder="Start date" /></div>
+              <div className="form-grid"><label className="dim" style={{ fontSize: 11 }}>End Date</label><DatePicker value={editForm.end_date} onChange={(v) => setEditForm(c => ({ ...c, end_date: v }))} placeholder="End date" /></div>
             </div>
+            <textarea className="textarea" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm(c => ({ ...c, description: e.target.value }))} />
+            <div className="btn-row"><button className="btn" type="button" onClick={saveChanges}>Save Campaign</button></div>
           </div>
 
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div className="card-title">Sequence Editor</div>
-              {hasUnsavedChanges && (
-                <div className="sequence-unsaved-indicator">
-                  <span className="dot" />
-                  Unsaved changes
-                </div>
-              )}
+              {hasUnsavedChanges && <div className="sequence-unsaved-indicator"><span className="dot" />Unsaved changes</div>}
             </div>
-            
             {hasUnsavedChanges && (
               <div className="sequence-save-bar">
-                <span className="dim" style={{ fontSize: 12 }}>You have unsaved changes to the sequence</span>
-                <button className="btn" onClick={saveSequenceChanges} disabled={savingSteps}>
-                  {savingSteps ? 'Saving...' : 'Save Sequence'}
-                </button>
+                <span className="dim" style={{ fontSize: 12 }}>You have unsaved changes</span>
+                <button className="btn" onClick={saveSequenceChanges} disabled={savingSteps}>{savingSteps ? 'Saving...' : 'Save Sequence'}</button>
               </div>
             )}
-            
-            <div className="card-subtitle" style={{ marginTop: 8 }}>
-              Click a placeholder to insert it at cursor position:
-            </div>
+            <div className="card-subtitle" style={{ marginTop: 8 }}>Click a placeholder to insert at cursor:</div>
             <div className="placeholder-pills" style={{ marginTop: 8 }}>
               {templatePlaceholders.map((p) => (
-                <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}>
-                  {p.label}
-                </button>
+                <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}>{p.label}</button>
               ))}
             </div>
-
             <div className="sequence-stack" style={{ marginTop: 24 }}>
               {stepsForm.length ? stepsForm.map((step: any, idx) => {
                 const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
-
                 return (
                   <div key={step.id} className={`sequence-step-card ${activeEditorStep === idx ? 'active' : ''}`}>
                     <div className="sequence-step-header" onClick={() => setActiveEditorStep(idx)}>
                       <div className="sequence-step-header-left">
                         <div className="sequence-step-number">{step.step_order}</div>
-                        <span style={{ fontSize: 13, color: 'var(--text)' }}>
-                          {step.step_name || `Step ${step.step_order}`}
-                        </span>
+                        <span style={{ fontSize: 13, color: 'var(--text)' }}>{step.step_name || `Step ${step.step_order}`}</span>
                       </div>
                       <div className="sequence-step-meta">
                         <span className="dim" style={{ fontSize: 11 }}>Delay {step.delay_days} day(s)</span>
                         {activeEditorStep === idx && <span className="badge" style={{ fontSize: 9 }}>editing</span>}
                       </div>
                     </div>
-
                     {activeEditorStep === idx && (
                       <div className="sequence-step-body">
                         <div className="editor-wrapper">
                           <div className="editor-pane">
-                            <textarea
-                              className="message-input"
-                              ref={(el) => { editorRefs.current[idx] = el; }}
-                              value={step.message_template}
-                              onFocus={() => setActiveEditorStep(idx)}
-                              onChange={(e) => {
-                                setStepsForm(current => {
-                                  const next = [...current];
-                                  next[idx] = { ...next[idx], message_template: e.target.value };
-                                  return next;
-                                });
-                              }}
-                              placeholder="Type your message here..."
-                            />
+                            <textarea className="message-input" ref={(el) => { editorRefs.current[idx] = el; }} value={step.message_template} onFocus={() => setActiveEditorStep(idx)}
+                              onChange={(e) => { setStepsForm(current => { const next = [...current]; next[idx] = { ...next[idx], message_template: e.target.value }; return next; }); }}
+                              placeholder="Type your message here..." />
                           </div>
-
                           <div className="preview-pane">
                             <div className="preview-header">
                               <div className="preview-avatar">L</div>
                               <div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Light ✨ ✓</div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Light ✨</div>
                                 <div className="dim" style={{ fontSize: 11 }}>@lightwaslost</div>
                               </div>
                             </div>
-                            <div className="preview-bubble">
-                              {renderMessageTemplate(step.message_template, randomLead)}
-                            </div>
+                            <div className="preview-bubble">{renderMessageTemplate(step.message_template, randomLead)}</div>
                             <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                           </div>
                         </div>
@@ -857,7 +900,7 @@ export default function CampaignDetailPage() {
                     )}
                   </div>
                 );
-              }) : <div className="empty-state">No sequence steps have been created for this campaign yet.</div>}
+              }) : <div className="empty-state">No sequence steps created yet.</div>}
             </div>
           </div>
         </div>
@@ -871,42 +914,20 @@ export default function CampaignDetailPage() {
             <div className="form-grid">
               <div className="form-grid">
                 <label className="dim" style={{ fontSize: 11 }}>Status</label>
-                <select 
-                  className="select" 
-                  value={leadEditForm.status} 
-                  onChange={(e) => setLeadEditForm(f => ({ ...f, status: e.target.value }))}
-                >
-                  {stageOrder.map(s => <option key={s} value={s}>{stageLabels[s] || s.replaceAll('_', ' ')}</option>)}
-                </select>
+                <CustomSelect value={leadEditForm.status} onChange={v => setLeadEditForm(f => ({ ...f, status: v }))} options={dynamicStageOrder.map(s => ({ value: s, label: stageLabels[s] || s.replaceAll('_', ' ') }))} />
               </div>
               <div className="form-grid">
                 <label className="dim" style={{ fontSize: 11 }}>Next Step Order</label>
-                <input 
-                  className="input" 
-                  type="number" 
-                  min={1}
-                  value={leadEditForm.next_step_order} 
-                  onChange={(e) => setLeadEditForm(f => ({ ...f, next_step_order: Number(e.target.value) }))} 
-                />
+                <input className="input" type="number" min={1} value={leadEditForm.next_step_order} onChange={(e) => setLeadEditForm(f => ({ ...f, next_step_order: Number(e.target.value) }))} />
               </div>
               <div className="form-grid">
                 <label className="dim" style={{ fontSize: 11 }}>Notes</label>
-                <textarea 
-                  className="textarea" 
-                  style={{ minHeight: 80 }}
-                  value={leadEditForm.notes} 
-                  onChange={(e) => setLeadEditForm(f => ({ ...f, notes: e.target.value }))} 
-                  placeholder="Add notes about this lead..."
-                />
+                <textarea className="textarea" style={{ minHeight: 80 }} value={leadEditForm.notes} onChange={(e) => setLeadEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="Add notes about this lead..." />
               </div>
             </div>
             <div className="btn-row" style={{ marginTop: 20 }}>
-              <button className="btn" onClick={saveLeadChanges}>
-                Save Changes
-              </button>
-              <button className="btn-secondary" onClick={() => setEditingLead(null)}>
-                Cancel
-              </button>
+              <button className="btn" onClick={saveLeadChanges}>Save Changes</button>
+              <button className="btn-secondary" onClick={() => setEditingLead(null)}>Cancel</button>
             </div>
           </div>
         </div>

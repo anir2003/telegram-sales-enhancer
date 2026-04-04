@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
+import { CustomSelect } from '@/components/ui/select';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -20,6 +21,11 @@ export default function LeadsPage() {
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', company_name: '', telegram_username: '', tags: '', source: '' });
   const menuRef = useRef<HTMLDivElement>(null);
+  const [tagPickerOpen, setTagPickerOpen] = useState<'add' | 'import' | null>(null);
+  const tagPickerRef = useRef<HTMLDivElement>(null);
+  const tagBtnRef = useRef<HTMLButtonElement>(null);
+  const importTagBtnRef = useRef<HTMLButtonElement>(null);
+  const [tagPickerPos, setTagPickerPos] = useState<{ top: number; left: number } | null>(null);
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -29,7 +35,6 @@ export default function LeadsPage() {
     source: 'Manual',
   });
 
-  // Use useCallback to prevent recreating the load function on every render
   const loadLeads = useCallback(async () => {
     setLoading(true);
     const [leadResponse, campaignResponse] = await Promise.all([
@@ -38,8 +43,6 @@ export default function LeadsPage() {
     ]);
     const nextLeads = leadResponse.leads ?? [];
     const campaigns = campaignResponse.campaigns ?? [];
-    
-    // Only fetch campaign details if there are campaigns
     if (campaigns.length > 0) {
       const nextDetails = await Promise.all(
         campaigns.map((campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
@@ -48,24 +51,45 @@ export default function LeadsPage() {
     } else {
       setDetails([]);
     }
-
     setLeads(nextLeads);
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    void loadLeads();
-  }, [loadLeads]);
+  useEffect(() => { void loadLeads(); }, [loadLeads]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpenMenu(null);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpenMenu(null);
+      if (tagPickerRef.current && !tagPickerRef.current.contains(e.target as Node)
+        && e.target !== tagBtnRef.current && e.target !== importTagBtnRef.current) {
+        setTagPickerOpen(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const allTags = useMemo(() => [...new Set(leads.flatMap((lead) => lead.tags))], [leads]);
+
+  const openTagPicker = (which: 'add' | 'import', btnRef: React.RefObject<HTMLButtonElement | null>) => {
+    if (tagPickerOpen === which) { setTagPickerOpen(null); return; }
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setTagPickerPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setTagPickerOpen(which);
+  };
+
+  const addTag = (tag: string, which: 'add' | 'import') => {
+    if (which === 'add') {
+      const current = form.tags.split(',').map(t => t.trim()).filter(Boolean);
+      if (!current.includes(tag)) setForm(c => ({ ...c, tags: [...current, tag].join(', ') }));
+    } else {
+      const current = importTags.split(',').map(t => t.trim()).filter(Boolean);
+      if (!current.includes(tag)) setImportTags([...current, tag].join(', '));
+    }
+    setTagPickerOpen(null);
+  };
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -76,14 +100,7 @@ export default function LeadsPage() {
         tags: form.tags.split(',').map((item) => item.trim()).filter(Boolean),
       }),
     });
-    setForm({
-      first_name: '',
-      last_name: '',
-      company_name: '',
-      telegram_username: '',
-      tags: '',
-      source: 'Manual',
-    });
+    setForm({ first_name: '', last_name: '', company_name: '', telegram_username: '', tags: '', source: 'Manual' });
     setStatus('Lead added.');
     setStatusTone('success');
     await loadLeads();
@@ -93,7 +110,7 @@ export default function LeadsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     setPendingFile(file);
-    setStatus(`File "${file.name}" selected. Click "Import Now" to upload. Duplicates (same Telegram username) will be auto-merged.`);
+    setStatus(`File "${file.name}" selected. Click "Import Now" to upload.`);
     setStatusTone('neutral');
     event.target.value = '';
   };
@@ -106,12 +123,10 @@ export default function LeadsPage() {
     try {
       const formData = new FormData();
       formData.append('file', pendingFile);
-      if (importTags.trim()) {
-        formData.append('tags', importTags.trim());
-      }
+      if (importTags.trim()) formData.append('tags', importTags.trim());
       const result = await fetchJson<{ leads?: unknown[] }>('/api/leads/import', { method: 'POST', body: formData });
       const count = result.leads?.length ?? 0;
-      setStatus(`Imported ${count} leads from ${pendingFile.name}. Duplicates were merged automatically.`);
+      setStatus(`Imported ${count} leads. Duplicates merged automatically.`);
       setStatusTone('success');
       setPendingFile(null);
       setImportTags('');
@@ -167,14 +182,11 @@ export default function LeadsPage() {
   };
 
   const leadRows = useMemo(() => buildLeadMemberships(leads, details), [details, leads]);
-  const allTags = useMemo(() => [...new Set(leads.flatMap((lead) => lead.tags))], [leads]);
   const allSources = useMemo(() => [...new Set(leads.map((lead) => lead.source ?? 'Manual'))], [leads]);
   const filteredLeads = useMemo(() => {
     return leadRows.filter((lead) => {
       const matchesSearch = !search.trim() || [lead.first_name, lead.last_name, lead.company_name, lead.telegram_username]
-        .join(' ')
-        .toLowerCase()
-        .includes(search.trim().toLowerCase());
+        .join(' ').toLowerCase().includes(search.trim().toLowerCase());
       const matchesSource = sourceFilter === 'all' || (lead.source ?? 'Manual') === sourceFilter;
       const matchesTag = tagFilter === 'all' || lead.tags.includes(tagFilter);
       return matchesSearch && matchesSource && matchesTag;
@@ -192,51 +204,91 @@ export default function LeadsPage() {
 
       <div className="section-label">Lead Intake</div>
       <div className="split-layout">
+        {/* Add Lead */}
         <form className="card form-grid" onSubmit={handleCreate}>
-          <div className="card-header">
-            <div>
-              <div className="card-title">Add Lead</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>Manually add a single lead to the CRM.</div>
-            </div>
+          <div>
+            <div className="card-title">Add Lead</div>
+            <div className="card-subtitle" style={{ marginTop: 4 }}>Manually add a single lead to the CRM.</div>
+            <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>Do not include the <code style={{ fontSize: 11 }}>@</code> symbol in the Telegram username.</div>
           </div>
           <div className="form-grid columns-2">
             <input className="input" placeholder="First Name" value={form.first_name} onChange={(e) => setForm((c) => ({ ...c, first_name: e.target.value }))} />
             <input className="input" placeholder="Last Name" value={form.last_name} onChange={(e) => setForm((c) => ({ ...c, last_name: e.target.value }))} />
             <input className="input" placeholder="Company" value={form.company_name} onChange={(e) => setForm((c) => ({ ...c, company_name: e.target.value }))} />
-            <input className="input" placeholder="Telegram username" value={form.telegram_username} onChange={(e) => setForm((c) => ({ ...c, telegram_username: e.target.value }))} />
+            <input className="input" placeholder="Telegram username (no @)" value={form.telegram_username} onChange={(e) => setForm((c) => ({ ...c, telegram_username: e.target.value }))} />
           </div>
           <div className="form-grid columns-2">
-            <input className="input" placeholder="Tags (comma separated)" value={form.tags} onChange={(e) => setForm((c) => ({ ...c, tags: e.target.value }))} />
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input"
+                placeholder="Tags (comma separated)"
+                value={form.tags}
+                onChange={(e) => setForm((c) => ({ ...c, tags: e.target.value }))}
+                style={{ paddingRight: 32 }}
+              />
+              <button
+                type="button"
+                ref={tagBtnRef}
+                onClick={() => openTagPicker('add', tagBtnRef)}
+                title="Pick existing tag"
+                style={{
+                  position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--text-dim)', fontSize: 16, lineHeight: 1, padding: '2px 4px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+              >+</button>
+            </div>
             <input className="input" placeholder="Source" value={form.source} onChange={(e) => setForm((c) => ({ ...c, source: e.target.value }))} />
           </div>
-          <div className="btn-row">
-            <button className="btn" type="submit">Save Lead</button>
+          <div>
+            <button className="btn" type="submit" style={{ fontSize: 12, padding: '6px 14px' }}>Save Lead</button>
           </div>
         </form>
 
+        {/* Import CSV */}
         <div className="card form-grid">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Import CSV</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>Upload a CSV file. Duplicates (same Telegram username) are automatically merged.</div>
-              <div className="dim" style={{ fontSize: 13, marginTop: 12, lineHeight: 1.5 }}>
-                <strong>Required columns:</strong> First Name, Telegram Username.<br />
-                <strong>Optional columns:</strong> Last Name, Company, Tags (comma separated), Notes, Source.
-              </div>
+          <div>
+            <div className="card-title">Import CSV</div>
+            <div className="card-subtitle" style={{ marginTop: 4 }}>Upload a CSV file. Duplicates (same Telegram username) are automatically merged.</div>
+            <div className="dim" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
+              <strong>Required:</strong> First Name, Telegram Username &nbsp;·&nbsp; <strong>Optional:</strong> Last Name, Company, Tags, Notes, Source<br />
+              Do not include the <code style={{ fontSize: 11 }}>@</code> symbol in the Telegram username column.
             </div>
           </div>
-          <label className="btn-secondary" style={{ width: 'fit-content', cursor: 'pointer' }}>
-            <input type="file" accept=".csv" onChange={handleFileSelect} style={{ display: 'none' }} />
-            Choose CSV File
-          </label>
+          <div>
+            <label className="btn-secondary" style={{ width: 'fit-content', cursor: 'pointer', fontSize: 12, padding: '6px 14px' }}>
+              <input type="file" accept=".csv" onChange={handleFileSelect} style={{ display: 'none' }} />
+              Choose CSV File
+            </label>
+          </div>
           {pendingFile && (
             <>
-              <input
-                className="input"
-                placeholder="Add tags to all imported leads (comma separated)"
-                value={importTags}
-                onChange={(e) => setImportTags(e.target.value)}
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  className="input"
+                  placeholder="Add tags to all imported leads (comma separated)"
+                  value={importTags}
+                  onChange={(e) => setImportTags(e.target.value)}
+                  style={{ paddingRight: 32 }}
+                />
+                <button
+                  type="button"
+                  ref={importTagBtnRef}
+                  onClick={() => openTagPicker('import', importTagBtnRef)}
+                  title="Pick existing tag"
+                  style={{
+                    position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-dim)', fontSize: 16, lineHeight: 1, padding: '2px 4px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+                >+</button>
+              </div>
               {importTags.trim() && (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {importTags.split(',').map((t) => t.trim()).filter(Boolean).map((t) => (
@@ -244,12 +296,12 @@ export default function LeadsPage() {
                   ))}
                 </div>
               )}
-              <div className="btn-row" style={{ alignItems: 'center' }}>
-                <span className="dim" style={{ fontSize: 12 }}>{pendingFile.name}</span>
-                <button className="btn" type="button" onClick={handleImport} disabled={importing}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="dim" style={{ fontSize: 11 }}>{pendingFile.name}</span>
+                <button className="btn" type="button" onClick={handleImport} disabled={importing} style={{ fontSize: 12, padding: '6px 14px' }}>
                   {importing ? 'Importing...' : 'Import Now'}
                 </button>
-                <button className="btn-secondary" type="button" onClick={() => { setPendingFile(null); setStatus(''); setImportTags(''); }}>
+                <button className="btn-secondary" type="button" onClick={() => { setPendingFile(null); setStatus(''); setImportTags(''); }} style={{ fontSize: 12, padding: '6px 14px' }}>
                   Cancel
                 </button>
               </div>
@@ -259,20 +311,42 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      <div className="section-label">Lead Database</div>
+      {/* Tag picker popover */}
+      {tagPickerOpen && tagPickerPos && (
+        <div
+          ref={tagPickerRef}
+          style={{
+            position: 'fixed', zIndex: 9999,
+            top: tagPickerPos.top, left: tagPickerPos.left,
+            background: 'var(--panel-strong)', border: '1px solid var(--border-soft)',
+            borderRadius: 6, padding: 4, minWidth: 160,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          }}
+        >
+          {allTags.length === 0 ? (
+            <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--text-dim)' }}>No tags yet</div>
+          ) : allTags.map(tag => (
+            <div
+              key={tag}
+              onClick={() => addTag(tag, tagPickerOpen)}
+              style={{
+                padding: '6px 10px', borderRadius: 4, cursor: 'pointer',
+                fontSize: 12, color: 'var(--text-dim)',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--panel-alt)'; (e.currentTarget as HTMLElement).style.color = 'var(--text)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)'; }}
+            >{tag}</div>
+          ))}
+        </div>
+      )}
 
+      <div className="section-label">Lead Database</div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="form-grid">
           <input className="input" placeholder="Search by name, company, or Telegram username" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="filter-row">
-            <select className="select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-              <option value="all">All Sources</option>
-              {allSources.map((source) => <option key={source} value={source}>{source}</option>)}
-            </select>
-            <select className="select" value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
-              <option value="all">All Tags</option>
-              {allTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
-            </select>
+            <CustomSelect value={sourceFilter} onChange={setSourceFilter} options={[{ value: 'all', label: 'All Sources' }, ...allSources.map(s => ({ value: s, label: s }))]} />
+            <CustomSelect value={tagFilter} onChange={setTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allTags.map(t => ({ value: t, label: t }))]} />
           </div>
         </div>
       </div>
@@ -321,13 +395,13 @@ export default function LeadsPage() {
               <input className="input" placeholder="First Name" value={editForm.first_name} onChange={(e) => setEditForm((c) => ({ ...c, first_name: e.target.value }))} />
               <input className="input" placeholder="Last Name" value={editForm.last_name} onChange={(e) => setEditForm((c) => ({ ...c, last_name: e.target.value }))} />
               <input className="input" placeholder="Company" value={editForm.company_name} onChange={(e) => setEditForm((c) => ({ ...c, company_name: e.target.value }))} />
-              <input className="input" placeholder="Telegram username" value={editForm.telegram_username} onChange={(e) => setEditForm((c) => ({ ...c, telegram_username: e.target.value }))} />
+              <input className="input" placeholder="Telegram username (no @)" value={editForm.telegram_username} onChange={(e) => setEditForm((c) => ({ ...c, telegram_username: e.target.value }))} />
             </div>
             <input className="input" placeholder="Tags (comma separated)" value={editForm.tags} onChange={(e) => setEditForm((c) => ({ ...c, tags: e.target.value }))} />
             <input className="input" placeholder="Source" value={editForm.source} onChange={(e) => setEditForm((c) => ({ ...c, source: e.target.value }))} />
             <div className="btn-row">
-              <button className="btn" onClick={handleEditSave}>Save Changes</button>
-              <button className="btn-secondary" onClick={() => setEditingLead(null)}>Cancel</button>
+              <button className="btn" onClick={handleEditSave} style={{ fontSize: 12, padding: '6px 14px' }}>Save Changes</button>
+              <button className="btn-secondary" onClick={() => setEditingLead(null)} style={{ fontSize: 12, padding: '6px 14px' }}>Cancel</button>
             </div>
           </div>
         </div>
