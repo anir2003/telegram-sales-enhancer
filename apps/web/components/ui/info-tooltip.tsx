@@ -32,7 +32,6 @@ export function InfoTooltip({ text }: { text: string }) {
           transition: 'color 0.15s',
           flexShrink: 0,
         }}
-        onMouseEnterCapture={show}
       >
         {/* Minimal SVG info circle */}
         <svg

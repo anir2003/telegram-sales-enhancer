@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "sales-dashboard",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev:web"],
-      "port": 3000
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd /Users/anir/Desktop/salessystem/apps/web && PATH=/usr/local/bin:/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev"],
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }
