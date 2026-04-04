@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, type Campaign, type CampaignDetail } from '@/lib/web/insights';
+import { CustomSelect } from '@/components/ui/select';
 
 type Account = {
   id: string;
@@ -18,16 +19,12 @@ export default function AccountsPage() {
   const [details, setDetails] = useState<CampaignDetail[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Connect account modal state
   const [showConnect, setShowConnect] = useState(false);
   const [connectLabel, setConnectLabel] = useState('');
   const [connectDailyLimit, setConnectDailyLimit] = useState(20);
   const [connectCode, setConnectCode] = useState('');
   const [connectError, setConnectError] = useState('');
   const [generating, setGenerating] = useState(false);
-
-  // Edit modal state
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editForm, setEditForm] = useState({ label: '', daily_limit: 20, is_active: true });
   const [saving, setSaving] = useState(false);
@@ -41,24 +38,17 @@ export default function AccountsPage() {
     const nextAccounts = accountResponse.accounts ?? [];
     setAccounts(nextAccounts);
     const campaigns = campaignResponse.campaigns ?? [];
-    const nextDetails = await Promise.all(
-      campaigns.map((campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
-    );
+    const nextDetails = await Promise.all(campaigns.map((c) => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)));
     setDetails(nextDetails);
-    setSelectedAccountId((current) => current ?? nextAccounts[0]?.id ?? null);
+    setSelectedAccountId((cur) => cur ?? nextAccounts[0]?.id ?? null);
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const generateConnectCode = async () => {
     setConnectError('');
-    if (!connectLabel.trim()) {
-      setConnectError('Give this account a label (e.g. "Sales Account 1").');
-      return;
-    }
+    if (!connectLabel.trim()) { setConnectError('Give this account a label.'); return; }
     setGenerating(true);
     try {
       const response = await fetchJson<{ linkCode?: { code: string } }>('/api/accounts/link-code', {
@@ -73,69 +63,40 @@ export default function AccountsPage() {
   };
 
   const resetConnect = () => {
-    setShowConnect(false);
-    setConnectLabel('');
-    setConnectDailyLimit(20);
-    setConnectCode('');
-    setConnectError('');
+    setShowConnect(false); setConnectLabel(''); setConnectDailyLimit(20);
+    setConnectCode(''); setConnectError('');
   };
 
   const handleEdit = (account: Account) => {
     setEditingAccount(account);
-    setEditForm({
-      label: account.label,
-      daily_limit: account.daily_limit,
-      is_active: account.is_active,
-    });
+    setEditForm({ label: account.label, daily_limit: account.daily_limit, is_active: account.is_active });
   };
 
   const handleSaveEdit = async () => {
     if (!editingAccount) return;
     setSaving(true);
     try {
-      await fetchJson(`/api/accounts/${editingAccount.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(editForm),
-      });
-      setEditingAccount(null);
-      await load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save changes');
-    }
+      await fetchJson(`/api/accounts/${editingAccount.id}`, { method: 'PATCH', body: JSON.stringify(editForm) });
+      setEditingAccount(null); await load();
+    } catch (err) { alert(err instanceof Error ? err.message : 'Failed to save'); }
     setSaving(false);
-  };
-
-  const handleToggleActive = async (account: Account) => {
-    try {
-      await fetchJson(`/api/accounts/${account.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: !account.is_active }),
-      });
-      await load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update status');
-    }
   };
 
   const handleDeleteAccount = async () => {
     if (!editingAccount) return;
-    if (!confirm(`Are you sure you want to delete ${editingAccount.label}? This will remove it from all campaigns.`)) return;
-    
+    if (!confirm(`Delete ${editingAccount.label}?`)) return;
     setSaving(true);
     try {
       await fetchJson(`/api/accounts/${editingAccount.id}`, { method: 'DELETE' });
       setEditingAccount(null);
       if (selectedAccountId === editingAccount.id) setSelectedAccountId(null);
       await load();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete account');
-    }
+    } catch (err) { alert(err instanceof Error ? err.message : 'Failed to delete'); }
     setSaving(false);
   };
 
   const accountInsights = useMemo(() => buildAccountInsights(accounts, details), [accounts, details]);
-  const selectedAccount = accountInsights.find((account) => account.id === selectedAccountId) ?? null;
-
+  const selectedAccount = accountInsights.find((a) => a.id === selectedAccountId) ?? null;
   const stats = useMemo(() => ({
     total: accountInsights.length,
     active: accountInsights.filter((a) => a.is_active).length,
@@ -143,268 +104,204 @@ export default function AccountsPage() {
     sentYesterday: accountInsights.reduce((s, a) => s + a.sentYesterday, 0),
   }), [accountInsights]);
 
-  if (loading) {
-    return <div className="page-content"><div className="empty-state">Loading accounts...</div></div>;
-  }
+  if (loading) return <div className="page-content"><div className="empty-state">Loading...</div></div>;
 
   return (
     <div className="page-content">
-      {/* Header Card */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">Telegram Sender Accounts</div>
-            <div className="card-subtitle" style={{ marginTop: 8 }}>
-              Connect and manage your Telegram sending accounts. Each account can be assigned to campaigns with daily limits.
-            </div>
-          </div>
-          <button className="btn" onClick={() => { setShowConnect(!showConnect); if (showConnect) resetConnect(); }}>
-            {showConnect ? 'Cancel' : '+ Connect Account'}
-          </button>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Accounts</div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>Telegram sender accounts and daily limits</div>
         </div>
+        <button className="btn" onClick={() => { setShowConnect(!showConnect); if (showConnect) resetConnect(); }}>
+          {showConnect ? 'Cancel' : '+ Connect Account'}
+        </button>
       </div>
 
-      {/* Connect Account Modal */}
+      {/* Connect modal */}
       {showConnect && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title">Connect a Telegram Account via Bot</div>
-          <div className="card-subtitle" style={{ marginTop: 8, marginBottom: 16 }}>
-            Step 1: Name this account and set its daily limit. Step 2: Generate a code. Step 3: Open Telegram with the account you want to connect, message the bot, and send <code>/connect CODE</code>.
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', marginBottom: 4 }}>Connect via Bot</div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 16 }}>
+            Name the account, generate a code, then send <code>/connect CODE</code> to the bot from the Telegram account you want to connect.
           </div>
-
           {!connectCode ? (
             <div className="form-grid">
               <div className="form-grid columns-2">
                 <div className="form-grid">
-                  <label className="dim" style={{ fontSize: 11 }}>Account Label</label>
-                  <input
-                    className="input"
-                    placeholder="e.g. Sales Account 1"
-                    value={connectLabel}
-                    onChange={(e) => setConnectLabel(e.target.value)}
-                  />
+                  <label className="dim" style={{ fontSize: 11 }}>Label</label>
+                  <input className="input" placeholder="e.g. Sales Account 1" value={connectLabel} onChange={e => setConnectLabel(e.target.value)} />
                 </div>
                 <div className="form-grid">
-                  <label className="dim" style={{ fontSize: 11 }}>Daily Message Limit</label>
-                  <input
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={connectDailyLimit}
-                    onChange={(e) => setConnectDailyLimit(Number(e.target.value))}
-                  />
+                  <label className="dim" style={{ fontSize: 11 }}>Daily Limit</label>
+                  <input className="input" type="number" min={1} max={500} value={connectDailyLimit} onChange={e => setConnectDailyLimit(Number(e.target.value))} />
                 </div>
               </div>
               {connectError && <div className="status-callout danger">{connectError}</div>}
               <div className="btn-row">
-                <button className="btn" onClick={generateConnectCode} disabled={generating}>
-                  {generating ? 'Generating...' : 'Generate Connect Code'}
-                </button>
+                <button className="btn" onClick={generateConnectCode} disabled={generating}>{generating ? 'Generating...' : 'Generate Code'}</button>
               </div>
             </div>
           ) : (
             <div className="form-grid">
-              <div className="status-callout success" style={{ fontSize: 13, lineHeight: 1.8 }}>
-                <strong>Code generated: <code style={{ fontSize: 16, letterSpacing: '0.15em' }}>{connectCode}</code></strong>
-                <br /><br />
-                Now open Telegram with the account you want to connect and send this to the bot:
-                <br />
-                <code>/connect {connectCode}</code>
-                <br /><br />
-                The code expires in 15 minutes.
+              <div className="status-callout success" style={{ fontSize: 12, lineHeight: 1.8 }}>
+                Code: <code style={{ fontSize: 15, letterSpacing: '0.15em', fontWeight: 700 }}>{connectCode}</code>
+                <br />Send <code>/connect {connectCode}</code> to the bot · expires in 15 min
               </div>
               <div className="btn-row">
-                <button className="btn-secondary" onClick={() => { resetConnect(); void load(); }}>
-                  Done
-                </button>
-                <button className="btn-secondary" onClick={() => setConnectCode('')}>
-                  Generate Another
-                </button>
+                <button className="btn-secondary" onClick={() => { resetConnect(); void load(); }}>Done</button>
+                <button className="btn-secondary" onClick={() => setConnectCode('')}>New Code</button>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-4" style={{ marginTop: 16 }}>
-        <div className="card">
-          <div className="card-title">Total Accounts</div>
-          <div className="card-value">{stats.total}</div>
-          <div className="card-subtitle">Connected sender accounts</div>
-        </div>
-        <div className="card">
-          <div className="card-title">Active</div>
-          <div className="card-value" style={{ color: stats.active > 0 ? '#26a641' : undefined }}>{stats.active}</div>
-          <div className="card-subtitle">Ready for campaigns</div>
-        </div>
-        <div className="card">
-          <div className="card-title">Messages Today</div>
-          <div className="card-value">{stats.sentToday}</div>
-          <div className="card-subtitle">Across all accounts</div>
-        </div>
-        <div className="card">
-          <div className="card-title">Messages Yesterday</div>
-          <div className="card-value">{stats.sentYesterday}</div>
-          <div className="card-subtitle">Previous day total</div>
-        </div>
+      {/* Stats */}
+      <div className="grid grid-4" style={{ marginBottom: 20 }}>
+        {[
+          { label: 'Total Accounts', value: stats.total, sub: 'Connected senders' },
+          { label: 'Active', value: stats.active, sub: 'Ready for campaigns', color: stats.active > 0 ? '#22c55e' : undefined },
+          { label: 'Sent Today', value: stats.sentToday, sub: 'Across all accounts' },
+          { label: 'Sent Yesterday', value: stats.sentYesterday, sub: 'Previous day total' },
+        ].map(s => (
+          <div key={s.label} className="card">
+            <div className="card-title">{s.label}</div>
+            <div className="card-value" style={s.color ? { color: s.color } : undefined}>{s.value}</div>
+            <div className="card-subtitle">{s.sub}</div>
+          </div>
+        ))}
       </div>
 
-      {/* Selected Account Detail Card */}
-      {selectedAccount && (
-        <>
-          <div className="section-label">Selected Account Details</div>
-          <div className="card" style={{ borderColor: 'var(--border-strong)', background: 'var(--panel)' }}>
-            <div className="card-header">
-              <div>
-                <div className="card-title" style={{ fontSize: 16, fontWeight: 600 }}>{selectedAccount.label}</div>
-                <div className="card-subtitle" style={{ marginTop: 4 }}>@{selectedAccount.telegram_username}</div>
-              </div>
-              <div className="btn-row">
-                <span className={`badge ${selectedAccount.is_active ? 'badge-active' : ''}`}>
-                  {selectedAccount.is_active ? 'Active' : 'Paused'}
-                </span>
-                <button className="btn-secondary" onClick={() => handleEdit(accounts.find(a => a.id === selectedAccount.id)!)}>
-                  Edit
+      {/* Account cards */}
+      {accountInsights.length === 0 ? (
+        <div className="empty-state">No accounts connected. Click "+ Connect Account" to get started.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: selectedAccount ? '1fr 280px' : '1fr', gap: 16, alignItems: 'start' }}>
+          <div className="account-card-grid">
+            {accountInsights.map(account => {
+              const isSelected = selectedAccountId === account.id;
+              const barColor = account.utilization > 80 ? '#ef4444' : account.utilization > 50 ? '#f97316' : '#22c55e';
+              return (
+                <button
+                  key={account.id}
+                  className={`account-card${isSelected ? ' active' : ''}`}
+                  onClick={() => setSelectedAccountId(isSelected ? null : account.id)}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{account.label}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>@{account.telegram_username}</div>
+                    </div>
+                    <span style={{
+                      flexShrink: 0, marginLeft: 8,
+                      fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 3,
+                      background: account.is_active ? '#22c55e18' : 'var(--panel-strong)',
+                      color: account.is_active ? '#22c55e' : 'var(--text-dim)',
+                      border: `1px solid ${account.is_active ? '#22c55e35' : 'var(--border-soft)'}`,
+                      letterSpacing: '0.04em',
+                    }}>{account.is_active ? 'Active' : 'Paused'}</span>
+                  </div>
+
+                  <div className="account-card-stats">
+                    <div><span>Campaigns</span><strong>{account.campaignCount}</strong></div>
+                    <div><span>Today</span><strong>{account.sentToday}</strong></div>
+                    <div><span>Limit</span><strong>{account.daily_limit}</strong></div>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Utilization</span>
+                      <span style={{ fontSize: 9, color: barColor, fontWeight: 600 }}>{account.utilization}%</span>
+                    </div>
+                    <div style={{ height: 2, background: 'var(--panel-strong)', borderRadius: 1, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${account.utilization}%`, background: barColor, borderRadius: 1 }} />
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Detail panel */}
+          {selectedAccount && (
+            <div className="card" style={{ padding: '16px 18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{selectedAccount.label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>@{selectedAccount.telegram_username}</div>
+                </div>
+                <button className="board-card-btn" onClick={() => handleEdit(accounts.find(a => a.id === selectedAccount.id)!)} style={{ padding: '4px 8px' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
               </div>
-            </div>
-            <div className="grid grid-4" style={{ marginTop: 16 }}>
-              <div className="mini-stat">
-                <div className="mini-stat-label">Campaigns</div>
-                <div className="mini-stat-value">{selectedAccount.campaignCount}</div>
-              </div>
-              <div className="mini-stat">
-                <div className="mini-stat-label">Assigned Leads</div>
-                <div className="mini-stat-value">{selectedAccount.assignedLeadCount}</div>
-              </div>
-              <div className="mini-stat">
-                <div className="mini-stat-label">Sent Today</div>
-                <div className="mini-stat-value">{selectedAccount.sentToday}/{selectedAccount.daily_limit}</div>
-              </div>
-              <div className="mini-stat">
-                <div className="mini-stat-label">Utilization</div>
-                <div className="mini-stat-value" style={{ color: selectedAccount.utilization > 80 ? '#e74c3c' : selectedAccount.utilization > 50 ? '#f39c12' : '#26a641' }}>
-                  {selectedAccount.utilization}%
+
+              {[
+                { label: 'Campaigns', value: selectedAccount.campaignCount },
+                { label: 'Assigned Leads', value: selectedAccount.assignedLeadCount },
+                { label: 'Sent Today', value: `${selectedAccount.sentToday} / ${selectedAccount.daily_limit}` },
+                { label: 'Sent Yesterday', value: selectedAccount.sentYesterday },
+              ].map(row => (
+                <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{row.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>{row.value}</span>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Utilization</span>
+                  <span style={{ fontSize: 11, color: 'var(--text)' }}>{selectedAccount.utilization}%</span>
+                </div>
+                <div style={{ height: 3, background: 'var(--panel-strong)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', borderRadius: 2, width: `${selectedAccount.utilization}%`, background: selectedAccount.utilization > 80 ? '#ef4444' : selectedAccount.utilization > 50 ? '#f97316' : '#22c55e' }} />
                 </div>
               </div>
-            </div>
-            <div className="utilization-bar" style={{ marginTop: 16, height: 10 }}>
-              <div 
-                className="utilization-bar-fill" 
-                style={{ 
-                  width: `${selectedAccount.utilization}%`,
-                  background: selectedAccount.utilization > 80 ? '#e74c3c' : selectedAccount.utilization > 50 ? '#f39c12' : '#26a641'
-                }} 
-              />
-            </div>
-            {selectedAccount.campaignNames.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div className="dim" style={{ fontSize: 11, marginBottom: 8 }}>Campaign Assignments</div>
-                <div className="btn-row">
-                  {selectedAccount.campaignNames.map((name) => (
-                    <span key={name} className="badge" style={{ fontSize: 11 }}>{name}</span>
-                  ))}
+
+              {selectedAccount.campaignNames.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Campaigns</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {selectedAccount.campaignNames.map(name => (
+                      <span key={name} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 3, background: 'var(--panel-alt)', color: 'var(--text-dim)', border: '1px solid var(--border-soft)' }}>{name}</span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Account Pool Grid */}
-      <div className="section-label">Account Pool</div>
-      <div className="account-card-grid">
-        {accountInsights.length ? accountInsights.map((account) => (
-          <div 
-            key={account.id} 
-            className={`account-card ${selectedAccountId === account.id ? 'active' : ''}`}
-            onClick={() => setSelectedAccountId(account.id)}
-          >
-            <div className="card-header">
-              <div>
-                <div className="card-title">{account.label}</div>
-                <div className="card-subtitle" style={{ marginTop: 4 }}>@{account.telegram_username}</div>
-              </div>
-              <div className="btn-row">
-                <span className={`badge ${account.is_active ? 'badge-active' : ''}`}>
-                  {account.is_active ? 'Active' : 'Paused'}
-                </span>
-              </div>
-            </div>
-            <div className="account-card-stats">
-              <div><span>Campaigns</span><strong>{account.campaignCount}</strong></div>
-              <div><span>Today</span><strong>{account.sentToday}</strong></div>
-              <div><span>Limit</span><strong>{account.daily_limit}</strong></div>
-            </div>
-            <div className="utilization-bar" style={{ height: 6 }}>
-              <div 
-                className="utilization-bar-fill" 
-                style={{ 
-                  width: `${account.utilization}%`,
-                  background: account.utilization > 80 ? '#e74c3c' : account.utilization > 50 ? '#f39c12' : '#26a641'
-                }} 
-              />
-            </div>
-            <div className="card-subtitle" style={{ marginTop: 10, fontSize: 11 }}>
-              {account.activeLeads} active leads • {account.sentYesterday} sent yesterday
-            </div>
-          </div>
-        )) : (
-          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-            No Telegram accounts connected yet. Click "+ Connect Account" above and follow the bot linking flow to register your first sender account.
-          </div>
-        )}
-      </div>
-
-      {/* Edit Account Modal */}
+      {/* Edit modal */}
       {editingAccount && (
-        <div className="edit-lead-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditingAccount(null); }}>
-          <div className="edit-lead-modal">
+        <div className="edit-lead-overlay" onClick={e => { if (e.target === e.currentTarget) setEditingAccount(null); }}>
+          <div className="edit-lead-modal" style={{ maxWidth: 400 }}>
             <div className="card-title" style={{ marginBottom: 16 }}>Edit Account</div>
             <div className="form-grid">
               <div className="form-grid">
-                <label className="dim" style={{ fontSize: 11 }}>Account Label</label>
-                <input 
-                  className="input" 
-                  value={editForm.label} 
-                  onChange={(e) => setEditForm(f => ({ ...f, label: e.target.value }))} 
-                />
+                <label className="dim" style={{ fontSize: 11 }}>Label</label>
+                <input className="input" value={editForm.label} onChange={e => setEditForm(f => ({ ...f, label: e.target.value }))} />
               </div>
               <div className="form-grid">
-                <label className="dim" style={{ fontSize: 11 }}>Daily Message Limit</label>
-                <input 
-                  className="input" 
-                  type="number" 
-                  min={1} 
-                  max={500} 
-                  value={editForm.daily_limit} 
-                  onChange={(e) => setEditForm(f => ({ ...f, daily_limit: Number(e.target.value) }))} 
-                />
+                <label className="dim" style={{ fontSize: 11 }}>Daily Limit</label>
+                <input className="input" type="number" min={1} max={500} value={editForm.daily_limit} onChange={e => setEditForm(f => ({ ...f, daily_limit: Number(e.target.value) }))} />
               </div>
               <div className="form-grid">
                 <label className="dim" style={{ fontSize: 11 }}>Status</label>
-                <select 
-                  className="select" 
-                  value={editForm.is_active ? 'active' : 'paused'} 
-                  onChange={(e) => setEditForm(f => ({ ...f, is_active: e.target.value === 'active' }))}
-                >
-                  <option value="active">Active</option>
-                  <option value="paused">Paused</option>
-                </select>
+                <CustomSelect
+                  value={editForm.is_active ? 'active' : 'paused'}
+                  onChange={v => setEditForm(f => ({ ...f, is_active: v === 'active' }))}
+                  options={[{ value: 'active', label: 'Active' }, { value: 'paused', label: 'Paused' }]}
+                />
               </div>
             </div>
             <div className="btn-row" style={{ marginTop: 20 }}>
-              <button className="btn" onClick={handleSaveEdit} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-              <button className="btn-secondary" onClick={() => setEditingAccount(null)}>
-                Cancel
-              </button>
-              <button className="btn-secondary danger" onClick={handleDeleteAccount} disabled={saving} style={{ marginLeft: 'auto', color: '#e74c3c' }}>
-                Delete Account
-              </button>
+              <button className="btn" onClick={handleSaveEdit} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+              <button className="btn-secondary" onClick={() => setEditingAccount(null)}>Cancel</button>
+              <button className="btn-secondary" onClick={handleDeleteAccount} disabled={saving} style={{ marginLeft: 'auto', color: '#ef4444' }}>Delete</button>
             </div>
           </div>
         </div>

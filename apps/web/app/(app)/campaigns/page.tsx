@@ -4,6 +4,26 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
+import { CustomSelect } from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
+
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Kolkata',      label: 'IST — India Standard Time (UTC+5:30)' },
+  { value: 'UTC',               label: 'UTC — Coordinated Universal Time' },
+  { value: 'America/New_York',  label: 'EST/EDT — New York (UTC−5/−4)' },
+  { value: 'America/Chicago',   label: 'CST/CDT — Chicago (UTC−6/−5)' },
+  { value: 'America/Denver',    label: 'MST/MDT — Denver (UTC−7/−6)' },
+  { value: 'America/Los_Angeles', label: 'PST/PDT — Los Angeles (UTC−8/−7)' },
+  { value: 'America/Sao_Paulo', label: 'BRT — São Paulo (UTC−3)' },
+  { value: 'Europe/London',     label: 'GMT/BST — London (UTC+0/+1)' },
+  { value: 'Europe/Paris',      label: 'CET/CEST — Paris (UTC+1/+2)' },
+  { value: 'Europe/Berlin',     label: 'CET/CEST — Berlin (UTC+1/+2)' },
+  { value: 'Asia/Dubai',        label: 'GST — Dubai (UTC+4)' },
+  { value: 'Asia/Singapore',    label: 'SGT — Singapore (UTC+8)' },
+  { value: 'Asia/Shanghai',     label: 'CST — Shanghai (UTC+8)' },
+  { value: 'Asia/Tokyo',        label: 'JST — Tokyo (UTC+9)' },
+  { value: 'Australia/Sydney',  label: 'AEST/AEDT — Sydney (UTC+10/+11)' },
+];
 
 type SequenceDraft = {
   step_order: number;
@@ -69,7 +89,7 @@ export default function CampaignsPage() {
   const [form, setForm] = useState({
     name: '',
     description: '',
-    timezone: 'UTC',
+    timezone: 'Asia/Kolkata',
     send_window_start: '09:00',
     send_window_end: '18:00',
     start_date: '',
@@ -404,7 +424,7 @@ export default function CampaignsPage() {
                   <div className="form-grid columns-3">
                     <div className="form-grid">
                       <label className="dim" style={{ fontSize: 11 }}>Timezone</label>
-                      <input className="input" placeholder="e.g. UTC" value={form.timezone} onChange={(e) => setForm((c) => ({ ...c, timezone: e.target.value }))} />
+                      <CustomSelect value={form.timezone} onChange={(v) => setForm((c) => ({ ...c, timezone: v }))} options={TIMEZONE_OPTIONS} />
                     </div>
                     <div className="form-grid">
                       <label className="dim" style={{ fontSize: 11 }}>Window Start</label>
@@ -418,11 +438,11 @@ export default function CampaignsPage() {
                   <div className="form-grid columns-2" style={{ marginTop: 8 }}>
                     <div className="form-grid">
                       <label className="dim" style={{ fontSize: 11 }}>Campaign Start Date</label>
-                      <input className="input" type="date" value={form.start_date} onChange={(e) => setForm((c) => ({ ...c, start_date: e.target.value }))} />
+                      <DatePicker value={form.start_date} onChange={(v) => setForm((c) => ({ ...c, start_date: v }))} placeholder="Start date" />
                     </div>
                     <div className="form-grid">
                       <label className="dim" style={{ fontSize: 11 }}>Campaign End Date</label>
-                      <input className="input" type="date" value={form.end_date} onChange={(e) => setForm((c) => ({ ...c, end_date: e.target.value }))} />
+                      <DatePicker value={form.end_date} onChange={(v) => setForm((c) => ({ ...c, end_date: v }))} placeholder="End date" />
                     </div>
                   </div>
                 </div>
@@ -435,14 +455,8 @@ export default function CampaignsPage() {
 
                   <div className="lead-select-toolbar">
                     <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
-                    <select className="select" style={{ width: 'auto', minWidth: 140 }} value={leadCompanyFilter} onChange={(e) => setLeadCompanyFilter(e.target.value)}>
-                      <option value="all">All Companies</option>
-                      {allCompanies.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <select className="select" style={{ width: 'auto', minWidth: 130 }} value={leadTagFilter} onChange={(e) => setLeadTagFilter(e.target.value)}>
-                      <option value="all">All Tags</option>
-                      {allLeadTags.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                    <CustomSelect value={leadCompanyFilter} onChange={setLeadCompanyFilter} options={[{ value: 'all', label: 'All Companies' }, ...allCompanies.map(c => ({ value: c, label: c }))]} style={{ minWidth: 140 }} />
+                    <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ minWidth: 130 }} />
                   </div>
 
                   <div className="btn-row" style={{ fontSize: 12 }}>
@@ -521,35 +535,34 @@ export default function CampaignsPage() {
                             </button>
                           </div>
                         </div>
-                        {activeStepIdx === index && (
-                          <div className="sequence-step-body">
-                            <div className="editor-wrapper">
-                              <div className="editor-pane">
-                                <textarea
-                                  className="message-input"
-                                  ref={(el) => { textareaRefs.current[index] = el; }}
-                                  placeholder="Write your message..."
-                                  value={step.message_template}
-                                  onFocus={() => setActiveStepIdx(index)}
-                                  onChange={(e) => updateStep(index, { message_template: e.target.value })}
-                                />
-                              </div>
-                              <div className="preview-pane">
-                                <div className="preview-header">
-                                  <div className="preview-avatar">A</div>
-                                  <div>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Ava Patel</div>
-                                    <div className="dim" style={{ fontSize: 11 }}>@avapatel</div>
-                                  </div>
+                        {/* Always show the body - no accordion */}
+                        <div className="sequence-step-body">
+                          <div className="editor-wrapper">
+                            <div className="editor-pane">
+                              <textarea
+                                className="message-input"
+                                ref={(el) => { textareaRefs.current[index] = el; }}
+                                placeholder="Write your message here..."
+                                value={step.message_template}
+                                onFocus={() => setActiveStepIdx(index)}
+                                onChange={(e) => updateStep(index, { message_template: e.target.value })}
+                              />
+                            </div>
+                            <div className="preview-pane">
+                              <div className="preview-header">
+                                <div className="preview-avatar">A</div>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Ava Patel</div>
+                                  <div className="dim" style={{ fontSize: 11 }}>@avapatel</div>
                                 </div>
-                                <div className="preview-bubble">
-                                  {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
-                                </div>
-                                <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                               </div>
+                              <div className="preview-bubble">
+                                {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
+                              </div>
+                              <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                             </div>
                           </div>
-                        )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -559,25 +572,44 @@ export default function CampaignsPage() {
 
               {wizardStep === 'review' && (
                 <div className="form-grid">
-                  <div className="wizard-section-title">Review Campaign</div>
-                  <div className="wizard-section-subtitle">Verify everything before creating.</div>
-                  <div className="list-stack">
-                    <div className="metric-row"><span>Name</span><span>{form.name || '(not set)'}</span></div>
-                    <div className="metric-row"><span>Timezone</span><span>{form.timezone}</span></div>
-                    <div className="metric-row"><span>Send Window</span><span>{form.send_window_start} - {form.send_window_end}</span></div>
-                    {form.start_date && <div className="metric-row"><span>Start Date</span><span>{form.start_date}</span></div>}
-                    {form.end_date && <div className="metric-row"><span>End Date</span><span>{form.end_date}</span></div>}
-                    <div className="metric-row"><span>Accounts</span><span>{selectedAccountIds.length} selected</span></div>
-                    {messagesPerAccount && <div className="metric-row"><span>Messages/Account</span><span>{messagesPerAccount}</span></div>}
-                    <div className="metric-row"><span>Leads</span><span>{selectedLeadIds.length} selected</span></div>
-                    <div className="metric-row"><span>Sequence Steps</span><span>{steps.filter((s) => s.message_template.trim()).length} with messages</span></div>
-                    {steps.filter(s => s.message_template.trim()).map((s, i) => (
-                      <div key={i} className="metric-row" style={{ fontSize: 12 }}>
-                        <span className="dim">{s.step_name || defaultStepName(i)}</span>
-                        <span className="dim">delay {s.delay_days}d</span>
+                  <div className="wizard-section-title">Review & Create</div>
+                  <div className="wizard-section-subtitle">Everything looks good? Create the campaign.</div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ background: 'var(--panel)', borderRadius: 8, padding: 16 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Campaign</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{form.name || '(no name)'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{form.timezone} · {form.send_window_start}–{form.send_window_end}</div>
+                      {(form.start_date || form.end_date) && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>{form.start_date} → {form.end_date}</div>}
+                    </div>
+
+                    <div style={{ background: 'var(--panel)', borderRadius: 8, padding: 16 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Reach</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>{selectedLeadIds.length} leads</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{selectedAccountIds.length} accounts selected</div>
+                      {messagesPerAccount && <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4 }}>{messagesPerAccount} msg/account</div>}
+                    </div>
+
+                    <div style={{ background: 'var(--panel)', borderRadius: 8, padding: 16, gridColumn: '1 / -1' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+                        Sequence — {steps.filter(s => s.message_template.trim()).length} steps with messages
                       </div>
-                    ))}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {steps.filter(s => s.message_template.trim()).map((s, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                            <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--panel-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{i + 1}</span>
+                            <span style={{ color: 'var(--text)' }}>{s.step_name || defaultStepName(i)}</span>
+                            <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>delay {s.delay_days}d</span>
+                            <span style={{ flex: 1, color: 'var(--text-dim)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.message_template.slice(0, 60)}{s.message_template.length > 60 ? '...' : ''}</span>
+                          </div>
+                        ))}
+                        {steps.filter(s => s.message_template.trim()).length === 0 && (
+                          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>No messages written yet. Go back to Sequence to add messages.</div>
+                        )}
+                      </div>
+                    </div>
                   </div>
+
                   {builderMessage ? <div className={`status-callout ${builderMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>{builderMessage}</div> : null}
                   <div className="btn-row" style={{ marginTop: 8 }}>
                     <button className="btn" onClick={handleCreate} disabled={isSubmitting || !form.name.trim()}>
@@ -609,13 +641,13 @@ export default function CampaignsPage() {
 
       <div className="section-label">Campaign Status</div>
       <div className="filter-row" style={{ marginBottom: 16, maxWidth: 400 }}>
-        <select className="select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="all">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="draft">Draft</option>
-          <option value="paused">Paused</option>
-          <option value="completed">Completed</option>
-        </select>
+        <CustomSelect value={statusFilter} onChange={setStatusFilter} options={[
+          { value: 'all', label: 'All Statuses' },
+          { value: 'active', label: 'Active' },
+          { value: 'draft', label: 'Draft' },
+          { value: 'paused', label: 'Paused' },
+          { value: 'completed', label: 'Completed' },
+        ]} />
       </div>
       
       {/* Campaign Cards Grid */}
