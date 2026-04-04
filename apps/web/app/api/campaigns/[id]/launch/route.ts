@@ -11,8 +11,8 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    const tasks = await launchCampaign(id, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
-    return NextResponse.json({ tasks });
+    const queuedLeads = await launchCampaign(id, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
+    return NextResponse.json({ queued_leads: queuedLeads });
   } catch (err: any) {
     console.error('[POST /api/campaigns/[id]/launch] Error:', err);
     return NextResponse.json({ error: err?.message ?? 'Failed to launch campaign' }, { status: 500 });

@@ -773,8 +773,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
 
   const slots = distributeAccounts(assignedAccounts, detail.attachedLeads.length);
   const leadById = new Map(detail.leads.map((lead) => [lead.id, lead]));
-  const firstStep = detail.steps[0];
-  const createdTasks: SendTaskRecord[] = [];
+  let queuedCount = 0;
 
   for (const [index, campaignLead] of detail.attachedLeads.entries()) {
     const lead = leadById.get(campaignLead.lead_id);
@@ -796,6 +795,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
       next_due_at: null,
       next_step_order: 1,
     }, active);
+    queuedCount++;
   }
 
   if (!isSupabaseConfigured()) {
@@ -806,9 +806,9 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
       profileId: active.profileId,
       event_type: 'campaign.launched',
       event_label: `${campaign.name} launched`,
-      payload: { campaign_id: campaignId, created_tasks: createdTasks.length },
+      payload: { campaign_id: campaignId, queued_leads: queuedCount },
     });
-    return createdTasks;
+    return queuedCount;
   }
 
   const supabase = getAdminSupabaseClient();
@@ -823,10 +823,10 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
     profileId: active.profileId,
     event_type: 'campaign.launched',
     event_label: `${detail.campaign.name} launched`,
-    payload: { campaign_id: campaignId, created_tasks: createdTasks.length },
+    payload: { campaign_id: campaignId, queued_leads: queuedCount },
   });
 
-  return createdTasks;
+  return queuedCount;
 }
 
 export async function pauseCampaign(campaignId: string, context?: WorkspaceContext) {
@@ -1201,18 +1201,15 @@ async function completeBotTask(
         events.push({ step_order: task.step_order, event: eventType, at: nowIso(), account_id: task.assigned_account_id });
         campaignLead.step_events = events;
 
-        // Determine status based on step
-        if (task.step_order === 1) {
-          campaignLead.status = 'sent_waiting_followup';
-        } else {
-          campaignLead.status = 'first_followup_done';
-        }
         campaignLead.current_step_order = task.step_order;
         campaignLead.last_sent_at = nowIso();
         if (nextStep) {
+          campaignLead.status = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
           campaignLead.next_step_order = nextStep.step_order;
           campaignLead.next_due_at = new Date(Date.now() + nextStep.delay_days * 86400000).toISOString();
         } else {
+          // No more steps — sequence complete
+          campaignLead.status = 'completed';
           campaignLead.next_step_order = null;
           campaignLead.next_due_at = null;
         }
@@ -1294,12 +1291,12 @@ async function completeBotTask(
       .limit(1)
       .maybeSingle();
 
-    const newStatus = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
     const eventType = task.step_order === 1 ? 'sent' : 'followup_sent';
     const sentAt = Date.now();
     const newEvents = [...(campaignLead.step_events || []), { step_order: task.step_order, event: eventType, at: new Date(sentAt).toISOString(), account_id: task.assigned_account_id }];
 
     if (nextStep) {
+      const newStatus = task.step_order === 1 ? 'sent_waiting_followup' : 'first_followup_done';
       // Delay-based date: when this lead's next step is due by message settings
       const delayBasedDate = sentAt + nextStep.delay_days * 86400000;
 
@@ -1342,10 +1339,11 @@ async function completeBotTask(
         })
         .eq('id', campaignLead.id);
     } else {
+      // No more steps — sequence complete
       await supabase!
         .from('campaign_leads')
         .update({
-          status: newStatus,
+          status: 'completed',
           current_step_order: task.step_order,
           next_step_order: null,
           next_due_at: null,
