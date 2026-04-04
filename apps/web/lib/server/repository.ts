@@ -1504,7 +1504,7 @@ export async function runBotScheduler() {
     // Get oldest queued step-1 leads for this account
     const { data: queuedLeads } = await supabase!
       .from('campaign_leads')
-      .select('*, leads(*), campaign_sequence_steps!inner(*)')
+      .select('*, leads(*)')
       .eq('assigned_account_id', account.id)
       .eq('status', 'queued')
       .eq('next_step_order', 1)
@@ -1513,9 +1513,14 @@ export async function runBotScheduler() {
 
     for (const campaignLead of queuedLeads ?? []) {
       const lead = Array.isArray(campaignLead.leads) ? campaignLead.leads[0] : campaignLead.leads;
-      const step = Array.isArray(campaignLead.campaign_sequence_steps)
-        ? campaignLead.campaign_sequence_steps.find((s: any) => s.step_order === 1)
-        : campaignLead.campaign_sequence_steps;
+
+      // Fetch step separately — no direct FK from campaign_leads to campaign_sequence_steps
+      const { data: step } = await supabase!
+        .from('campaign_sequence_steps')
+        .select('*')
+        .eq('campaign_id', campaignLead.campaign_id)
+        .eq('step_order', 1)
+        .maybeSingle();
 
       if (!lead || !step) continue;
 
