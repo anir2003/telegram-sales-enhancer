@@ -146,6 +146,11 @@ export default function CampaignsPage() {
 
   const allLeadTags = useMemo(() => [...new Set(leads.flatMap((l) => l.tags))], [leads]);
   const allCompanies = useMemo(() => [...new Set(leads.map((l) => l.company_name).filter(Boolean))], [leads]);
+  const companyLeadCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const l of leads) if (l.company_name) map[l.company_name] = (map[l.company_name] ?? 0) + 1;
+    return map;
+  }, [leads]);
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -453,11 +458,52 @@ export default function CampaignsPage() {
                   <div className="wizard-section-title">Attach Leads</div>
                   <div className="wizard-section-subtitle">{selectedLeadIds.length} of {leads.length} leads selected.</div>
 
-                  <div className="lead-select-toolbar">
-                    <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
-                    <CustomSelect value={leadCompanyFilter} onChange={setLeadCompanyFilter} options={[{ value: 'all', label: 'All Companies' }, ...allCompanies.map(c => ({ value: c, label: c }))]} style={{ minWidth: 140 }} />
-                    <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ minWidth: 130 }} />
+                  {/* Search + Tag filter in one row */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className="input" style={{ flex: 1 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+                    <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ width: 140, flexShrink: 0 }} />
                   </div>
+
+                  {/* Company pills — click to filter + auto-select all from that company */}
+                  {allCompanies.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {allCompanies.map(company => {
+                        const isActive = leadCompanyFilter === company;
+                        const count = companyLeadCounts[company] ?? 0;
+                        return (
+                          <button
+                            key={company}
+                            type="button"
+                            onClick={() => {
+                              if (isActive) {
+                                setLeadCompanyFilter('all');
+                              } else {
+                                setLeadCompanyFilter(company);
+                                const ids = leads.filter(l => l.company_name === company).map(l => l.id);
+                                setSelectedLeadIds(prev => [...new Set([...prev, ...ids])]);
+                              }
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 6,
+                              padding: '4px 10px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                              fontFamily: 'inherit', transition: 'all 0.15s',
+                              background: isActive ? 'var(--accent)' : 'var(--panel-alt)',
+                              color: isActive ? 'var(--bg)' : 'var(--text)',
+                              border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border-soft)'}`,
+                            }}
+                          >
+                            <span>{company}</span>
+                            <span style={{
+                              fontSize: 10, fontWeight: 600,
+                              background: isActive ? 'rgba(0,0,0,0.2)' : 'var(--panel-strong)',
+                              color: isActive ? 'var(--bg)' : 'var(--text-dim)',
+                              padding: '1px 5px', borderRadius: 3,
+                            }}>{count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   <div className="btn-row" style={{ fontSize: 12 }}>
                     <button className="chip" type="button" onClick={selectAllFiltered}>Select all {filteredLeads.length} shown</button>
