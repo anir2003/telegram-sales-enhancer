@@ -458,52 +458,26 @@ export default function CampaignsPage() {
                   <div className="wizard-section-title">Attach Leads</div>
                   <div className="wizard-section-subtitle">{selectedLeadIds.length} of {leads.length} leads selected.</div>
 
-                  {/* Search + Tag filter in one row */}
+                  {/* Search + Company + Tag filters in one row */}
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input className="input" style={{ flex: 1 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
-                    <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ width: 140, flexShrink: 0 }} />
+                    <CustomSelect
+                      value={leadCompanyFilter}
+                      onChange={(v) => {
+                        setLeadCompanyFilter(v);
+                        if (v !== 'all') {
+                          const ids = leads.filter(l => l.company_name === v).map(l => l.id);
+                          setSelectedLeadIds(prev => [...new Set([...prev, ...ids])]);
+                        }
+                      }}
+                      options={[
+                        { value: 'all', label: 'All Companies' },
+                        ...allCompanies.map(c => ({ value: c, label: `${c} (${companyLeadCounts[c] ?? 0})` })),
+                      ]}
+                      style={{ width: 170, flexShrink: 0 }}
+                    />
+                    <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ width: 130, flexShrink: 0 }} />
                   </div>
-
-                  {/* Company pills — click to filter + auto-select all from that company */}
-                  {allCompanies.length > 0 && (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {allCompanies.map(company => {
-                        const isActive = leadCompanyFilter === company;
-                        const count = companyLeadCounts[company] ?? 0;
-                        return (
-                          <button
-                            key={company}
-                            type="button"
-                            onClick={() => {
-                              if (isActive) {
-                                setLeadCompanyFilter('all');
-                              } else {
-                                setLeadCompanyFilter(company);
-                                const ids = leads.filter(l => l.company_name === company).map(l => l.id);
-                                setSelectedLeadIds(prev => [...new Set([...prev, ...ids])]);
-                              }
-                            }}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 6,
-                              padding: '4px 10px', borderRadius: 4, fontSize: 11, cursor: 'pointer',
-                              fontFamily: 'inherit', transition: 'all 0.15s',
-                              background: isActive ? 'var(--accent)' : 'var(--panel-alt)',
-                              color: isActive ? 'var(--bg)' : 'var(--text)',
-                              border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border-soft)'}`,
-                            }}
-                          >
-                            <span>{company}</span>
-                            <span style={{
-                              fontSize: 10, fontWeight: 600,
-                              background: isActive ? 'rgba(0,0,0,0.2)' : 'var(--panel-strong)',
-                              color: isActive ? 'var(--bg)' : 'var(--text-dim)',
-                              padding: '1px 5px', borderRadius: 3,
-                            }}>{count}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
 
                   <div className="btn-row" style={{ fontSize: 12 }}>
                     <button className="chip" type="button" onClick={selectAllFiltered}>Select all {filteredLeads.length} shown</button>
@@ -514,18 +488,18 @@ export default function CampaignsPage() {
                   <div className="selection-list">
                     {filteredLeads.length ? filteredLeads.map((lead) => (
                       <label key={lead.id} className={`selection-row ${selectedLeadIds.includes(lead.id) ? 'active' : ''}`}>
-                        <div>
-                          <div>{lead.first_name} {lead.last_name}</div>
-                          <div className="dim">{lead.company_name} · @{lead.telegram_username}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                          <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} style={{ flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>{lead.first_name} {lead.last_name}</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{lead.company_name} · @{lead.telegram_username}</span>
                           {lead.tags.length > 0 && (
-                            <div style={{ marginTop: 4 }}>
+                            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                               {lead.tags.map((t) => <span key={t} className="tag">{t}</span>)}
                             </div>
                           )}
                         </div>
-                        <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} />
                       </label>
-                    )) : <div className="empty-state">No leads match filters.</div>}
+                    )) : <div className="empty-state" style={{ padding: '16px' }}>No leads match filters.</div>}
                   </div>
                 </div>
               )}
