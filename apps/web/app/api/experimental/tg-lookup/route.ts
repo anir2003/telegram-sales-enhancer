@@ -24,6 +24,12 @@ function decodeStatus(status: unknown): string {
   return 'Unknown';
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeStr(v: any): string | null {
+  if (typeof v === 'string' && v.trim().length > 0) return v.trim();
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   const context = await getWorkspaceContext();
   if (!context?.profile || !context?.workspace) {
@@ -43,76 +49,80 @@ export async function POST(req: NextRequest) {
   const clean = String(username).replace(/^@/, '').trim();
   if (!clean) return NextResponse.json({ error: 'Invalid username.' }, { status: 400 });
 
+  const noop = () => {};
+  const noopLogger = {
+    levels: ['error', 'warn', 'info', 'debug'],
+    canSend: () => false,
+    log: noop, debug: noop, info: noop, warn: noop, error: noop,
+    setLevel: noop, getDateTime: () => '', color: noop,
+  };
+
   try {
     const { TelegramClient, Api } = await import('telegram');
     const { StringSession } = await import('telegram/sessions/index.js');
-
-    const noop = () => {};
-    const noopLogger = {
-      levels: ['error', 'warn', 'info', 'debug'],
-      canSend: () => false,
-      log: noop, debug: noop, info: noop, warn: noop, error: noop,
-      setLevel: noop, getDateTime: () => '', color: noop,
-    };
 
     const client = new TelegramClient(
       new StringSession(cred.session_string),
       parseInt(cred.api_id),
       cred.api_hash,
-      {
-        connectionRetries: 3,
-        baseLogger: noopLogger as never,
-      },
+      { connectionRetries: 3, baseLogger: noopLogger as never },
     );
     await client.connect();
 
-    let user: Record<string, unknown>;
+    // ── Resolve entity ────────────────────────────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let user: any;
     try {
-      user = await client.getEntity(clean) as Record<string, unknown>;
+      user = await client.getEntity(clean);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       await client.disconnect();
-      if (msg.includes('USERNAME_NOT_OCCUPIED') || msg.includes('No user has')) {
+      if (msg.includes('USERNAME_NOT_OCCUPIED') || msg.includes('No user has') || msg.includes('could not find')) {
         return NextResponse.json({ found: false, message: `@${clean} does not exist on Telegram.` });
       }
       return NextResponse.json({ error: `Lookup failed: ${msg}` }, { status: 500 });
     }
 
-    // Only works for User entities
-    if ((user as { className?: string }).className !== 'User') {
+    if (user?.className !== 'User') {
       await client.disconnect();
       return NextResponse.json({ found: false, message: `@${clean} is not a user account (may be a channel or group).` });
     }
 
-    // Get full user info (bio etc.)
+    // ── Fetch full profile (bio, common chats) ────────────────────
     let bio: string | null = null;
     let commonChats = 0;
     try {
-      const fullResult = await client.invoke(
-        new Api.users.GetFullUser({ id: await client.getInputEntity(clean) }),
-      );
-      bio = (fullResult.fullUser as Record<string, unknown>)?.about as string | null ?? null;
-      commonChats = (fullResult.fullUser as Record<string, unknown>)?.commonChatsCount as number ?? 0;
-    } catch { /* bio unavailable */ }
+      const inputEntity = await client.getInputEntity(clean);
+      // invoke returns Api.users.UserFull which has { fullUser: Api.UserFull, users, chats }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fullResponse: any = await client.invoke(new Api.users.GetFullUser({ id: inputEntity }));
+      // Try both direct property and nested .fullUser
+      const fullUser = fullResponse?.fullUser ?? fullResponse;
+      bio = safeStr(fullUser?.about);
+      commonChats = typeof fullUser?.commonChatsCount === 'number' ? fullUser.commonChatsCount : 0;
+    } catch {
+      // bio unavailable — not fatal
+    }
 
     await client.disconnect();
 
     return NextResponse.json({
       found: true,
       user: {
-        id: String((user as { id?: unknown }).id ?? ''),
-        username: (user as { username?: unknown }).username as string | null ?? null,
-        firstName: (user as { firstName?: unknown }).firstName as string | null ?? null,
-        lastName: (user as { lastName?: unknown }).lastName as string | null ?? null,
-        phone: (user as { phone?: unknown }).phone as string | null ?? null,
-        premium: Boolean((user as { premium?: unknown }).premium),
-        verified: Boolean((user as { verified?: unknown }).verified),
-        fake: Boolean((user as { fake?: unknown }).fake),
-        bot: Boolean((user as { bot?: unknown }).bot),
-        restricted: Boolean((user as { restricted?: unknown }).restricted),
+        id: String(user.id ?? ''),
+        username: safeStr(user.username),
+        firstName: safeStr(user.firstName),
+        lastName: safeStr(user.lastName),
+        phone: safeStr(user.phone),
+        premium: Boolean(user.premium),
+        verified: Boolean(user.verified),
+        fake: Boolean(user.fake),
+        bot: Boolean(user.bot),
+        restricted: Boolean(user.restricted),
+        scam: Boolean(user.scam),
         bio,
         commonChats,
-        lastSeen: decodeStatus((user as { status?: unknown }).status),
+        lastSeen: decodeStatus(user.status),
       },
     });
   } catch (e: unknown) {

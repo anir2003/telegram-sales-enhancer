@@ -21,6 +21,7 @@ type TgUser = {
   fake: boolean;
   bot: boolean;
   restricted: boolean;
+  scam: boolean;
   bio: string | null;
   commonChats: number;
   lastSeen: string;
@@ -49,83 +50,115 @@ function Step({ n, label, active, done }: { n: number; label: string; active: bo
 function Badge({ label, color }: { label: string; color: string }) {
   return (
     <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-      background: `${color}18`, border: `1px solid ${color}50`, color,
+      display: 'inline-flex', alignItems: 'center',
+      padding: '3px 9px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+      background: `${color}15`, border: `1px solid ${color}40`, color,
+      letterSpacing: '0.02em',
     }}>{label}</span>
   );
 }
 
+// ─── Stat item ───────────────────────────────────────────────────────
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="tgc-stat">
+      <div className="tgc-stat-value">{value}</div>
+      <div className="tgc-stat-label">{label}</div>
+    </div>
+  );
+}
+
 // ─── User Result Card ────────────────────────────────────────────────
-function UserCard({ user, onAddLead }: { user: TgUser; onAddLead: (u: TgUser) => void }) {
+function UserCard({ user, onAddLead, addLeadState, addLeadMsg }: {
+  user: TgUser;
+  onAddLead: (u: TgUser) => void;
+  addLeadState: 'idle' | 'loading' | 'done' | 'error';
+  addLeadMsg: string;
+}) {
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username || 'Unknown';
+  const hasBadges = user.premium || user.verified || user.bot || user.fake || user.restricted || user.scam;
+
   return (
     <div className="tgc-result-card">
-      {/* Name + username + badges */}
-      <div className="tgc-result-header">
-        {/* Avatar */}
-        <div className="tgc-avatar">
-          <span>{displayName.charAt(0).toUpperCase()}</span>
-        </div>
+
+      {/* ── Identity ────────────────────────────────────────────────── */}
+      <div className="tgc-result-identity">
         <div>
           <div className="tgc-result-name">{displayName}</div>
-          {user.username && <div className="tgc-result-username">@{user.username}</div>}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+          {user.username && (
+            <div className="tgc-result-handle">@{user.username}</div>
+          )}
+        </div>
+        {hasBadges && (
+          <div className="tgc-result-badges">
             {user.premium && <Badge label="⭐ Premium" color="#f59e0b" />}
             {user.verified && <Badge label="✓ Verified" color="#6366f1" />}
-            {user.bot && <Badge label="🤖 Bot" color="#14b8a6" />}
+            {user.bot && <Badge label="Bot" color="#14b8a6" />}
+            {user.scam && <Badge label="⚠ Scam" color="#ef4444" />}
             {user.fake && <Badge label="⚠ Fake" color="#ef4444" />}
             {user.restricted && <Badge label="Restricted" color="#f97316" />}
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Details grid */}
-      <div className="tgc-result-grid">
-        {user.bio && (
-          <div className="tgc-result-kv full">
-            <span className="tgc-kv-label">Bio</span>
-            <span className="tgc-kv-value">{user.bio}</span>
-          </div>
-        )}
-        <div className="tgc-result-kv">
-          <span className="tgc-kv-label">Telegram ID</span>
-          <span className="tgc-kv-value mono">{user.id}</span>
+      {/* ── Bio ─────────────────────────────────────────────────────── */}
+      {user.bio ? (
+        <div className="tgc-result-bio">
+          <div className="tgc-section-label">Bio</div>
+          <div className="tgc-bio-text">{user.bio}</div>
         </div>
-        <div className="tgc-result-kv">
-          <span className="tgc-kv-label">Last Seen</span>
-          <span className="tgc-kv-value">{user.lastSeen}</span>
+      ) : (
+        <div className="tgc-result-bio tgc-no-bio">
+          <div className="tgc-section-label">Bio</div>
+          <div className="tgc-bio-empty">No bio set</div>
         </div>
-        {user.phone && (
-          <div className="tgc-result-kv">
-            <span className="tgc-kv-label">Phone</span>
-            <span className="tgc-kv-value mono">{user.phone}</span>
-          </div>
-        )}
+      )}
+
+      {/* ── Stats row ───────────────────────────────────────────────── */}
+      <div className="tgc-result-stats">
+        <Stat label="Last seen" value={user.lastSeen} />
+        <div className="tgc-stat-divider" />
+        <Stat label="Telegram ID" value={user.id} />
         {user.commonChats > 0 && (
-          <div className="tgc-result-kv">
-            <span className="tgc-kv-label">Common Chats</span>
-            <span className="tgc-kv-value">{user.commonChats}</span>
-          </div>
+          <>
+            <div className="tgc-stat-divider" />
+            <Stat label="Common chats" value={String(user.commonChats)} />
+          </>
+        )}
+        {user.phone && (
+          <>
+            <div className="tgc-stat-divider" />
+            <Stat label="Phone" value={user.phone} />
+          </>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="tgc-result-actions">
-        <button className="btn" onClick={() => onAddLead(user)} style={{ fontSize: 12, padding: '7px 16px' }}>
-          + Add to Leads
-        </button>
-        {user.username && (
-          <a
-            href={`https://t.me/${user.username}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary"
-            style={{ fontSize: 12, padding: '7px 14px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+      {/* ── Actions ─────────────────────────────────────────────────── */}
+      <div className="tgc-result-footer">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className="btn"
+            onClick={() => onAddLead(user)}
+            disabled={addLeadState === 'loading' || addLeadState === 'done'}
+            style={{ fontSize: 12, padding: '7px 16px' }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
-            Open in Telegram
-          </a>
+            {addLeadState === 'loading' ? 'Adding…' : addLeadState === 'done' ? '✓ Added' : '+ Add to Leads'}
+          </button>
+          {user.username && (
+            <a
+              href={`https://t.me/${user.username}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+              style={{ fontSize: 12, padding: '7px 14px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+              Open in Telegram
+            </a>
+          )}
+        </div>
+        {addLeadState === 'error' && (
+          <div className="tgc-toast error">{addLeadMsg}</div>
         )}
       </div>
     </div>
@@ -155,7 +188,7 @@ export default function TelegramCheckerPage() {
   const [result, setResult] = useState<LookupResult>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Add-lead toast
+  // Add-lead
   const [addLeadState, setAddLeadState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [addLeadMsg, setAddLeadMsg] = useState('');
 
@@ -226,13 +259,13 @@ export default function TelegramCheckerPage() {
 
   const lookupUser = async () => {
     if (!username.trim()) return;
-    setLookupLoading(true); setResult(null); setError(null);
+    setLookupLoading(true); setResult(null); setError(null); setAddLeadState('idle');
     try {
-      const res = await fetchJson<LookupResult & { error?: string; message?: string }>('/api/experimental/tg-lookup', {
+      const res = await fetchJson<LookupResult & { error?: string }>('/api/experimental/tg-lookup', {
         method: 'POST',
         body: JSON.stringify({ username: username.trim() }),
       });
-      if (res?.error) { setError(res.error); }
+      if ((res as { error?: string })?.error) { setError((res as { error: string }).error); }
       else { setResult(res as LookupResult); }
     } catch (e) { setError(String(e)); }
     setLookupLoading(false);
@@ -252,9 +285,8 @@ export default function TelegramCheckerPage() {
           source: 'Telegram Checker',
         }),
       });
-      setAddLeadState('done'); setAddLeadMsg(`@${user.username ?? user.firstName} added to leads.`);
+      setAddLeadState('done');
     } catch (e) { setAddLeadState('error'); setAddLeadMsg(String(e)); }
-    setTimeout(() => setAddLeadState('idle'), 3000);
   };
 
   const isAuthenticated = authStep === 'done' || cred?.is_authenticated;
@@ -280,7 +312,7 @@ export default function TelegramCheckerPage() {
             Telegram Username Checker
           </div>
           <div className="tgc-page-subtitle">
-            Look up any Telegram username using your personal API credentials.
+            Look up any Telegram username — bio, status, account flags, and more.
           </div>
         </div>
         {isAuthenticated && cred && (
@@ -292,7 +324,7 @@ export default function TelegramCheckerPage() {
         )}
       </div>
 
-      {/* ── Steps indicator ─────────────────────────────────────────── */}
+      {/* ── Steps ───────────────────────────────────────────────────── */}
       <div className="tgc-steps">
         <Step n={1} label="Add API Credentials" active={currentStep === 1} done={currentStep > 1} />
         <div className="tgc-step-line" />
@@ -306,13 +338,13 @@ export default function TelegramCheckerPage() {
         <div className="tgc-error-banner">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           {error}
-          <button onClick={() => setError(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 4px' }}>✕</button>
+          <button onClick={() => setError(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 4px', fontSize: 14 }}>✕</button>
         </div>
       )}
 
       <div className="tgc-layout">
 
-        {/* ── Left: Setup / Auth ────────────────────────────────────── */}
+        {/* ── Left panel ───────────────────────────────────────────── */}
         <div className="tgc-left">
 
           {/* Step 1: API Credentials */}
@@ -320,41 +352,22 @@ export default function TelegramCheckerPage() {
             <div className="card">
               <div className="card-title" style={{ marginBottom: 4 }}>Add your Telegram API</div>
               <div className="card-subtitle" style={{ marginBottom: 20 }}>
-                Get your <code style={{ color: 'var(--accent)' }}>api_id</code> and <code style={{ color: 'var(--accent)' }}>api_hash</code> from{' '}
+                Get <code style={{ color: 'var(--accent)', fontSize: 11 }}>api_id</code> &amp; <code style={{ color: 'var(--accent)', fontSize: 11 }}>api_hash</code> from{' '}
                 <a href="https://my.telegram.org/apps" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>my.telegram.org/apps</a>.
-                These are linked to your profile only.
+                Stored per profile, not shared.
               </div>
-
               <div className="tgc-form">
                 <div className="tgc-field">
                   <label className="tgc-label">API ID</label>
-                  <input
-                    className="auth-input"
-                    placeholder="12345678"
-                    value={apiId}
-                    onChange={e => setApiId(e.target.value)}
-                    type="text"
-                  />
+                  <input className="auth-input" placeholder="12345678" value={apiId} onChange={e => setApiId(e.target.value)} type="text" />
                 </div>
                 <div className="tgc-field">
                   <label className="tgc-label">API Hash</label>
-                  <input
-                    className="auth-input"
-                    placeholder="abcdef1234567890abcdef"
-                    value={apiHash}
-                    onChange={e => setApiHash(e.target.value)}
-                    type="password"
-                  />
+                  <input className="auth-input" placeholder="abcdef1234…" value={apiHash} onChange={e => setApiHash(e.target.value)} type="password" />
                 </div>
                 <div className="tgc-field">
                   <label className="tgc-label">Phone Number</label>
-                  <input
-                    className="auth-input"
-                    placeholder="+1 234 567 8900"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value)}
-                    type="tel"
-                  />
+                  <input className="auth-input" placeholder="+1 234 567 8900" value={phone} onChange={e => setPhone(e.target.value)} type="tel" />
                 </div>
                 <button className="btn" onClick={saveCred} disabled={savingCred} style={{ marginTop: 4 }}>
                   {savingCred ? 'Saving…' : 'Save & Continue →'}
@@ -363,11 +376,11 @@ export default function TelegramCheckerPage() {
             </div>
           )}
 
-          {/* Step 2: Connect (send code) */}
+          {/* Step 2: Connect */}
           {hasCredentials && !isAuthenticated && (
             <div className="card">
               <div className="tgc-auth-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.7a19.79 19.79 0 01-3.07-8.67A2 2 0 012 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.7a19.79 19.79 0 01-3.07-8.67A2 2 0 012 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
               </div>
               <div className="card-title" style={{ marginBottom: 4, textAlign: 'center' }}>Connect your Account</div>
               <div className="card-subtitle" style={{ marginBottom: 20, textAlign: 'center' }}>
@@ -398,13 +411,7 @@ export default function TelegramCheckerPage() {
                   {authStep === '2fa' && (
                     <div className="tgc-field">
                       <label className="tgc-label">2FA Password</label>
-                      <input
-                        className="auth-input"
-                        placeholder="Your two-factor password"
-                        value={twoFaPass}
-                        onChange={e => setTwoFaPass(e.target.value)}
-                        type="password"
-                      />
+                      <input className="auth-input" placeholder="Two-factor password" value={twoFaPass} onChange={e => setTwoFaPass(e.target.value)} type="password" />
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -416,23 +423,20 @@ export default function TelegramCheckerPage() {
                 </div>
               )}
 
-              <button
-                onClick={disconnect}
-                style={{ marginTop: 16, background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, cursor: 'pointer', width: '100%', textAlign: 'center' }}
-              >
+              <button onClick={disconnect} style={{ marginTop: 14, background: 'none', border: 'none', color: 'var(--text-dim)', fontSize: 11, cursor: 'pointer', width: '100%', textAlign: 'center' }}>
                 Use a different account
               </button>
             </div>
           )}
 
-          {/* Step 3: Username Lookup */}
+          {/* Step 3: Lookup */}
           {isAuthenticated && (
             <div className="card">
               <div className="card-title" style={{ marginBottom: 4 }}>Check a Username</div>
-              <div className="card-subtitle" style={{ marginBottom: 16 }}>Enter any Telegram username to look up their profile.</div>
+              <div className="card-subtitle" style={{ marginBottom: 16 }}>Enter any Telegram handle to look up their profile.</div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{ flex: 1, position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)', fontSize: 13, fontWeight: 500 }}>@</span>
+                  <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)', fontSize: 13, fontWeight: 500, pointerEvents: 'none' }}>@</span>
                   <input
                     className="auth-input"
                     style={{ paddingLeft: 22 }}
@@ -443,28 +447,18 @@ export default function TelegramCheckerPage() {
                     type="text"
                   />
                 </div>
-                <button className="btn" onClick={lookupUser} disabled={lookupLoading || !username.trim()} style={{ flexShrink: 0, padding: '0 18px' }}>
-                  {lookupLoading ? (
-                    <span className="tgc-spinner" />
-                  ) : (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                  )}
+                <button className="btn" onClick={lookupUser} disabled={lookupLoading || !username.trim()} style={{ flexShrink: 0, padding: '0 16px', minWidth: 44 }}>
+                  {lookupLoading
+                    ? <span className="tgc-spinner" />
+                    : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                  }
                 </button>
               </div>
-
-              {/* Add lead toast */}
-              {addLeadState !== 'idle' && (
-                <div className={`tgc-toast ${addLeadState}`}>
-                  {addLeadState === 'loading' && 'Adding to leads…'}
-                  {addLeadState === 'done' && `✓ ${addLeadMsg}`}
-                  {addLeadState === 'error' && `✕ ${addLeadMsg}`}
-                </div>
-              )}
             </div>
           )}
         </div>
 
-        {/* ── Right: Results ────────────────────────────────────────── */}
+        {/* ── Right panel: Result ───────────────────────────────────── */}
         <div className="tgc-right">
           {lookupLoading && (
             <div className="tgc-empty-state">
@@ -475,16 +469,16 @@ export default function TelegramCheckerPage() {
 
           {!lookupLoading && result === null && isAuthenticated && (
             <div className="tgc-empty-state">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" style={{ opacity: 0.2 }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" style={{ opacity: 0.15 }}>
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
               </svg>
-              <span>Results appear here</span>
+              <span>Enter a username and press search</span>
             </div>
           )}
 
           {!lookupLoading && result !== null && !result.found && (
             <div className="tgc-empty-state">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ opacity: 0.3 }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ opacity: 0.25 }}>
                 <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>
               </svg>
               <span style={{ color: 'var(--text-muted)' }}>{result.message}</span>
@@ -492,21 +486,26 @@ export default function TelegramCheckerPage() {
           )}
 
           {!lookupLoading && result?.found && (
-            <UserCard user={result.user} onAddLead={addToLeads} />
+            <UserCard
+              user={result.user}
+              onAddLead={addToLeads}
+              addLeadState={addLeadState}
+              addLeadMsg={addLeadMsg}
+            />
           )}
 
-          {/* Placeholder when not yet authenticated */}
-          {!isAuthenticated && (
+          {!isAuthenticated && !lookupLoading && (
             <div className="tgc-placeholder-card">
-              <div className="tgc-placeholder-avatar" />
               <div style={{ flex: 1 }}>
                 <div className="tgc-placeholder-line wide" />
                 <div className="tgc-placeholder-line medium" style={{ marginTop: 8 }} />
-                <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
                   <div className="tgc-placeholder-pill" />
-                  <div className="tgc-placeholder-pill" />
+                  <div className="tgc-placeholder-pill" style={{ width: 48 }} />
                 </div>
-                <div className="tgc-placeholder-line wide" style={{ marginTop: 16 }} />
+                <div style={{ height: 1, background: 'var(--border-soft)', margin: '18px 0' }} />
+                <div className="tgc-placeholder-line" style={{ width: '85%' }} />
+                <div className="tgc-placeholder-line wide" style={{ marginTop: 6 }} />
                 <div className="tgc-placeholder-line medium" style={{ marginTop: 6 }} />
               </div>
             </div>
