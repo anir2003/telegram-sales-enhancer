@@ -400,6 +400,12 @@ button, input, textarea, select {
   border-color: var(--border-focus);
 }
 
+/* Checkbox — use design system accent instead of browser blue */
+input[type="checkbox"] {
+  accent-color: var(--text);
+  cursor: pointer;
+}
+
 /* Make native time/date picker icons visible on dark backgrounds */
 input[type="time"]::-webkit-calendar-picker-indicator,
 input[type="date"]::-webkit-calendar-picker-indicator {
@@ -1429,7 +1435,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .chip {
   padding: 4px 10px;
   border: 1px solid var(--border-soft);
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 11px;
   cursor: pointer;
   background: transparent;
