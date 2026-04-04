@@ -8,6 +8,23 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+// Gramjs requires a Logger instance — provide a full no-op to suppress console output
+function makeNoopLogger() {
+  const noop = () => {};
+  return {
+    levels: ['error', 'warn', 'info', 'debug'],
+    canSend: () => false,
+    log: noop,
+    debug: noop,
+    info: noop,
+    warn: noop,
+    error: noop,
+    setLevel: noop,
+    getDateTime: () => '',
+    color: noop,
+  };
+}
+
 // Helper: build a TelegramClient with gramjs
 async function buildClient(apiId: number, apiHash: string, sessionStr: string) {
   const { TelegramClient } = await import('telegram');
@@ -15,9 +32,8 @@ async function buildClient(apiId: number, apiHash: string, sessionStr: string) {
   const session = new StringSession(sessionStr);
   const client = new TelegramClient(session, apiId, apiHash, {
     connectionRetries: 3,
-    timeout: 20,
     useIPV6: false,
-    baseLogger: { levels: [], canSend: () => false, log: () => {} } as never,
+    baseLogger: makeNoopLogger() as never,
   });
   return { client, session };
 }

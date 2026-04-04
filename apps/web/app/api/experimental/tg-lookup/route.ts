@@ -47,14 +47,21 @@ export async function POST(req: NextRequest) {
     const { TelegramClient, Api } = await import('telegram');
     const { StringSession } = await import('telegram/sessions/index.js');
 
+    const noop = () => {};
+    const noopLogger = {
+      levels: ['error', 'warn', 'info', 'debug'],
+      canSend: () => false,
+      log: noop, debug: noop, info: noop, warn: noop, error: noop,
+      setLevel: noop, getDateTime: () => '', color: noop,
+    };
+
     const client = new TelegramClient(
       new StringSession(cred.session_string),
       parseInt(cred.api_id),
       cred.api_hash,
       {
         connectionRetries: 3,
-        timeout: 20,
-        baseLogger: { levels: [], canSend: () => false, log: () => {} } as never,
+        baseLogger: noopLogger as never,
       },
     );
     await client.connect();
