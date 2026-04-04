@@ -638,6 +638,103 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   flex-wrap: wrap;
 }
 
+/* ── Pulse Table (Campaign Pulse + Account Utilization) ───────── */
+.pulse-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.pulse-table-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.pulse-table-row:last-child {
+  border-bottom: none;
+}
+
+.pulse-table-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pulse-table-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pulse-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #6b7280;
+}
+
+.pulse-status-dot.active { background: #22c55e; }
+.pulse-status-dot.paused { background: #f97316; }
+.pulse-status-dot.completed { background: #3b82f6; }
+
+.pulse-table-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.pulse-table-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.pulse-table-rate {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pulse-table-rate-label {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.pulse-table-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Utilization progress bar */
+.util-bar {
+  width: 64px;
+  height: 3px;
+  background: var(--border-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.util-bar-fill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+
 .filter-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
