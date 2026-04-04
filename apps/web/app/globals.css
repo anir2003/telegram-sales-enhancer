@@ -3251,3 +3251,62 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-radius: 4px;
   background: var(--border);
 }
+
+/* Tag Input */
+.tgc-tag-input-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  cursor: text;
+  transition: border-color 0.15s ease;
+  min-height: 38px;
+}
+
+.tgc-tag-input-wrap:focus-within {
+  border-color: var(--border-strong);
+}
+
+.tgc-tag-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.tgc-tag-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 0 0 2px;
+  display: flex;
+  opacity: 0.7;
+}
+.tgc-tag-remove:hover {
+  opacity: 1;
+}
+
+.tgc-tag-inner-input {
+  flex: 1;
+  min-width: 80px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  font-family: inherit;
+  padding: 0;
+}
+.tgc-tag-inner-input::placeholder {
+  color: var(--text-dim);
+}
