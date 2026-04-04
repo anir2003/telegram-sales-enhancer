@@ -417,6 +417,18 @@ button, input, textarea, select {
   border-color: var(--border-focus);
 }
 
+/* Make native time/date picker icons visible on dark backgrounds */
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+  cursor: pointer;
+  opacity: 0.7;
+}
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 .select {
   appearance: none;
   -webkit-appearance: none;
@@ -1404,19 +1416,20 @@ button, input, textarea, select {
 }
 
 .placeholder-pill {
-  padding: 6px 12px;
+  padding: 4px 10px;
   border: 1px solid var(--border-soft);
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--panel);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
 .placeholder-pill:hover {
-  border-color: var(--accent);
-  color: var(--text);
+  filter: brightness(1.2);
+  opacity: 0.9;
 }
 
 .chip {

@@ -45,10 +45,10 @@ const emptyStep = (stepOrder: number): SequenceDraft => ({
 });
 
 const placeholders = [
-  { label: 'First Name', token: '{First Name}' },
-  { label: 'Last Name', token: '{Last Name}' },
-  { label: 'Company', token: '{Company}' },
-  { label: 'Telegram Username', token: '{Telegram Username}' },
+  { label: 'First Name', token: '{First Name}', color: '#6366f1' },
+  { label: 'Last Name', token: '{Last Name}', color: '#ec4899' },
+  { label: 'Company', token: '{Company}', color: '#f59e0b' },
+  { label: 'Telegram Username', token: '{Telegram Username}', color: '#14b8a6' },
 ] as const;
 
 function renderPreview(template: string) {
@@ -491,7 +491,8 @@ export default function CampaignsPage() {
                     Build your outreach messages. Minimum 2 messages required.
                     <span style={{ marginLeft: 8 }}>
                       {placeholders.map((p) => (
-                        <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)} style={{ marginLeft: 4 }}>
+                        <button key={p.token} type="button" className="placeholder-pill" onClick={() => insertPlaceholder(p.token)}
+                          style={{ marginLeft: 4, background: `${p.color}18`, color: p.color, borderColor: `${p.color}50`, borderRadius: 4 }}>
                           {p.label}
                         </button>
                       ))}
