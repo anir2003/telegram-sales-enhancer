@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -196,10 +197,10 @@ export default function LeadsPage() {
   return (
     <div className="page-content">
       <div className="grid grid-4">
-        <div className="card"><div className="card-title">Reusable Leads</div><div className="card-value">{leads.length}</div><div className="card-subtitle">One CRM, shared across every campaign.</div></div>
-        <div className="card"><div className="card-title">Companies</div><div className="card-value">{new Set(leads.map((lead) => lead.company_name)).size}</div><div className="card-subtitle">Company-first grouping for outreach.</div></div>
-        <div className="card"><div className="card-title">Tagged Leads</div><div className="card-value">{leads.filter((lead) => lead.tags.length).length}</div><div className="card-subtitle">Filter by persona, source, or stage.</div></div>
-        <div className="card"><div className="card-title">In Campaigns</div><div className="card-value">{leadRows.filter((lead) => lead.campaignCount > 0).length}</div><div className="card-subtitle">Attached to at least one campaign.</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Reusable Leads</div><InfoTooltip text="One CRM, shared across every campaign." /></div><div className="card-value">{leads.length}</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Companies</div><InfoTooltip text="Company-first grouping for outreach." /></div><div className="card-value">{new Set(leads.map((lead) => lead.company_name)).size}</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Tagged Leads</div><InfoTooltip text="Filter by persona, source, or stage." /></div><div className="card-value">{leads.filter((lead) => lead.tags.length).length}</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">In Campaigns</div><InfoTooltip text="Attached to at least one campaign." /></div><div className="card-value">{leadRows.filter((lead) => lead.campaignCount > 0).length}</div></div>
       </div>
 
       <div className="section-label">Lead Intake</div>

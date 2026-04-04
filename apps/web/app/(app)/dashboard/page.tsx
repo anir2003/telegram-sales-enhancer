@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchJson, invalidateCache } from '@/lib/web/fetch-json';
 import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 function MiniCalendar() {
   const today = new Date();
@@ -153,24 +154,20 @@ export default function DashboardPage() {
     <div className="page-content">
       <div className="grid grid-4">
         <div className="card">
-          <div className="card-title">Telegram Accounts Active</div>
+          <div className="card-title-row"><div className="card-title">Telegram Accounts Active</div><InfoTooltip text="Sender accounts available for campaigns." /></div>
           <div className="card-value">{loading ? '...' : metrics.activeAccounts}</div>
-          <div className="card-subtitle">Sender accounts available for campaigns.</div>
         </div>
         <div className="card">
-          <div className="card-title">Avg Reply Rate</div>
+          <div className="card-title-row"><div className="card-title">Avg Reply Rate</div><InfoTooltip text="Replies across all campaign activity." /></div>
           <div className="card-value">{loading ? '...' : formatPercent(metrics.avgReplyRate)}</div>
-          <div className="card-subtitle">Replies across all campaign activity.</div>
         </div>
         <div className="card">
-          <div className="card-title">Active Campaigns</div>
+          <div className="card-title-row"><div className="card-title">Active Campaigns</div><InfoTooltip text="Currently feeding Telegram tasks." /></div>
           <div className="card-value">{loading ? '...' : metrics.liveCampaigns}</div>
-          <div className="card-subtitle">Currently feeding Telegram tasks.</div>
         </div>
         <div className="card">
-          <div className="card-title">Leads In Motion</div>
+          <div className="card-title-row"><div className="card-title">Leads In Motion</div><InfoTooltip text={`${metrics.blockedLeads} blocked. ${metrics.totalLeads} total in CRM.`} /></div>
           <div className="card-value">{loading ? '...' : metrics.openLeads}</div>
-          <div className="card-subtitle">{metrics.blockedLeads} blocked. {metrics.totalLeads} total in CRM.</div>
         </div>
       </div>
 

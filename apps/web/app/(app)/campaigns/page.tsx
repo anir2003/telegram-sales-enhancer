@@ -6,6 +6,7 @@ import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Kolkata',      label: 'IST — India Standard Time (UTC+5:30)' },
@@ -340,10 +341,10 @@ export default function CampaignsPage() {
   return (
     <div className="page-content">
       <div className="grid grid-4">
-        <div className="card"><div className="card-title">Campaigns</div><div className="card-value">{campaigns.length}</div><div className="card-subtitle">Total campaigns created.</div></div>
-        <div className="card"><div className="card-title">Live</div><div className="card-value" style={{ color: '#26a641' }}>{campaigns.filter((c) => c.status === 'active').length}</div><div className="card-subtitle">Currently sending tasks to the team.</div></div>
-        <div className="card"><div className="card-title">Drafts</div><div className="card-value">{campaigns.filter((c) => c.status === 'draft').length}</div><div className="card-subtitle">Ready for completion and launch.</div></div>
-        <div className="card"><div className="card-title">Paused / Completed</div><div className="card-value">{campaigns.filter((c) => c.status === 'paused' || c.status === 'completed').length}</div><div className="card-subtitle">Stopped or finished campaigns.</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Campaigns</div><InfoTooltip text="Total campaigns created." /></div><div className="card-value">{campaigns.length}</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Live</div><InfoTooltip text="Currently sending tasks to the team." /></div><div className="card-value" style={{ color: '#26a641' }}>{campaigns.filter((c) => c.status === 'active').length}</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Drafts</div><InfoTooltip text="Ready for completion and launch." /></div><div className="card-value">{campaigns.filter((c) => c.status === 'draft').length}</div></div>
+        <div className="card"><div className="card-title-row"><div className="card-title">Paused / Completed</div><InfoTooltip text="Stopped or finished campaigns." /></div><div className="card-value">{campaigns.filter((c) => c.status === 'paused' || c.status === 'completed').length}</div></div>
       </div>
 
       {!showWizard ? (
