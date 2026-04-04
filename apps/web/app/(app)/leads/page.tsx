@@ -207,10 +207,9 @@ export default function LeadsPage() {
       <div className="split-layout">
         {/* Add Lead */}
         <form className="card form-grid" onSubmit={handleCreate}>
-          <div>
+          <div className="card-title-row">
             <div className="card-title">Add Lead</div>
-            <div className="card-subtitle" style={{ marginTop: 4 }}>Manually add a single lead to the CRM.</div>
-            <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>Do not include the <code style={{ fontSize: 11 }}>@</code> symbol in the Telegram username.</div>
+            <InfoTooltip text="Manually add a single lead. Do not include the @ symbol in the Telegram username." />
           </div>
           <div className="form-grid columns-2">
             <input className="input" placeholder="First Name" value={form.first_name} onChange={(e) => setForm((c) => ({ ...c, first_name: e.target.value }))} />
@@ -251,13 +250,9 @@ export default function LeadsPage() {
 
         {/* Import CSV */}
         <div className="card form-grid">
-          <div>
+          <div className="card-title-row">
             <div className="card-title">Import CSV</div>
-            <div className="card-subtitle" style={{ marginTop: 4 }}>Upload a CSV file. Duplicates (same Telegram username) are automatically merged.</div>
-            <div className="dim" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
-              <strong>Required:</strong> First Name, Telegram Username &nbsp;·&nbsp; <strong>Optional:</strong> Last Name, Company, Tags, Notes, Source<br />
-              Do not include the <code style={{ fontSize: 11 }}>@</code> symbol in the Telegram username column.
-            </div>
+            <InfoTooltip text="Upload CSV. Duplicates auto-merged. Required: First Name, Telegram Username. Optional: Last Name, Company, Tags, Notes, Source. No @ in username." />
           </div>
           <div>
             <label className="btn-secondary" style={{ width: 'fit-content', cursor: 'pointer', fontSize: 12, padding: '6px 14px' }}>

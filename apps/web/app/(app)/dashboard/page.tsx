@@ -176,9 +176,9 @@ export default function DashboardPage() {
         <div className="dashboard-main">
           <div className="card">
             <div className="card-header">
-              <div>
+              <div className="card-title-row">
                 <div className="card-title">Daily Message Volume</div>
-                <div className="card-subtitle" style={{ marginTop: 8 }}>Tasks completed each day over the last 12 weeks.</div>
+                <InfoTooltip text="Tasks completed each day over the last 12 weeks." />
               </div>
               <div className="badge">{metrics.sentEvents} total sends</div>
             </div>
@@ -220,9 +220,9 @@ export default function DashboardPage() {
       <div className="grid grid-2">
         <div className="card">
           <div className="card-header">
-            <div>
+            <div className="card-title-row">
               <div className="card-title">Campaign Pulse</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>Which campaigns are moving right now.</div>
+              <InfoTooltip text="Which campaigns are moving right now." />
             </div>
             <Link href="/campaigns" className="btn-secondary">Open Campaigns</Link>
           </div>
@@ -244,9 +244,9 @@ export default function DashboardPage() {
 
         <div className="card">
           <div className="card-header">
-            <div>
+            <div className="card-title-row">
               <div className="card-title">Account Utilization</div>
-              <div className="card-subtitle" style={{ marginTop: 8 }}>How loaded each Telegram account is today.</div>
+              <InfoTooltip text="How loaded each Telegram account is today." />
             </div>
             <Link href="/accounts" className="btn-secondary">Open Accounts</Link>
           </div>
