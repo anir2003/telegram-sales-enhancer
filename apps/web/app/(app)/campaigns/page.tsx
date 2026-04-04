@@ -81,6 +81,7 @@ export default function CampaignsPage() {
   const [leadSearch, setLeadSearch] = useState('');
   const [leadTagFilter, setLeadTagFilter] = useState('all');
   const [leadCompanyFilter, setLeadCompanyFilter] = useState('all');
+  const [leadSelectMode, setLeadSelectMode] = useState<'leads' | 'companies'>('leads');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>('setup');
@@ -406,18 +407,41 @@ export default function CampaignsPage() {
                   </div>
 
                   <div className="selection-list">
-                    {accountInsights.length ? accountInsights.map((account) => (
-                      <label key={account.id} className={`selection-row ${selectedAccountIds.includes(account.id) ? 'active' : ''}`}>
-                        <div>
-                          <div>{account.label}</div>
-                          <div className="dim">@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentToday}/{account.daily_limit} today</div>
+                    {accountInsights.length ? accountInsights.map((account) => {
+                      const limitEntry = accountMessageLimits.find(l => l.accountId === account.id);
+                      const isSelected = selectedAccountIds.includes(account.id);
+                      return (
+                        <div key={account.id} className={`selection-row ${isSelected ? 'active' : ''}`}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleAccount(account.id)} style={{ flexShrink: 0 }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 500 }}>{account.label}</div>
+                              <div className="dim" style={{ fontSize: 11 }}>@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentToday}/{account.daily_limit} today</div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            {isSelected && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>msg limit</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={limitEntry?.limit ?? account.daily_limit}
+                                  onChange={(e) => updateAccountLimit(account.id, Number(e.target.value))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    width: 52, padding: '2px 6px', fontSize: 11,
+                                    background: 'var(--panel-strong)', border: '1px solid var(--border-soft)',
+                                    borderRadius: 3, color: 'var(--text)', fontFamily: 'inherit',
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
+                          </div>
                         </div>
-                        <div className="metric-row-side">
-                          <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
-                          <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => toggleAccount(account.id)} />
-                        </div>
-                      </label>
-                    )) : <div className="empty-state">No Telegram accounts. Add them in the Accounts page first.</div>}
+                      );
+                    }) : <div className="empty-state">No Telegram accounts. Add them in the Accounts page first.</div>}
                   </div>
                 </div>
               )}
@@ -455,52 +479,107 @@ export default function CampaignsPage() {
 
               {wizardStep === 'leads' && (
                 <div className="form-grid">
-                  <div className="wizard-section-title">Attach Leads</div>
-                  <div className="wizard-section-subtitle">{selectedLeadIds.length} of {leads.length} leads selected.</div>
-
-                  {/* Search + Company + Tag filters in one row */}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input className="input" style={{ flex: 1 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
-                    <CustomSelect
-                      value={leadCompanyFilter}
-                      onChange={(v) => {
-                        setLeadCompanyFilter(v);
-                        if (v !== 'all') {
-                          const ids = leads.filter(l => l.company_name === v).map(l => l.id);
-                          setSelectedLeadIds(prev => [...new Set([...prev, ...ids])]);
-                        }
-                      }}
-                      options={[
-                        { value: 'all', label: 'All Companies' },
-                        ...allCompanies.map(c => ({ value: c, label: `${c} (${companyLeadCounts[c] ?? 0})` })),
-                      ]}
-                      style={{ width: 170, flexShrink: 0 }}
-                    />
-                    <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ width: 130, flexShrink: 0 }} />
+                  {/* Header row: title + mode toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div className="wizard-section-title" style={{ marginBottom: 2 }}>Attach Leads</div>
+                      <div className="wizard-section-subtitle">{selectedLeadIds.length} of {leads.length} leads selected</div>
+                    </div>
+                    <div className="view-toggle">
+                      <button className={`view-toggle-btn ${leadSelectMode === 'leads' ? 'active' : ''}`} type="button" onClick={() => setLeadSelectMode('leads')}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                        By Lead
+                      </button>
+                      <button className={`view-toggle-btn ${leadSelectMode === 'companies' ? 'active' : ''}`} type="button" onClick={() => setLeadSelectMode('companies')}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+                        By Company
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="btn-row" style={{ fontSize: 12 }}>
-                    <button className="chip" type="button" onClick={selectAllFiltered}>Select all {filteredLeads.length} shown</button>
-                    <button className="chip" type="button" onClick={deselectAllFiltered}>Deselect shown</button>
-                    <button className="chip" type="button" onClick={() => setSelectedLeadIds([])}>Clear selection</button>
-                  </div>
-
-                  <div className="selection-list">
-                    {filteredLeads.length ? filteredLeads.map((lead) => (
-                      <label key={lead.id} className={`selection-row ${selectedLeadIds.includes(lead.id) ? 'active' : ''}`}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                          <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} style={{ flexShrink: 0 }} />
-                          <span style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>{lead.first_name} {lead.last_name}</span>
-                          <span style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{lead.company_name} · @{lead.telegram_username}</span>
-                          {lead.tags.length > 0 && (
-                            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                              {lead.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                  {leadSelectMode === 'leads' ? (<>
+                    {/* Search + Company + Tag filters */}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input className="input" style={{ flex: 1 }} placeholder="Search leads..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} />
+                      <CustomSelect
+                        value={leadCompanyFilter}
+                        onChange={(v) => {
+                          setLeadCompanyFilter(v);
+                          if (v !== 'all') {
+                            const ids = leads.filter(l => l.company_name === v).map(l => l.id);
+                            setSelectedLeadIds(prev => [...new Set([...prev, ...ids])]);
+                          }
+                        }}
+                        options={[{ value: 'all', label: 'All Companies' }, ...allCompanies.map(c => ({ value: c, label: `${c} (${companyLeadCounts[c] ?? 0})` }))]}
+                        style={{ width: 170, flexShrink: 0 }}
+                      />
+                      <CustomSelect value={leadTagFilter} onChange={setLeadTagFilter} options={[{ value: 'all', label: 'All Tags' }, ...allLeadTags.map(t => ({ value: t, label: t }))]} style={{ width: 130, flexShrink: 0 }} />
+                    </div>
+                    <div className="btn-row" style={{ fontSize: 12 }}>
+                      <button className="chip" type="button" onClick={selectAllFiltered}>Select all {filteredLeads.length} shown</button>
+                      <button className="chip" type="button" onClick={deselectAllFiltered}>Deselect shown</button>
+                      <button className="chip" type="button" onClick={() => setSelectedLeadIds([])}>Clear selection</button>
+                    </div>
+                    <div className="selection-list">
+                      {filteredLeads.length ? filteredLeads.map((lead) => (
+                        <label key={lead.id} className={`selection-row ${selectedLeadIds.includes(lead.id) ? 'active' : ''}`}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                            <input type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} style={{ flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>{lead.first_name} {lead.last_name}</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{lead.company_name} · @{lead.telegram_username}</span>
+                            {lead.tags.length > 0 && (
+                              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                {lead.tags.map((t) => <span key={t} className="tag">{t}</span>)}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      )) : <div style={{ padding: 16, fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>No leads match filters.</div>}
+                    </div>
+                  </>) : (<>
+                    {/* Company selection mode */}
+                    <div className="selection-list">
+                      {allCompanies.length ? allCompanies.map((company) => {
+                        const total = companyLeadCounts[company] ?? 0;
+                        const companyLeadIds = leads.filter(l => l.company_name === company).map(l => l.id);
+                        const selectedCount = companyLeadIds.filter(id => selectedLeadIds.includes(id)).length;
+                        const allSelected = selectedCount === total;
+                        const someSelected = selectedCount > 0 && !allSelected;
+                        const toggle = () => {
+                          if (allSelected) {
+                            setSelectedLeadIds(prev => prev.filter(id => !companyLeadIds.includes(id)));
+                          } else {
+                            setSelectedLeadIds(prev => [...new Set([...prev, ...companyLeadIds])]);
+                          }
+                        };
+                        return (
+                          <label key={company} className={`selection-row ${selectedCount > 0 ? 'active' : ''}`} style={{ cursor: 'pointer' }} onClick={toggle}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                              <input
+                                type="checkbox"
+                                checked={allSelected}
+                                ref={el => { if (el) el.indeterminate = someSelected; }}
+                                onChange={toggle}
+                                onClick={e => e.stopPropagation()}
+                                style={{ flexShrink: 0 }}
+                              />
+                              <span style={{ fontSize: 12, fontWeight: 500 }}>{company}</span>
+                              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{total} lead{total !== 1 ? 's' : ''}</span>
                             </div>
-                          )}
-                        </div>
-                      </label>
-                    )) : <div className="empty-state" style={{ padding: '16px' }}>No leads match filters.</div>}
-                  </div>
+                            {selectedCount > 0 && (
+                              <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600, flexShrink: 0 }}>
+                                {selectedCount}/{total} selected
+                              </span>
+                            )}
+                          </label>
+                        );
+                      }) : <div style={{ padding: 16, fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>No companies found.</div>}
+                    </div>
+                    <div className="btn-row" style={{ fontSize: 12 }}>
+                      <button className="chip" type="button" onClick={() => setSelectedLeadIds(leads.map(l => l.id))}>Select all companies</button>
+                      <button className="chip" type="button" onClick={() => setSelectedLeadIds([])}>Clear selection</button>
+                    </div>
+                  </>)}
                 </div>
               )}
 
