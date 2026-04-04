@@ -6,6 +6,7 @@ import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Kolkata',      label: 'IST — India Standard Time (UTC+5:30)' },
@@ -341,14 +342,14 @@ export default function CampaignsPage() {
     <div className="page-content">
       <div className="grid grid-4">
         <div className="card"><div className="card-title">Campaigns</div><div className="card-value">{campaigns.length}</div><div className="card-subtitle">Total campaigns created.</div></div>
-        <div className="card"><div className="card-title">Live</div><div className="card-value" style={{ color: '#26a641' }}>{campaigns.filter((c) => c.status === 'active').length}</div><div className="card-subtitle">Currently sending tasks to the team.</div></div>
-        <div className="card"><div className="card-title">Drafts</div><div className="card-value">{campaigns.filter((c) => c.status === 'draft').length}</div><div className="card-subtitle">Ready for completion and launch.</div></div>
-        <div className="card"><div className="card-title">Paused / Completed</div><div className="card-value">{campaigns.filter((c) => c.status === 'paused' || c.status === 'completed').length}</div><div className="card-subtitle">Stopped or finished campaigns.</div></div>
+        <div className="card"><div className="card-title">Live</div><div className="card-value" style={{ color: '#26a641' }}>{campaigns.filter((c) => c.status === 'active').length}</div><div className="card-subtitle">Currently sending.</div></div>
+        <div className="card"><div className="card-title">Drafts</div><div className="card-value">{campaigns.filter((c) => c.status === 'draft').length}</div><div className="card-subtitle">Ready to launch.</div></div>
+        <div className="card"><div className="card-title">Paused / Completed</div><div className="card-value">{campaigns.filter((c) => c.status === 'paused' || c.status === 'completed').length}</div><div className="card-subtitle">Stopped or finished.</div></div>
       </div>
 
       {!showWizard ? (
         <div style={{ marginTop: 24 }}>
-          <button className="btn" onClick={() => setShowWizard(true)} style={{ padding: '12px 24px', fontSize: 13 }}>
+          <button className="btn" onClick={() => setShowWizard(true)} style={{ padding: '7px 14px', fontSize: 12 }}>
             + Create New Campaign
           </button>
           {builderMessage ? <div className={`status-callout ${builderMessage.startsWith('Error') ? 'error' : 'success'}`} style={{ marginTop: 12 }}>{builderMessage}</div> : null}
@@ -576,7 +577,7 @@ export default function CampaignsPage() {
                                 style={{ flexShrink: 0 }}
                               />
                               <span style={{ fontSize: 12, fontWeight: 500 }}>{company}</span>
-                              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{total} lead{total !== 1 ? 's' : ''}</span>
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{total} lead{total !== 1 ? 's' : ''}</span>
                             </div>
                             {selectedCount > 0 && (
                               <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600, flexShrink: 0 }}>
@@ -764,71 +765,88 @@ export default function CampaignsPage() {
       </div>
       
       {/* Campaign Cards Grid */}
-      <div className="library-grid">
-        {campaignRows.length ? campaignRows.map(({ detail, stats }) => (
-          <Link key={detail.campaign?.id} href={`/campaigns/${detail.campaign?.id}`} className="campaign-card">
-            <div className="campaign-card-header">
-              <div className="campaign-card-title">{detail.campaign?.name}</div>
-              <span 
-                className="campaign-status-badge"
-                style={{ 
-                  background: `${getStatusColor(detail.campaign?.status ?? 'draft')}20`,
-                  color: getStatusColor(detail.campaign?.status ?? 'draft'),
-                  borderColor: getStatusColor(detail.campaign?.status ?? 'draft'),
-                }}
-              >
-                {detail.campaign?.status ?? 'draft'}
-              </span>
-            </div>
-            
-            <div className="campaign-card-description">
-              {detail.campaign?.description || 'No description yet.'}
-            </div>
-            
-            <div className="campaign-card-stats">
-              <div className="campaign-stat">
-                <span className="campaign-stat-value">{stats.totalLeads}</span>
-                <span className="campaign-stat-label">Leads</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+        {campaignRows.length ? campaignRows.map(({ detail, stats }) => {
+          const status = detail.campaign?.status ?? 'draft';
+          const color = getStatusColor(status);
+          const completion = completionRate(stats);
+          return (
+            <Link
+              key={detail.campaign?.id}
+              href={`/campaigns/${detail.campaign?.id}`}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 0,
+                background: 'var(--card)',
+                border: '1px solid var(--border-soft)',
+                borderRadius: 6,
+                padding: '14px 16px',
+                textDecoration: 'none', color: 'inherit',
+                transition: 'border-color 0.15s, background 0.15s',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--panel)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'var(--card)'; }}
+            >
+              {/* Name + badge */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {detail.campaign?.name}
+                </div>
+                <span style={{
+                  padding: '2px 7px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+                  textTransform: 'uppercase', letterSpacing: '0.07em', flexShrink: 0,
+                  background: `${color}18`, color, border: `1px solid ${color}40`,
+                }}>
+                  {status}
+                </span>
               </div>
-              <div className="campaign-stat">
-                <span className="campaign-stat-value">{stats.assignedAccounts.length}</span>
-                <span className="campaign-stat-label">Accounts</span>
+
+              {/* Description */}
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.4 }}>
+                {detail.campaign?.description || <span style={{ opacity: 0.4 }}>No description</span>}
               </div>
-              <div className="campaign-stat">
-                <span className="campaign-stat-value">{stats.sent}</span>
-                <span className="campaign-stat-label">Sent</span>
+
+              {/* Stats row with dividers */}
+              <div style={{ display: 'flex', borderTop: '1px solid var(--border-soft)', borderBottom: '1px solid var(--border-soft)', margin: '0 -16px', padding: '10px 0' }}>
+                {[
+                  { v: stats.totalLeads, l: 'Leads' },
+                  { v: stats.assignedAccounts.length, l: 'Accounts' },
+                  { v: stats.sent, l: 'Sent' },
+                  { v: `${completion}%`, l: 'Done' },
+                ].map((s, i) => (
+                  <div key={i} style={{
+                    flex: 1, textAlign: 'center',
+                    borderRight: i < 3 ? '1px solid var(--border-soft)' : 'none',
+                  }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2 }}>{s.v}</div>
+                    <div style={{ fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.07em', textTransform: 'uppercase', marginTop: 2 }}>{s.l}</div>
+                  </div>
+                ))}
               </div>
-              <div className="campaign-stat">
-                <span className="campaign-stat-value">{completionRate(stats)}%</span>
-                <span className="campaign-stat-label">Complete</span>
+
+              {/* Progress bar */}
+              <div style={{ height: 2, background: 'var(--panel-strong)', borderRadius: 1, overflow: 'hidden', margin: '12px 0 10px' }}>
+                <div style={{
+                  height: '100%', borderRadius: 1,
+                  width: `${completion}%`,
+                  background: completion === 100 ? '#26a641' : completion > 50 ? '#3498db' : '#f39c12',
+                  transition: 'width 0.3s',
+                }} />
               </div>
-            </div>
-            
-            <div className="campaign-progress-bar">
-              <div 
-                className="campaign-progress-fill" 
-                style={{ 
-                  width: `${completionRate(stats)}%`,
-                  background: completionRate(stats) === 100 ? '#26a641' : completionRate(stats) > 50 ? '#3498db' : '#f39c12'
-                }} 
-              />
-            </div>
-            
-            <div className="campaign-card-footer">
-              <div className="campaign-meta">
-                <span className="dim">{detail.campaign?.timezone ?? 'UTC'}</span>
-                <span className="dim">•</span>
-                <span className="dim">{detail.campaign ? `${detail.campaign.send_window_start}-${detail.campaign.send_window_end}` : ''}</span>
-              </div>
-              <div className="campaign-reply-rate">
-                <span style={{ color: stats.replyRate > 0 ? '#26a641' : 'var(--text-dim)' }}>
+
+              {/* Footer */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10 }}>
+                <span style={{ color: 'var(--text-dim)' }}>
+                  {detail.campaign?.timezone ?? 'UTC'}
+                </span>
+                <span style={{ fontWeight: 500, color: stats.replyRate > 0 ? '#26a641' : 'var(--text-dim)' }}>
                   {formatPercent(stats.replyRate)} reply
                 </span>
               </div>
-            </div>
-          </Link>
-        )) : (
-          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No campaigns match the current filter. Create one to get started.</div>
+            </Link>
+          );
+        }) : (
+          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>No campaigns match the current filter.</div>
         )}
       </div>
     </div>

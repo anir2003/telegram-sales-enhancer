@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { CustomSelect } from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
 
 const STATUS_OPTIONS = [
   'Opportunity',
@@ -324,7 +325,7 @@ export default function BusinessTrackerPage() {
           <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>Business Tracker</div>
           <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>Track company-level sales progress and follow-ups</div>
         </div>
-        <button className="btn" onClick={openAdd} style={{ padding: '10px 20px' }}>+ Add Company</button>
+        <button className="btn" onClick={openAdd} style={{ padding: '7px 14px', fontSize: 12 }}>+ Add Company</button>
       </div>
 
       {/* Stats */}
@@ -500,7 +501,7 @@ export default function BusinessTrackerPage() {
                     <div key={n} className="form-grid columns-2">
                       <div className="form-grid">
                         <label className="dim" style={{ fontSize: 10 }}>FU {n} Date</label>
-                        <input className="input" type="date" value={(form as any)[`follow_up_${n}_date`] ?? ''} onChange={e => setForm(f => ({ ...f, [`follow_up_${n}_date`]: e.target.value || null }))} />
+                        <DatePicker value={(form as any)[`follow_up_${n}_date`] ?? ''} onChange={v => setForm(f => ({ ...f, [`follow_up_${n}_date`]: v || null }))} placeholder="Select date" />
                       </div>
                       <div className="form-grid">
                         <label className="dim" style={{ fontSize: 10 }}>FU {n} Status</label>

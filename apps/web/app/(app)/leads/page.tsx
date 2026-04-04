@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -196,20 +197,19 @@ export default function LeadsPage() {
   return (
     <div className="page-content">
       <div className="grid grid-4">
-        <div className="card"><div className="card-title">Reusable Leads</div><div className="card-value">{leads.length}</div><div className="card-subtitle">One CRM, shared across every campaign.</div></div>
-        <div className="card"><div className="card-title">Companies</div><div className="card-value">{new Set(leads.map((lead) => lead.company_name)).size}</div><div className="card-subtitle">Company-first grouping for outreach.</div></div>
-        <div className="card"><div className="card-title">Tagged Leads</div><div className="card-value">{leads.filter((lead) => lead.tags.length).length}</div><div className="card-subtitle">Filter by persona, source, or stage.</div></div>
-        <div className="card"><div className="card-title">In Campaigns</div><div className="card-value">{leadRows.filter((lead) => lead.campaignCount > 0).length}</div><div className="card-subtitle">Attached to at least one campaign.</div></div>
+        <div className="card"><div className="card-title">Reusable Leads</div><div className="card-value">{leads.length}</div><div className="card-subtitle">Shared across every campaign.</div></div>
+        <div className="card"><div className="card-title">Companies</div><div className="card-value">{new Set(leads.map((lead) => lead.company_name)).size}</div><div className="card-subtitle">Company-first grouping.</div></div>
+        <div className="card"><div className="card-title">Tagged Leads</div><div className="card-value">{leads.filter((lead) => lead.tags.length).length}</div><div className="card-subtitle">Filter by persona or stage.</div></div>
+        <div className="card"><div className="card-title">In Campaigns</div><div className="card-value">{leadRows.filter((lead) => lead.campaignCount > 0).length}</div><div className="card-subtitle">Attached to a campaign.</div></div>
       </div>
 
       <div className="section-label">Lead Intake</div>
       <div className="split-layout">
         {/* Add Lead */}
         <form className="card form-grid" onSubmit={handleCreate}>
-          <div>
+          <div className="card-title-row">
             <div className="card-title">Add Lead</div>
-            <div className="card-subtitle" style={{ marginTop: 4 }}>Manually add a single lead to the CRM.</div>
-            <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>Do not include the <code style={{ fontSize: 11 }}>@</code> symbol in the Telegram username.</div>
+            <InfoTooltip text="Manually add a single lead. Do not include the @ symbol in the Telegram username." />
           </div>
           <div className="form-grid columns-2">
             <input className="input" placeholder="First Name" value={form.first_name} onChange={(e) => setForm((c) => ({ ...c, first_name: e.target.value }))} />
@@ -250,14 +250,30 @@ export default function LeadsPage() {
 
         {/* Import CSV */}
         <div className="card form-grid">
-          <div>
-            <div className="card-title">Import CSV</div>
-            <div className="card-subtitle" style={{ marginTop: 4 }}>Upload a CSV file. Duplicates (same Telegram username) are automatically merged.</div>
-            <div className="dim" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
-              <strong>Required:</strong> First Name, Telegram Username &nbsp;·&nbsp; <strong>Optional:</strong> Last Name, Company, Tags, Notes, Source<br />
-              Do not include the <code style={{ fontSize: 11 }}>@</code> symbol in the Telegram username column.
+          <div className="card-title">Import CSV</div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px', background: 'var(--panel-alt)', border: '1px solid var(--border-soft)', borderRadius: 5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '0.05em', textTransform: 'uppercase', minWidth: 54 }}>Required</span>
+              {[
+                { label: 'First Name',         color: '#6366f1' },
+                { label: 'Telegram Username',  color: '#14b8a6' },
+                { label: 'Company',            color: '#f59e0b' },
+              ].map(({ label, color }) => (
+                <span key={label} style={{ padding: '3px 9px', border: `1px solid ${color}50`, borderRadius: 4, fontSize: 11, color, background: `${color}18`, fontWeight: 500 }}>{label}</span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderTop: '1px solid var(--border-soft)', paddingTop: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', letterSpacing: '0.05em', textTransform: 'uppercase', minWidth: 54 }}>Optional</span>
+              {['Last Name', 'Tags', 'Notes', 'Source'].map(col => (
+                <span key={col} style={{ padding: '3px 9px', border: '1px solid var(--border-soft)', borderRadius: 4, fontSize: 11, color: 'var(--text-dim)', background: 'transparent' }}>{col}</span>
+              ))}
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 8, color: 'var(--text-dim)', fontSize: 10, lineHeight: 1.5 }}>
+              Duplicates auto-merged · No @ in username
             </div>
           </div>
+
           <div>
             <label className="btn-secondary" style={{ width: 'fit-content', cursor: 'pointer', fontSize: 12, padding: '6px 14px' }}>
               <input type="file" accept=".csv" onChange={handleFileSelect} style={{ display: 'none' }} />
