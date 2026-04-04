@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { CustomSelect } from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
 
 const STATUS_OPTIONS = [
   'Opportunity',
@@ -500,7 +501,7 @@ export default function BusinessTrackerPage() {
                     <div key={n} className="form-grid columns-2">
                       <div className="form-grid">
                         <label className="dim" style={{ fontSize: 10 }}>FU {n} Date</label>
-                        <input className="input" type="date" value={(form as any)[`follow_up_${n}_date`] ?? ''} onChange={e => setForm(f => ({ ...f, [`follow_up_${n}_date`]: e.target.value || null }))} />
+                        <DatePicker value={(form as any)[`follow_up_${n}_date`] ?? ''} onChange={v => setForm(f => ({ ...f, [`follow_up_${n}_date`]: v || null }))} placeholder="Select date" />
                       </div>
                       <div className="form-grid">
                         <label className="dim" style={{ fontSize: 10 }}>FU {n} Status</label>
