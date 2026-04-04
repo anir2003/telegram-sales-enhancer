@@ -68,6 +68,54 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ─── Inline icon with hover tooltip ─────────────────────────────────
+function InlineIcon({ tooltip, children }: { tooltip: string; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  const show = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setPos({ top: r.top - 6, left: r.left + r.width / 2 });
+    }
+    setVisible(true);
+  };
+
+  return (
+    <span
+      ref={ref}
+      onMouseEnter={show}
+      onMouseLeave={() => setVisible(false)}
+      style={{ display: 'inline-flex', alignItems: 'center', cursor: 'default' }}
+    >
+      {children}
+      {visible && pos && (
+        <div style={{
+          position: 'fixed', zIndex: 9999,
+          top: pos.top, left: pos.left,
+          transform: 'translate(-50%, -100%)',
+          background: '#1c1c1c', border: '1px solid rgba(255,255,255,0.09)',
+          borderRadius: 5, padding: '4px 8px',
+          fontSize: 11, color: 'rgba(255,255,255,0.55)',
+          whiteSpace: 'nowrap', pointerEvents: 'none',
+          boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
+        }}>
+          {tooltip}
+          <span style={{
+            position: 'absolute', top: '100%', left: '50%',
+            transform: 'translateX(-50%)',
+            width: 0, height: 0,
+            borderLeft: '4px solid transparent',
+            borderRight: '4px solid transparent',
+            borderTop: '4px solid #1c1c1c',
+          }} />
+        </div>
+      )}
+    </span>
+  );
+}
+
 // ─── User Result Card ────────────────────────────────────────────────
 function UserCard({ user, onAddLead, addLeadState, addLeadMsg }: {
   user: TgUser;
@@ -76,7 +124,7 @@ function UserCard({ user, onAddLead, addLeadState, addLeadMsg }: {
   addLeadMsg: string;
 }) {
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username || 'Unknown';
-  const hasBadges = user.premium || user.verified || user.bot || user.fake || user.restricted || user.scam;
+  const hasFlagBadges = user.verified || user.bot || user.fake || user.restricted || user.scam;
 
   return (
     <div className="tgc-result-card">
@@ -84,15 +132,40 @@ function UserCard({ user, onAddLead, addLeadState, addLeadMsg }: {
       {/* ── Identity ────────────────────────────────────────────────── */}
       <div className="tgc-result-identity">
         <div>
-          <div className="tgc-result-name">{displayName}</div>
+          <div className="tgc-result-name">
+            {displayName}
+            {/* Premium: small star inline, tooltip on hover */}
+            {user.premium && (
+              <InlineIcon tooltip="Telegram Premium">
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24"
+                  fill="#f59e0b" stroke="#f59e0b" strokeWidth="0"
+                  style={{ marginLeft: 6, marginBottom: -1, flexShrink: 0 }}
+                >
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              </InlineIcon>
+            )}
+            {/* Verified: blue tick inline */}
+            {user.verified && (
+              <InlineIcon tooltip="Verified account">
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"
+                  style={{ marginLeft: 5, marginBottom: -1, flexShrink: 0 }}
+                >
+                  <circle cx="12" cy="12" r="10" fill="#6366f1" stroke="none" opacity="0.15" />
+                  <polyline points="7 12 10.5 15.5 17 9" stroke="#6366f1" />
+                </svg>
+              </InlineIcon>
+            )}
+          </div>
           {user.username && (
             <div className="tgc-result-handle">@{user.username}</div>
           )}
         </div>
-        {hasBadges && (
+        {hasFlagBadges && (
           <div className="tgc-result-badges">
-            {user.premium && <Badge label="⭐ Premium" color="#f59e0b" />}
-            {user.verified && <Badge label="✓ Verified" color="#6366f1" />}
             {user.bot && <Badge label="Bot" color="#14b8a6" />}
             {user.scam && <Badge label="⚠ Scam" color="#ef4444" />}
             {user.fake && <Badge label="⚠ Fake" color="#ef4444" />}

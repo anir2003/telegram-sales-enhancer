@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { IconAccounts, IconActivity, IconBusinessTracker, IconCampaigns, IconDashboard, IconLeads, IconSettings } from '@/components/icons';
 
-const items = [
+const mainItems = [
   { href: '/dashboard', label: 'Dashboard', icon: IconDashboard, prefetch: true },
   { href: '/leads', label: 'Leads', icon: IconLeads, prefetch: true },
   { href: '/campaigns', label: 'Campaigns', icon: IconCampaigns, prefetch: true },
@@ -49,45 +49,39 @@ function ExperimentalWarningModal({ onConfirm, onCancel }: { onConfirm: () => vo
         borderRadius: 10, padding: '28px 28px 24px', maxWidth: 400, width: '100%',
         boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
       }}>
-        {/* Icon */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <div style={{
             width: 36, height: 36, borderRadius: 8,
             background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b',
           }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Experimental Features</div>
             <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 500, letterSpacing: '0.04em' }}>USE WITH CAUTION</div>
           </div>
         </div>
-
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 12 }}>
-          These features are experimental and may not work as expected. They use your personal Telegram credentials to interact with Telegram's API directly.
+          These features are experimental and may not work as expected. They use your personal Telegram credentials to interact with Telegram&apos;s API directly.
         </p>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 20 }}>
-          <strong style={{ color: '#f59e0b' }}>Important:</strong> Always use a backup Telegram account, not your primary one. Experimental API usage may trigger Telegram's rate limits or account restrictions.
+          <strong style={{ color: '#f59e0b' }}>Important:</strong> Always use a backup Telegram account — not your primary one. Experimental API usage may trigger rate limits or account restrictions.
         </p>
-
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={onConfirm}
-            style={{
-              flex: 1, padding: '9px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-              background: '#f59e0b', color: '#000', border: '1px solid #f59e0b', cursor: 'pointer',
-            }}
-          >
-            I understand, enable
+          <button onClick={onConfirm} style={{
+            flex: 1, padding: '9px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+            background: '#f59e0b', color: '#000', border: '1px solid #f59e0b', cursor: 'pointer',
+          }}>
+            I understand, continue
           </button>
-          <button
-            onClick={onCancel}
-            style={{
-              padding: '9px 16px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-              background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border-soft)', cursor: 'pointer',
-            }}
-          >
+          <button onClick={onCancel} style={{
+            padding: '9px 16px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+            background: 'transparent', color: 'var(--text-dim)', border: '1px solid var(--border-soft)', cursor: 'pointer',
+          }}>
             Cancel
           </button>
         </div>
@@ -135,7 +129,7 @@ export function Sidebar() {
         </div>
         <div className="sidebar-section-label">Organization</div>
         <nav className="sidebar-nav">
-          {items.map((item) => {
+          {mainItems.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
@@ -150,12 +144,24 @@ export function Sidebar() {
               </Link>
             );
           })}
+
+          {/* TG Checker — visible only when experimental is on */}
+          {expEnabled && (
+            <Link
+              href="/experimental/telegram-checker"
+              className={`sidebar-item ${isExpActive ? 'active' : ''}`}
+            >
+              <IconTgSearch size={16} />
+              <span>TG Checker</span>
+              <span className="sidebar-exp-beta">β</span>
+            </Link>
+          )}
         </nav>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
-        {/* Experimental section */}
+        {/* Experimental toggle — always at the bottom */}
         <div className="sidebar-exp-section">
           <div className="sidebar-exp-toggle-row" onClick={handleToggle}>
             <span style={{ display: 'inline-flex', color: expEnabled ? '#f59e0b' : 'var(--text-dim)' }}>
@@ -166,17 +172,6 @@ export function Sidebar() {
               <div className="sidebar-exp-switch-knob" />
             </div>
           </div>
-
-          {expEnabled && (
-            <Link
-              href="/experimental/telegram-checker"
-              className={`sidebar-item exp-item ${isExpActive ? 'active' : ''}`}
-            >
-              <IconTgSearch size={15} />
-              <span>Telegram Checker</span>
-              <span className="sidebar-exp-beta">β</span>
-            </Link>
-          )}
         </div>
       </aside>
 
