@@ -577,7 +577,7 @@ export default function CampaignsPage() {
                                 style={{ flexShrink: 0 }}
                               />
                               <span style={{ fontSize: 12, fontWeight: 500 }}>{company}</span>
-                              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{total} lead{total !== 1 ? 's' : ''}</span>
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{total} lead{total !== 1 ? 's' : ''}</span>
                             </div>
                             {selectedCount > 0 && (
                               <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600, flexShrink: 0 }}>

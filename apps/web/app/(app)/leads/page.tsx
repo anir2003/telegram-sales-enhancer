@@ -250,10 +250,22 @@ export default function LeadsPage() {
 
         {/* Import CSV */}
         <div className="card form-grid">
-          <div className="card-title-row">
-            <div className="card-title">Import CSV</div>
-            <InfoTooltip text="Upload CSV — duplicates auto-merged. No @ in username." />
+          <div className="card-title">Import CSV</div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: 'var(--panel-alt)', border: '1px solid var(--border-soft)', borderRadius: 5, fontSize: 11, lineHeight: 1.7 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span style={{ color: 'var(--text-muted)', fontWeight: 600, minWidth: 54 }}>Required</span>
+              <span style={{ color: 'var(--text-muted)' }}>First Name, Telegram Username</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--border-soft)', paddingTop: 6 }}>
+              <span style={{ color: 'var(--text-dim)', fontWeight: 600, minWidth: 54 }}>Optional</span>
+              <span style={{ color: 'var(--text-dim)' }}>Last Name, Company, Tags, Notes, Source</span>
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-soft)', paddingTop: 6, color: 'var(--text-dim)', fontSize: 10 }}>
+              Duplicates (same Telegram username) are automatically merged · Do not include the @ symbol
+            </div>
           </div>
+
           <div>
             <label className="btn-secondary" style={{ width: 'fit-content', cursor: 'pointer', fontSize: 12, padding: '6px 14px' }}>
               <input type="file" accept=".csv" onChange={handleFileSelect} style={{ display: 'none' }} />
