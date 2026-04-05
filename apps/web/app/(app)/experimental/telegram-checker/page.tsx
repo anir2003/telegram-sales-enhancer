@@ -25,6 +25,7 @@ type TgUser = {
   bio: string | null;
   commonChats: number;
   lastSeen: string;
+  photoBase64?: string | null;
 };
 
 type LookupResult =
@@ -382,6 +383,69 @@ function AddLeadModal({ user, onClose, onSaved }: {
   );
 }
 
+// ─── User Avatar ─────────────────────────────────────────────────────
+function UserAvatar({ user }: { user: TgUser }) {
+  const initials = [user.firstName, user.lastName]
+    .filter(Boolean)
+    .map(n => n![0].toUpperCase())
+    .join('')
+    || (user.username ? user.username[0].toUpperCase() : '?');
+
+  // Stable colour derived from user id
+  const colours = ['#6366f1','#8b5cf6','#ec4899','#14b8a6','#f97316','#0ea5e9','#10b981'];
+  const colourIdx = Number(BigInt(user.id || '0') % BigInt(colours.length));
+  const bg = colours[colourIdx] ?? '#6366f1';
+
+  if (user.photoBase64) {
+    return (
+      <div style={{
+        width: 54, height: 54, borderRadius: '50%', flexShrink: 0,
+        overflow: 'hidden', border: '2px solid rgba(255,255,255,0.06)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+      }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`data:image/jpeg;base64,${user.photoBase64}`}
+          alt="Profile"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      width: 54, height: 54, borderRadius: '50%', flexShrink: 0,
+      background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 20, fontWeight: 600, color: '#fff', letterSpacing: '-0.02em',
+      border: '2px solid rgba(255,255,255,0.06)',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+    }}>
+      {initials}
+    </div>
+  );
+}
+
+// ─── Telegram-style Premium sparkle icon ─────────────────────────────
+function IconPremium({ size = 15 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
+      style={{ flexShrink: 0 }}>
+      <defs>
+        <linearGradient id="tgPremGrad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#fbbf24" />
+          <stop offset="100%" stopColor="#f97316" />
+        </linearGradient>
+      </defs>
+      {/* 4-pointed sparkle — Telegram's premium sparkle shape */}
+      <path
+        d="M12 2L13.6 10.4L22 12L13.6 13.6L12 22L10.4 13.6L2 12L10.4 10.4L12 2Z"
+        fill="url(#tgPremGrad)"
+      />
+    </svg>
+  );
+}
+
 // ─── User Result Card ────────────────────────────────────────────────
 function UserCard({ user, onOpenModal, addLeadState }: {
   user: TgUser;
@@ -395,37 +459,32 @@ function UserCard({ user, onOpenModal, addLeadState }: {
     <div className="tgc-result-card">
       {/* ── Identity */}
       <div className="tgc-result-identity">
-        <div>
+        <UserAvatar user={user} />
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="tgc-result-name">
             {displayName}
             {user.premium && (
-              <InlineIcon tooltip="Telegram Premium">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" strokeWidth="0"
-                  style={{ marginLeft: 6, marginBottom: -1, flexShrink: 0 }}>
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                </svg>
-              </InlineIcon>
+              <Badge label="Premium" color="#f59e0b" />
             )}
             {user.verified && (
-              <InlineIcon tooltip="Verified account">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round"
-                  style={{ marginLeft: 5, marginBottom: -1, flexShrink: 0 }}>
-                  <circle cx="12" cy="12" r="10" fill="#6366f1" stroke="none" opacity="0.15" />
-                  <polyline points="7 12 10.5 15.5 17 9" stroke="#6366f1" />
+              <InlineIcon tooltip="Verified by Telegram — notable public figure, organisation, or media outlet">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="11" fill="#2563eb" />
+                  <polyline points="7 12.5 10.5 16 17 8.5" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </InlineIcon>
             )}
           </div>
           {user.username && <div className="tgc-result-handle">@{user.username}</div>}
+          {hasFlagBadges && (
+            <div className="tgc-result-badges" style={{ marginTop: 6 }}>
+              {user.bot && <Badge label="Bot" color="#14b8a6" />}
+              {user.scam && <Badge label="⚠ Scam" color="#ef4444" />}
+              {user.fake && <Badge label="⚠ Fake" color="#ef4444" />}
+              {user.restricted && <Badge label="Restricted" color="#f97316" />}
+            </div>
+          )}
         </div>
-        {hasFlagBadges && (
-          <div className="tgc-result-badges">
-            {user.bot && <Badge label="Bot" color="#14b8a6" />}
-            {user.scam && <Badge label="⚠ Scam" color="#ef4444" />}
-            {user.fake && <Badge label="⚠ Fake" color="#ef4444" />}
-            {user.restricted && <Badge label="Restricted" color="#f97316" />}
-          </div>
-        )}
       </div>
 
       {/* ── Bio */}
