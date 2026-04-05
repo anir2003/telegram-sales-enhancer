@@ -104,6 +104,17 @@ export async function POST(req: NextRequest) {
       // bio unavailable — not fatal
     }
 
+    // ── Fetch profile photo ───────────────────────────────────────
+    let photoBase64: string | null = null;
+    try {
+      const photoBuffer = await client.downloadProfilePhoto(clean);
+      if (Buffer.isBuffer(photoBuffer) && photoBuffer.length > 0) {
+        photoBase64 = photoBuffer.toString('base64');
+      }
+    } catch {
+      // photo not available or private — not fatal
+    }
+
     await client.disconnect();
 
     return NextResponse.json({
@@ -123,6 +134,7 @@ export async function POST(req: NextRequest) {
         bio,
         commonChats,
         lastSeen: decodeStatus(user.status),
+        photoBase64,
       },
     });
   } catch (e: unknown) {
