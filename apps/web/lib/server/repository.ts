@@ -1445,7 +1445,7 @@ export async function runBotScheduler() {
         blockedAtLaunch.forEach((cl, idx) => {
           cl.assigned_account_id = activeAccts[idx % activeAccts.length].id;
           cl.status = 'queued';
-          cl.stop_reason = undefined;
+          cl.stop_reason = null;
         });
       }
     }
