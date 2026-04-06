@@ -816,24 +816,14 @@ export async function setCampaignAccounts(campaignId: string, accountIds: string
   return accountIds;
 }
 
+// Distribute accounts round-robin across ALL leads with no daily-limit cap.
+// The scheduler enforces daily limits each time it runs — capping here would
+// wrongly block overflow leads instead of queuing them for the next day.
 function distributeAccounts(accounts: TelegramAccountRecord[], total: number) {
   const slots: string[] = [];
-  const caps = new Map(accounts.map((a) => [a.id, a.daily_limit]));
-  const activeAccounts = [...accounts];
-
-  while (slots.length < total && activeAccounts.length > 0) {
-    for (let i = 0; i < activeAccounts.length; i++) {
-      const account = activeAccounts[i];
-      const remaining = caps.get(account.id)!;
-      if (remaining > 0) {
-        slots.push(account.id);
-        caps.set(account.id, remaining - 1);
-        if (slots.length >= total) break;
-      } else {
-        activeAccounts.splice(i, 1);
-        i--; // Adjust index because we removed an element
-      }
-    }
+  if (!accounts.length) return slots;
+  for (let i = 0; i < total; i++) {
+    slots.push(accounts[i % accounts.length].id);
   }
   return slots;
 }
@@ -855,17 +845,12 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
   for (const [index, campaignLead] of detail.attachedLeads.entries()) {
     const lead = leadById.get(campaignLead.lead_id);
     if (!lead) continue;
-    const assignedAccountId = slots[index] ?? null;
+    const assignedAccountId = slots[index]; // always defined — distributeAccounts covers all leads
 
-    if (!assignedAccountId) {
-      await updateCampaignLead(campaignLead.id, {
-        status: 'blocked',
-        stop_reason: 'No account capacity at launch',
-      }, active);
-      continue;
-    }
-
-    // Set to queued — scheduler will promote to due based on daily limits
+    // Queue every lead regardless of daily limits. If this lead was previously
+    // blocked only because of "No account capacity at launch" (the old buggy
+    // behaviour), re-launching will recover it here. The scheduler promotes
+    // leads from queued → due each day up to each account's daily_limit.
     await updateCampaignLead(campaignLead.id, {
       assigned_account_id: assignedAccountId,
       status: 'queued',
