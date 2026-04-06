@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
@@ -210,6 +210,66 @@ export default function CampaignDetailPage() {
   const [trackerDoneIds, setTrackerDoneIds] = useState<Set<string>>(new Set());
   const [inlineNoteItem, setInlineNoteItem] = useState<string | null>(null);
   const [inlineNoteText, setInlineNoteText] = useState('');
+
+  // ── Add More Leads state ─────────────────────────────────────────
+  const [addLeadsMethod, setAddLeadsMethod] = useState<'upload' | 'tag'>('upload');
+  const [addLeadsFile, setAddLeadsFile] = useState<File | null>(null);
+  const [addLeadsExtraTags, setAddLeadsExtraTags] = useState('');
+  const [addLeadsTag, setAddLeadsTag] = useState('');
+  const [addLeadsLoading, setAddLeadsLoading] = useState(false);
+  const [addLeadsResult, setAddLeadsResult] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [allLeadTags, setAllLeadTags] = useState<string[]>([]);
+  const addLeadsFileRef = useRef<HTMLInputElement>(null);
+
+  // Fetch available tags when the "From Tag" method is selected
+  useEffect(() => {
+    if (addLeadsMethod !== 'tag') return;
+    fetchJson<{ leads: { tags: string[] }[] }>('/api/leads').then((res) => {
+      const t = new Set<string>();
+      res.leads?.forEach((l: any) => l.tags?.forEach((tag: string) => t.add(tag)));
+      setAllLeadTags(Array.from(t).sort());
+    }).catch(() => {});
+  }, [addLeadsMethod]);
+
+  const handleAddLeads = async () => {
+    setAddLeadsLoading(true);
+    setAddLeadsResult(null);
+    try {
+      if (addLeadsMethod === 'upload') {
+        if (!addLeadsFile) return;
+        const fd = new FormData();
+        fd.append('file', addLeadsFile);
+        if (addLeadsExtraTags.trim()) fd.append('tags', addLeadsExtraTags.trim());
+        const res = await fetchJson<{
+          imported: number; added_to_campaign: number; already_in_campaign: number; error?: string;
+        }>(`/api/campaigns/${campaignId}/add-leads`, { method: 'POST', body: fd });
+        if (res.error) throw new Error(res.error);
+        setAddLeadsResult({
+          ok: true,
+          msg: `${res.imported} leads imported — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
+        });
+        setAddLeadsFile(null);
+        setAddLeadsExtraTags('');
+      } else {
+        if (!addLeadsTag) return;
+        const res = await fetchJson<{
+          matched: number; added_to_campaign: number; already_in_campaign: number; error?: string;
+        }>(`/api/campaigns/${campaignId}/add-leads`, {
+          method: 'POST',
+          body: JSON.stringify({ tag: addLeadsTag }),
+        });
+        if (res.error) throw new Error(res.error);
+        setAddLeadsResult({
+          ok: true,
+          msg: `${res.matched} leads matched "${addLeadsTag}" — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
+        });
+      }
+      void load();
+    } catch (e: any) {
+      setAddLeadsResult({ ok: false, msg: e.message || 'Failed to add leads.' });
+    }
+    setAddLeadsLoading(false);
+  };
 
   const load = useCallback(async () => {
     const [response, btData] = await Promise.all([
@@ -884,6 +944,125 @@ export default function CampaignDetailPage() {
             <div className="btn-row"><button className="btn" type="button" onClick={saveChanges}>Save Campaign</button></div>
           </div>
 
+          {/* ── Add More Leads ─────────────────────────────────── */}
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 4 }}>Add More Leads</div>
+            <div className="card-subtitle" style={{ marginBottom: 20 }}>
+              Add leads to this campaign from a CSV file or by tag. New leads are queued and picked up by the scheduler on the next run.
+            </div>
+
+            {/* Method toggle */}
+            <div style={{
+              display: 'inline-flex', borderRadius: 5, overflow: 'hidden',
+              border: '1px solid var(--border-soft)', marginBottom: 20,
+            }}>
+              {(['upload', 'tag'] as const).map((m) => (
+                <button key={m} type="button" onClick={() => { setAddLeadsMethod(m); setAddLeadsResult(null); }}
+                  style={{
+                    padding: '6px 16px', fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
+                    background: addLeadsMethod === m ? 'var(--accent)' : 'transparent',
+                    color: addLeadsMethod === m ? 'var(--accent-contrast)' : 'var(--text-muted)',
+                    transition: 'all 0.15s ease',
+                  }}>
+                  {m === 'upload' ? 'Upload CSV' : 'From Tag'}
+                </button>
+              ))}
+            </div>
+
+            {addLeadsMethod === 'upload' && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {/* Drop zone */}
+                <div
+                  className={`add-leads-dropzone${addLeadsFile ? ' has-file' : ''}`}
+                  onClick={() => addLeadsFileRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) { setAddLeadsFile(f); setAddLeadsResult(null); }
+                  }}
+                >
+                  <input
+                    ref={addLeadsFileRef}
+                    type="file"
+                    accept=".csv"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) { setAddLeadsFile(f); setAddLeadsResult(null); }
+                      e.target.value = '';
+                    }}
+                  />
+                  {addLeadsFile ? (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--accent)' }}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <span style={{ color: 'var(--text)', fontWeight: 500 }}>{addLeadsFile.name}</span>
+                      <span className="dim" style={{ fontSize: 11 }}>Click to change file</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ opacity: 0.4 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <span>Drop a CSV file here, or click to browse</span>
+                      <span className="dim" style={{ fontSize: 11 }}>Required columns: First Name · Telegram Username · Company</span>
+                    </>
+                  )}
+                </div>
+
+                <div className="form-grid">
+                  <label className="dim" style={{ fontSize: 11 }}>Apply tags to all imported leads (optional, comma-separated)</label>
+                  <input className="input" placeholder="e.g. outreach-apr, warm-lead" value={addLeadsExtraTags} onChange={(e) => setAddLeadsExtraTags(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {addLeadsMethod === 'tag' && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div className="form-grid">
+                  <label className="dim" style={{ fontSize: 11 }}>Select tag</label>
+                  <CustomSelect
+                    value={addLeadsTag}
+                    onChange={(v) => { setAddLeadsTag(v); setAddLeadsResult(null); }}
+                    options={[
+                      { value: '', label: allLeadTags.length ? 'Pick a tag…' : 'No tags found in leads database' },
+                      ...allLeadTags.map((t) => ({ value: t, label: t })),
+                    ]}
+                  />
+                </div>
+                {addLeadsTag && (
+                  <div className="dim" style={{ fontSize: 11 }}>
+                    All leads tagged <strong style={{ color: 'var(--text-muted)' }}>{addLeadsTag}</strong> will be added. Leads already in this campaign are skipped automatically.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {addLeadsResult && (
+              <div style={{
+                marginTop: 14, padding: '9px 12px', borderRadius: 5, fontSize: 12,
+                background: addLeadsResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                border: `1px solid ${addLeadsResult.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                color: addLeadsResult.ok ? '#22c55e' : '#ef4444',
+              }}>
+                {addLeadsResult.ok ? '✓ ' : '✕ '}{addLeadsResult.msg}
+              </div>
+            )}
+
+            <div className="btn-row" style={{ marginTop: 16 }}>
+              <button
+                className="btn"
+                onClick={handleAddLeads}
+                disabled={addLeadsLoading || (addLeadsMethod === 'upload' ? !addLeadsFile : !addLeadsTag)}
+              >
+                {addLeadsLoading ? 'Adding…' : 'Add Leads to Campaign'}
+              </button>
+              {addLeadsMethod === 'upload' && addLeadsFile && (
+                <button className="btn-secondary" onClick={() => { setAddLeadsFile(null); setAddLeadsResult(null); }}>
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div className="card-title">Sequence Editor</div>
@@ -906,37 +1085,94 @@ export default function CampaignDetailPage() {
             </div>
             <div className="sequence-stack" style={{ marginTop: 24 }}>
               {stepsForm.length ? stepsForm.map((step: any, idx) => {
-                const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
+                // Always use mock lead so the preview is consistent regardless of attached leads
+                const mockLead = { first_name: 'Light', company_name: 'Stark Industries', telegram_username: 'lightwaslost' };
+                const isOpen = activeEditorStep === idx;
+                // Unique ID scope for any SVG <defs> inside this step card
+                const stepUid = `step-${step.id ?? idx}`;
                 return (
-                  <div key={step.id} className={`sequence-step-card ${activeEditorStep === idx ? 'active' : ''}`}>
-                    <div className="sequence-step-header" onClick={() => setActiveEditorStep(idx)}>
+                  <div key={step.id} className={`sequence-step-card ${isOpen ? 'active' : ''}`}>
+                    <div className="sequence-step-header" onClick={() => setActiveEditorStep(isOpen ? -1 : idx)}>
                       <div className="sequence-step-header-left">
                         <div className="sequence-step-number">{step.step_order}</div>
-                        <span style={{ fontSize: 13, color: 'var(--text)' }}>{step.step_name || `Step ${step.step_order}`}</span>
+                        <div>
+                          <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{step.step_name || `Step ${step.step_order}`}</div>
+                          {!isOpen && step.message_template && (
+                            <div className="dim" style={{ fontSize: 11, marginTop: 2, maxWidth: 480, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {step.message_template.slice(0, 80)}{step.message_template.length > 80 ? '…' : ''}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="sequence-step-meta">
-                        <span className="dim" style={{ fontSize: 11 }}>Delay {step.delay_days} day(s)</span>
-                        {activeEditorStep === idx && <span className="badge" style={{ fontSize: 9 }}>editing</span>}
+                        <span className="dim" style={{ fontSize: 11 }}>
+                          {step.delay_days === 0 ? 'Send immediately' : `+${step.delay_days} day${step.delay_days !== 1 ? 's' : ''}`}
+                        </span>
+                        {isOpen && <span className="badge" style={{ fontSize: 9 }}>editing</span>}
                       </div>
                     </div>
-                    {activeEditorStep === idx && (
+                    {isOpen && (
                       <div className="sequence-step-body">
                         <div className="editor-wrapper">
+                          {/* ── Write pane */}
                           <div className="editor-pane">
-                            <textarea className="message-input" ref={(el) => { editorRefs.current[idx] = el; }} value={step.message_template} onFocus={() => setActiveEditorStep(idx)}
-                              onChange={(e) => { setStepsForm(current => { const next = [...current]; next[idx] = { ...next[idx], message_template: e.target.value }; return next; }); }}
-                              placeholder="Type your message here..." />
+                            <textarea
+                              className="message-input"
+                              ref={(el) => { editorRefs.current[idx] = el; }}
+                              value={step.message_template}
+                              onFocus={() => setActiveEditorStep(idx)}
+                              onChange={(e) => {
+                                setStepsForm(current => {
+                                  const next = [...current];
+                                  next[idx] = { ...next[idx], message_template: e.target.value };
+                                  return next;
+                                });
+                              }}
+                              placeholder="Type your message here…"
+                            />
                           </div>
+                          {/* ── Preview pane */}
                           <div className="preview-pane">
-                            <div className="preview-header">
-                              <div className="preview-avatar">L</div>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Light ✨</div>
-                                <div className="dim" style={{ fontSize: 11 }}>@lightwaslost</div>
+                            {/* Chat top-bar */}
+                            <div className="preview-topbar">
+                              <div className="preview-avatar" key={stepUid}>
+                                <svg width="36" height="36" viewBox="0 0 36 36">
+                                  <rect width="36" height="36" rx="18" fill="#0d0928"/>
+                                  {/* Purple hair */}
+                                  <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
+                                  <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
+                                  {/* Skin */}
+                                  <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
+                                  {/* Eyes */}
+                                  <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                  <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                  <rect x="12" y="17" width="2" height="2" fill="white"/>
+                                  <rect x="21" y="17" width="2" height="2" fill="white"/>
+                                  {/* Mouth */}
+                                  <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
+                                  <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
+                                  {/* Gold earrings */}
+                                  <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
+                                  <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
+                                </svg>
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
+                                <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                              </div>
+                              {/* Telegram-style action icons */}
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                            </div>
+                            {/* Chat area */}
+                            <div className="preview-chat-area">
+                              <div className="preview-bubble">
+                                {renderMessageTemplate(step.message_template, mockLead)}
+                              </div>
+                              <div className="preview-time">
+                                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                               </div>
                             </div>
-                            <div className="preview-bubble">{renderMessageTemplate(step.message_template, randomLead)}</div>
-                            <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                           </div>
                         </div>
                       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 
 type CredStatus = {
@@ -428,19 +428,22 @@ function UserAvatar({ user }: { user: TgUser }) {
 
 // ─── Telegram-style Premium sparkle icon ─────────────────────────────
 function IconPremium({ size = 15 }: { size?: number }) {
+  // useId ensures each rendered instance gets a unique gradient ID,
+  // preventing SVG <defs> collisions when multiple cards are on the page.
+  const uid = useId();
+  const gradId = `tgPremGrad-${uid.replace(/:/g, '')}`;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       style={{ flexShrink: 0 }}>
       <defs>
-        <linearGradient id="tgPremGrad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gradId} x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#fbbf24" />
           <stop offset="100%" stopColor="#f97316" />
         </linearGradient>
       </defs>
-      {/* 4-pointed sparkle — Telegram's premium sparkle shape */}
       <path
         d="M12 2L13.6 10.4L22 12L13.6 13.6L12 22L10.4 13.6L2 12L10.4 10.4L12 2Z"
-        fill="url(#tgPremGrad)"
+        fill={`url(#${gradId})`}
       />
     </svg>
   );
