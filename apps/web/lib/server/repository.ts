@@ -1433,6 +1433,23 @@ export async function runBotScheduler() {
     let created = 0;
     let blocked = 0;
 
+    // Phase 0: Recover leads that were blocked at launch due to no account capacity.
+    // Re-assign them round-robin to active accounts and reset to queued so Phase 1
+    // can promote them in this same scheduler run — no manual pause/relaunch needed.
+    {
+      const blockedAtLaunch = demoState.campaignLeads.filter(
+        cl => cl.status === 'blocked' && cl.stop_reason === 'No account capacity at launch',
+      );
+      const activeAccts = demoState.accounts.filter(a => a.is_active);
+      if (blockedAtLaunch.length > 0 && activeAccts.length > 0) {
+        blockedAtLaunch.forEach((cl, idx) => {
+          cl.assigned_account_id = activeAccts[idx % activeAccts.length].id;
+          cl.status = 'queued';
+          cl.stop_reason = undefined;
+        });
+      }
+    }
+
     // Phase 1: promote queued step-1 leads to due, respecting daily limits
     for (const account of demoState.accounts.filter(a => a.is_active)) {
       const dueCount = demoState.campaignLeads.filter(
@@ -1542,6 +1559,51 @@ export async function runBotScheduler() {
   const dueNow = nowIso();
   let created = 0;
   let blocked = 0;
+
+  // ── Phase 0: Recover blocked-at-launch leads ──────────────────────────────────────────────
+  // Leads blocked solely because there was no account capacity at launch time get
+  // reassigned round-robin to active accounts and reset to queued so Phase 1 can
+  // pick them up immediately in this same scheduler run — no manual pause/relaunch needed.
+  {
+    const { data: blockedLeads } = await supabase!
+      .from('campaign_leads')
+      .select('id, workspace_id')
+      .eq('status', 'blocked')
+      .eq('stop_reason', 'No account capacity at launch');
+
+    if (blockedLeads && blockedLeads.length > 0) {
+      // Group lead IDs by workspace so we only fetch accounts once per workspace
+      const byWorkspace = new Map<string, string[]>();
+      for (const cl of blockedLeads) {
+        const list = byWorkspace.get(cl.workspace_id) ?? [];
+        list.push(cl.id);
+        byWorkspace.set(cl.workspace_id, list);
+      }
+
+      for (const [workspaceId, leadIds] of byWorkspace) {
+        const { data: wsAccounts } = await supabase!
+          .from('telegram_accounts')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .eq('is_active', true);
+
+        if (!wsAccounts || wsAccounts.length === 0) continue;
+
+        // Assign accounts round-robin and reset each lead to queued
+        for (let i = 0; i < leadIds.length; i++) {
+          const accountId = wsAccounts[i % wsAccounts.length].id;
+          await supabase!
+            .from('campaign_leads')
+            .update({
+              status: 'queued',
+              assigned_account_id: accountId,
+              stop_reason: null,
+            })
+            .eq('id', leadIds[i]);
+        }
+      }
+    }
+  }
 
   // ── Phase 1: Daily promotion — move queued step-1 leads to due, respecting daily limits ──
   const todayStart = new Date();
