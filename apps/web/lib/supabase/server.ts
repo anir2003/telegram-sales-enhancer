@@ -25,7 +25,16 @@ export async function getServerSupabaseClient() {
           return cookieStore.getAll();
         },
         setAll(cookiesToSet: CookieToSet[]) {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options),
+            );
+          } catch {
+            // setAll was called from a Server Component render, where Next.js
+            // forbids cookie writes. This is safe to ignore — middleware.ts
+            // already refreshes the Supabase session on every request, so the
+            // token is always current by the time any Server Component runs.
+          }
         },
       },
     },
