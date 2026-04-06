@@ -34,7 +34,7 @@ export const demoState: {
   campaignLeads: CampaignLeadRecord[];
   sendTasks: SendTaskRecord[];
   activity: ActivityLogRecord[];
-  assignments: Array<{ id: string; workspace_id: string; campaign_id: string; telegram_account_id: string; created_at: string }>;
+  assignments: Array<{ id: string; workspace_id: string; campaign_id: string; telegram_account_id: string; message_limit: number | null; created_at: string }>;
   botCodes: Array<any>;
 } = {
   leads: [
@@ -146,6 +146,7 @@ export const demoState: {
       workspace_id: workspaceId,
       campaign_id: 'campaign-1',
       telegram_account_id: 'account-1',
+      message_limit: null,
       created_at: now,
     },
     {
@@ -153,6 +154,7 @@ export const demoState: {
       workspace_id: workspaceId,
       campaign_id: 'campaign-1',
       telegram_account_id: 'account-2',
+      message_limit: null,
       created_at: now,
     },
   ],
