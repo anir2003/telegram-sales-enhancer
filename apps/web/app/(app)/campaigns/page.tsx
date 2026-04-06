@@ -663,17 +663,38 @@ export default function CampaignsPage() {
                               />
                             </div>
                             <div className="preview-pane">
-                              <div className="preview-header">
-                                <div className="preview-avatar">A</div>
-                                <div>
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Ava Patel</div>
-                                  <div className="dim" style={{ fontSize: 11 }}>@avapatel</div>
+                              <div className="preview-topbar">
+                                <div className="preview-avatar">
+                                  <svg width="36" height="36" viewBox="0 0 36 36">
+                                    <rect width="36" height="36" rx="18" fill="#0d0928"/>
+                                    <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
+                                    <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
+                                    <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
+                                    <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                    <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                    <rect x="12" y="17" width="2" height="2" fill="white"/>
+                                    <rect x="21" y="17" width="2" height="2" fill="white"/>
+                                    <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
+                                    <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
+                                    <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
+                                    <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
+                                  </svg>
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
+                                  <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                                </div>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                              </div>
+                              <div className="preview-chat-area">
+                                <div className="preview-bubble">
+                                  {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
+                                </div>
+                                <div className="preview-time">
+                                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                                 </div>
                               </div>
-                              <div className="preview-bubble">
-                                {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
-                              </div>
-                              <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                             </div>
                           </div>
                         </div>

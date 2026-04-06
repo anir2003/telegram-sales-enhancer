@@ -1885,6 +1885,48 @@ export async function runBotScheduler() {
   };
 }
 
+export async function markLeadReplied(telegramUsername: string): Promise<{ ok: boolean }> {
+  const clean = normalizeTelegramUsername(telegramUsername);
+
+  if (!isSupabaseConfigured()) {
+    const lead = demoState.leads.find((l) => l.telegram_username === clean);
+    if (!lead) return { ok: false };
+    const cl = demoState.campaignLeads.find(
+      (c) => c.lead_id === lead.id && ['due', 'queued', 'sent_waiting_followup', 'first_followup_done'].includes(c.status ?? ''),
+    );
+    if (!cl) return { ok: false };
+    cl.status = 'replied';
+    cl.last_reply_at = nowIso();
+    return { ok: true };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: lead } = await supabase!
+    .from('leads')
+    .select('id')
+    .eq('telegram_username', clean)
+    .limit(1)
+    .maybeSingle();
+  if (!lead) return { ok: false };
+
+  const { data: cl } = await supabase!
+    .from('campaign_leads')
+    .select('id')
+    .eq('lead_id', lead.id)
+    .in('status', ['due', 'queued', 'sent_waiting_followup', 'first_followup_done'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!cl) return { ok: false };
+
+  await supabase!
+    .from('campaign_leads')
+    .update({ status: 'replied', last_reply_at: nowIso() })
+    .eq('id', cl.id);
+
+  return { ok: true };
+}
+
 export async function logActivity(input: {
   workspaceId: string;
   profileId: string | null;

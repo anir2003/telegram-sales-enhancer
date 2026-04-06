@@ -67,4 +67,8 @@ export class AppApiClient {
   runScheduler() {
     return this.post<{ result: { created: number; blocked: number; dueTasks: number } }>('/api/bot/scheduler');
   }
+
+  markLeadReplied(telegramUsername: string, actorTelegramUserId: number) {
+    return this.post<{ ok: boolean }>('/api/bot/mark-replied', { telegramUsername, actorTelegramUserId });
+  }
 }
