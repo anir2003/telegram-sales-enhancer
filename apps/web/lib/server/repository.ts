@@ -430,6 +430,74 @@ export async function importLeadsCsv(csvText: string, extraTags?: string[], cont
   return data as LeadRecord[];
 }
 
+export async function listLeadsByTag(tag: string, context?: WorkspaceContext) {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.leads.filter((l) => l.tags?.includes(tag));
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('leads')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .contains('tags', [tag]);
+  if (error) throw error;
+  return (data ?? []) as LeadRecord[];
+}
+
+export async function addLeadsToCampaign(
+  campaignId: string,
+  leadIds: string[],
+  context?: WorkspaceContext,
+): Promise<{ added: number; skipped: number }> {
+  const active = resolveWorkspaceContext(context);
+  if (!leadIds.length) return { added: 0, skipped: 0 };
+
+  if (!isSupabaseConfigured()) {
+    const existingIds = new Set(
+      demoState.campaignLeads
+        .filter((cl) => cl.campaign_id === campaignId)
+        .map((cl) => cl.lead_id),
+    );
+    let added = 0;
+    let skipped = 0;
+    for (const leadId of leadIds) {
+      if (existingIds.has(leadId)) { skipped++; continue; }
+      await attachLeadToCampaign(campaignId, leadId, context);
+      added++;
+    }
+    return { added, skipped };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: existing } = await supabase!
+    .from('campaign_leads')
+    .select('lead_id')
+    .eq('campaign_id', campaignId)
+    .eq('workspace_id', active.workspaceId);
+
+  const existingIds = new Set((existing ?? []).map((cl: { lead_id: string }) => cl.lead_id));
+  const newLeadIds = leadIds.filter((id) => !existingIds.has(id));
+  const skipped = leadIds.length - newLeadIds.length;
+
+  if (!newLeadIds.length) return { added: 0, skipped };
+
+  const payload = newLeadIds.map((leadId) => ({
+    workspace_id: active.workspaceId,
+    campaign_id: campaignId,
+    lead_id: leadId,
+    status: 'queued',
+    next_step_order: 1,
+  }));
+
+  const { error } = await supabase!
+    .from('campaign_leads')
+    .upsert(payload, { onConflict: 'campaign_id,lead_id' });
+
+  if (error) throw error;
+  return { added: newLeadIds.length, skipped };
+}
+
 export async function listAccounts(context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {

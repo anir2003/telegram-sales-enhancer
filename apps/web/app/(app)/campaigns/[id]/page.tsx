@@ -211,6 +211,66 @@ export default function CampaignDetailPage() {
   const [inlineNoteItem, setInlineNoteItem] = useState<string | null>(null);
   const [inlineNoteText, setInlineNoteText] = useState('');
 
+  // ── Add More Leads state ─────────────────────────────────────────
+  const [addLeadsMethod, setAddLeadsMethod] = useState<'upload' | 'tag'>('upload');
+  const [addLeadsFile, setAddLeadsFile] = useState<File | null>(null);
+  const [addLeadsExtraTags, setAddLeadsExtraTags] = useState('');
+  const [addLeadsTag, setAddLeadsTag] = useState('');
+  const [addLeadsLoading, setAddLeadsLoading] = useState(false);
+  const [addLeadsResult, setAddLeadsResult] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [allLeadTags, setAllLeadTags] = useState<string[]>([]);
+  const addLeadsFileRef = useRef<HTMLInputElement>(null);
+
+  // Fetch available tags when the "From Tag" method is selected
+  useEffect(() => {
+    if (addLeadsMethod !== 'tag') return;
+    fetchJson<{ leads: { tags: string[] }[] }>('/api/leads').then((res) => {
+      const t = new Set<string>();
+      res.leads?.forEach((l: any) => l.tags?.forEach((tag: string) => t.add(tag)));
+      setAllLeadTags(Array.from(t).sort());
+    }).catch(() => {});
+  }, [addLeadsMethod]);
+
+  const handleAddLeads = async () => {
+    setAddLeadsLoading(true);
+    setAddLeadsResult(null);
+    try {
+      if (addLeadsMethod === 'upload') {
+        if (!addLeadsFile) return;
+        const fd = new FormData();
+        fd.append('file', addLeadsFile);
+        if (addLeadsExtraTags.trim()) fd.append('tags', addLeadsExtraTags.trim());
+        const res = await fetchJson<{
+          imported: number; added_to_campaign: number; already_in_campaign: number; error?: string;
+        }>(`/api/campaigns/${campaignId}/add-leads`, { method: 'POST', body: fd });
+        if (res.error) throw new Error(res.error);
+        setAddLeadsResult({
+          ok: true,
+          msg: `${res.imported} leads imported — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
+        });
+        setAddLeadsFile(null);
+        setAddLeadsExtraTags('');
+      } else {
+        if (!addLeadsTag) return;
+        const res = await fetchJson<{
+          matched: number; added_to_campaign: number; already_in_campaign: number; error?: string;
+        }>(`/api/campaigns/${campaignId}/add-leads`, {
+          method: 'POST',
+          body: JSON.stringify({ tag: addLeadsTag }),
+        });
+        if (res.error) throw new Error(res.error);
+        setAddLeadsResult({
+          ok: true,
+          msg: `${res.matched} leads matched "${addLeadsTag}" — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
+        });
+      }
+      void load();
+    } catch (e: any) {
+      setAddLeadsResult({ ok: false, msg: e.message || 'Failed to add leads.' });
+    }
+    setAddLeadsLoading(false);
+  };
+
   const load = useCallback(async () => {
     const [response, btData] = await Promise.all([
       fetchJson<CampaignDetail>(`/api/campaigns/${campaignId}`),
@@ -882,6 +942,125 @@ export default function CampaignDetailPage() {
             </div>
             <textarea className="textarea" placeholder="Description" value={editForm.description} onChange={(e) => setEditForm(c => ({ ...c, description: e.target.value }))} />
             <div className="btn-row"><button className="btn" type="button" onClick={saveChanges}>Save Campaign</button></div>
+          </div>
+
+          {/* ── Add More Leads ─────────────────────────────────── */}
+          <div className="card">
+            <div className="card-title" style={{ marginBottom: 4 }}>Add More Leads</div>
+            <div className="card-subtitle" style={{ marginBottom: 20 }}>
+              Add leads to this campaign from a CSV file or by tag. New leads are queued and picked up by the scheduler on the next run.
+            </div>
+
+            {/* Method toggle */}
+            <div style={{
+              display: 'inline-flex', borderRadius: 5, overflow: 'hidden',
+              border: '1px solid var(--border-soft)', marginBottom: 20,
+            }}>
+              {(['upload', 'tag'] as const).map((m) => (
+                <button key={m} type="button" onClick={() => { setAddLeadsMethod(m); setAddLeadsResult(null); }}
+                  style={{
+                    padding: '6px 16px', fontSize: 12, fontWeight: 500, cursor: 'pointer', border: 'none',
+                    background: addLeadsMethod === m ? 'var(--accent)' : 'transparent',
+                    color: addLeadsMethod === m ? 'var(--accent-contrast)' : 'var(--text-muted)',
+                    transition: 'all 0.15s ease',
+                  }}>
+                  {m === 'upload' ? 'Upload CSV' : 'From Tag'}
+                </button>
+              ))}
+            </div>
+
+            {addLeadsMethod === 'upload' && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {/* Drop zone */}
+                <div
+                  className={`add-leads-dropzone${addLeadsFile ? ' has-file' : ''}`}
+                  onClick={() => addLeadsFileRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) { setAddLeadsFile(f); setAddLeadsResult(null); }
+                  }}
+                >
+                  <input
+                    ref={addLeadsFileRef}
+                    type="file"
+                    accept=".csv"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) { setAddLeadsFile(f); setAddLeadsResult(null); }
+                      e.target.value = '';
+                    }}
+                  />
+                  {addLeadsFile ? (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--accent)' }}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <span style={{ color: 'var(--text)', fontWeight: 500 }}>{addLeadsFile.name}</span>
+                      <span className="dim" style={{ fontSize: 11 }}>Click to change file</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ opacity: 0.4 }}><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <span>Drop a CSV file here, or click to browse</span>
+                      <span className="dim" style={{ fontSize: 11 }}>Required columns: First Name · Telegram Username · Company</span>
+                    </>
+                  )}
+                </div>
+
+                <div className="form-grid">
+                  <label className="dim" style={{ fontSize: 11 }}>Apply tags to all imported leads (optional, comma-separated)</label>
+                  <input className="input" placeholder="e.g. outreach-apr, warm-lead" value={addLeadsExtraTags} onChange={(e) => setAddLeadsExtraTags(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {addLeadsMethod === 'tag' && (
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div className="form-grid">
+                  <label className="dim" style={{ fontSize: 11 }}>Select tag</label>
+                  <CustomSelect
+                    value={addLeadsTag}
+                    onChange={(v) => { setAddLeadsTag(v); setAddLeadsResult(null); }}
+                    options={[
+                      { value: '', label: allLeadTags.length ? 'Pick a tag…' : 'No tags found in leads database' },
+                      ...allLeadTags.map((t) => ({ value: t, label: t })),
+                    ]}
+                  />
+                </div>
+                {addLeadsTag && (
+                  <div className="dim" style={{ fontSize: 11 }}>
+                    All leads tagged <strong style={{ color: 'var(--text-muted)' }}>{addLeadsTag}</strong> will be added. Leads already in this campaign are skipped automatically.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {addLeadsResult && (
+              <div style={{
+                marginTop: 14, padding: '9px 12px', borderRadius: 5, fontSize: 12,
+                background: addLeadsResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                border: `1px solid ${addLeadsResult.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                color: addLeadsResult.ok ? '#22c55e' : '#ef4444',
+              }}>
+                {addLeadsResult.ok ? '✓ ' : '✕ '}{addLeadsResult.msg}
+              </div>
+            )}
+
+            <div className="btn-row" style={{ marginTop: 16 }}>
+              <button
+                className="btn"
+                onClick={handleAddLeads}
+                disabled={addLeadsLoading || (addLeadsMethod === 'upload' ? !addLeadsFile : !addLeadsTag)}
+              >
+                {addLeadsLoading ? 'Adding…' : 'Add Leads to Campaign'}
+              </button>
+              {addLeadsMethod === 'upload' && addLeadsFile && (
+                <button className="btn-secondary" onClick={() => { setAddLeadsFile(null); setAddLeadsResult(null); }}>
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="card">

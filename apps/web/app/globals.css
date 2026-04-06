@@ -250,9 +250,7 @@ button, input, textarea, select {
   padding: 18px;
 }
 
-.card:hover {
-  background: var(--card-hover);
-}
+/* .card:hover intentionally has no background change — cards are containers, not interactive targets */
 
 .card-header {
   display: flex;
@@ -1583,8 +1581,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .placeholder-pill:hover {
-  filter: brightness(1.2);
-  opacity: 0.9;
+  filter: brightness(1.15);
+  border-width: 1.5px;
 }
 
 .chip {
@@ -3314,4 +3312,34 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 .tgc-tag-inner-input::placeholder {
   color: var(--text-dim);
+}
+
+/* ================================
+   ADD-MORE-LEADS DROPZONE
+   ================================ */
+.add-leads-dropzone {
+  border: 1px dashed var(--border-soft);
+  border-radius: 6px;
+  padding: 28px 20px;
+  text-align: center;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  user-select: none;
+}
+
+.add-leads-dropzone:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-alt);
+}
+
+.add-leads-dropzone.has-file {
+  border-color: var(--border-strong);
+  border-style: solid;
+  background: var(--panel-alt);
 }
