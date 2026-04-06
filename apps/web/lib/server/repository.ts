@@ -407,12 +407,21 @@ export async function importLeadsCsv(csvText: string, extraTags?: string[], cont
   }
 
   const supabase = getAdminSupabaseClient();
-  const payload = records.map((record) => ({
+  const rawPayload = records.map((record) => ({
     ...record,
     telegram_username: normalizeTelegramUsername(record.telegram_username),
     workspace_id: active.workspaceId,
     created_by: active.profileId,
   }));
+
+  // De-duplicate within the batch itself by telegram_username.
+  // PostgreSQL's ON CONFLICT DO UPDATE throws "command cannot affect row a
+  // second time" if the same conflict key appears more than once in the
+  // VALUES list — the DB can't resolve which version wins. We keep the last
+  // occurrence so that the most-recently-listed row takes precedence.
+  const seen = new Map<string, typeof rawPayload[number]>();
+  for (const row of rawPayload) seen.set(row.telegram_username, row);
+  const payload = Array.from(seen.values());
 
   const { data, error } = await supabase!
     .from('leads')
