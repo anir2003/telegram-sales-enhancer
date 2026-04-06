@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
@@ -1088,6 +1088,8 @@ export default function CampaignDetailPage() {
                 // Always use mock lead so the preview is consistent regardless of attached leads
                 const mockLead = { first_name: 'Light', company_name: 'Stark Industries', telegram_username: 'lightwaslost' };
                 const isOpen = activeEditorStep === idx;
+                // Unique ID scope for any SVG <defs> inside this step card
+                const stepUid = `step-${step.id ?? idx}`;
                 return (
                   <div key={step.id} className={`sequence-step-card ${isOpen ? 'active' : ''}`}>
                     <div className="sequence-step-header" onClick={() => setActiveEditorStep(isOpen ? -1 : idx)}>
@@ -1133,8 +1135,8 @@ export default function CampaignDetailPage() {
                           <div className="preview-pane">
                             {/* Chat top-bar */}
                             <div className="preview-topbar">
-                              <div className="preview-avatar">
-                                <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+                              <div className="preview-avatar" key={stepUid}>
+                                <svg width="36" height="36" viewBox="0 0 36 36">
                                   <rect width="36" height="36" rx="18" fill="#0d0928"/>
                                   {/* Purple hair */}
                                   <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
