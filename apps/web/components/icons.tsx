@@ -29,3 +29,7 @@ export function IconSettings({ size = 18 }: IconProps) {
 export function IconBusinessTracker({ size = 18 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" {...base}><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /><path d="M9 21V9" /><path d="M7 6h.01M12 6h.01" /></svg>;
 }
+
+export function IconKanban({ size = 18 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" {...base}><rect x="3" y="3" width="5" height="18" rx="1.5" /><rect x="10" y="3" width="5" height="11" rx="1.5" /><rect x="17" y="3" width="4" height="15" rx="1.5" /></svg>;
+}

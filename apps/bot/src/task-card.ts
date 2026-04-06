@@ -41,9 +41,7 @@ export function buildTaskKeyboard(task: BotTask) {
   const keyboard = new InlineKeyboard();
 
   if (task.profileUrl) {
-    keyboard.url('Open Chat', task.profileUrl);
-    keyboard.text('Copy Message', `task:copy:${task.taskId}`);
-    keyboard.row();
+    keyboard.url('Open Chat', task.profileUrl).row();
   }
 
   keyboard.text('Sent', `task:sent:${task.taskId}`);

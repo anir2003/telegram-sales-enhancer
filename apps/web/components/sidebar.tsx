@@ -4,13 +4,14 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { IconAccounts, IconActivity, IconBusinessTracker, IconCampaigns, IconDashboard, IconLeads, IconSettings } from '@/components/icons';
+import { IconAccounts, IconActivity, IconBusinessTracker, IconCampaigns, IconDashboard, IconKanban, IconLeads, IconSettings } from '@/components/icons';
 
 const mainItems = [
   { href: '/dashboard', label: 'Dashboard', icon: IconDashboard, prefetch: true },
   { href: '/leads', label: 'Leads', icon: IconLeads, prefetch: true },
   { href: '/campaigns', label: 'Campaigns', icon: IconCampaigns, prefetch: true },
   { href: '/business-tracker', label: 'Business Tracker', icon: IconBusinessTracker, prefetch: true },
+  { href: '/kanban', label: 'Kanban', icon: IconKanban, prefetch: true },
   { href: '/accounts', label: 'Accounts', icon: IconAccounts, prefetch: true },
   { href: '/activity', label: 'Activity', icon: IconActivity, prefetch: true },
   { href: '/settings', label: 'Settings', icon: IconSettings, prefetch: false },

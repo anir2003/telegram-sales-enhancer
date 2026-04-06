@@ -12,19 +12,11 @@ const api = new AppApiClient({
 });
 const bot = new Bot(config.token);
 
-// Store last rendered message per user for copy functionality
-const lastTaskMessage = new Map<number, string>();
-
 function commandMenu() {
   return new Keyboard().text('Next task').resized();
 }
 
-
-
 async function sendTaskCard(ctx: Context, task: BotTask) {
-  if (ctx.from) {
-    lastTaskMessage.set(ctx.from.id, task.renderedMessage);
-  }
   await ctx.reply(buildTaskMessage(task), {
     parse_mode: 'HTML',
     link_preview_options: { is_disabled: true },
@@ -66,6 +58,7 @@ bot.command('start', async (ctx) => {
       '',
       '/connect CODE — Register this account as a sender (from Accounts page)',
       '/next — Pull the next due outreach task',
+      '/replied @username — Mark a lead as replied by their Telegram username',
       '',
       'Each Telegram account you want to use for sending needs its own /connect code.',
     ].join('\n'),
@@ -107,6 +100,28 @@ bot.command('connect', async (ctx) => {
   }
 });
 
+bot.command('replied', async (ctx) => {
+  const parts = ctx.message?.text.split(/\s+/);
+  const rawUsername = parts?.[1]?.trim().replace(/^@/, '');
+  if (!rawUsername) {
+    await ctx.reply('Usage: /replied @username\n\nMarks the most recent active outreach to that Telegram user as replied.');
+    return;
+  }
+  if (!ctx.from) return;
+
+  try {
+    const result = await api.markLeadReplied(rawUsername, ctx.from.id);
+    if (result.ok) {
+      await ctx.reply(`✅ @${rawUsername} has been marked as replied.`);
+    } else {
+      await ctx.reply(`Could not find an active campaign lead for @${rawUsername}. Make sure the username is correct.`);
+    }
+  } catch (err: any) {
+    console.error('mark-replied error', err);
+    await ctx.reply(`Something went wrong: ${err?.message ?? 'unknown error'}`);
+  }
+});
+
 bot.command('next', sendNextTask);
 bot.hears(/^next task$/i, sendNextTask);
 bot.hears(/^[A-Z0-9]{6}$/i, async (ctx) => {
@@ -134,22 +149,11 @@ bot.hears(/^[A-Z0-9]{6}$/i, async (ctx) => {
     );
   }
 });
+
 bot.callbackQuery('noop', async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 bot.callbackQuery('task:next', sendNextTask);
-
-// Copy message handler - sends the rendered message as a copyable reply
-bot.callbackQuery(/^task:copy:(.+)$/, async (ctx) => {
-  const userId = ctx.from.id;
-  const message = lastTaskMessage.get(userId);
-  if (message) {
-    await ctx.reply(message);
-    await ctx.answerCallbackQuery({ text: 'Message sent — copy it from above' });
-  } else {
-    await ctx.answerCallbackQuery({ text: 'Message not available, pull /next again' });
-  }
-});
 
 bot.callbackQuery(/^task:sent:(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
@@ -217,12 +221,15 @@ async function tickScheduler() {
 
 async function startWebhookMode() {
   const path = '/telegram/webhook';
-  const callback = webhookCallback(bot, 'http');
+  // Increase timeout to 45 s — default 10 s is too short when the Next.js
+  // API is cold-starting or the DB query is slow.
+  const callback = webhookCallback(bot, 'http', { timeoutMilliseconds: 45_000 });
 
   await bot.api.setMyCommands([
     { command: 'start', description: 'Open the internal bot guide' },
     { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
+    { command: 'replied', description: 'Mark a lead as replied — /replied @username' },
   ]);
 
   await bot.api.setWebhook(`${config.botPublicUrl}${path}`, {
@@ -253,6 +260,7 @@ async function startPollingMode() {
     { command: 'start', description: 'Open the internal bot guide' },
     { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
+    { command: 'replied', description: 'Mark a lead as replied — /replied @username' },
   ]);
   await bot.start({
     onStart: () => {
