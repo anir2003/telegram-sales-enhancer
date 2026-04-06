@@ -20,7 +20,7 @@ export async function GET() {
   const supabase = getAdminSupabaseClient()!;
   const { data, error } = await supabase
     .from('business_tracker')
-    .select('*, campaigns(name), leads(first_name, last_name, telegram_username), telegram_accounts(label, telegram_username)')
+    .select('*, leads(first_name, last_name, telegram_username), telegram_accounts(label, telegram_username)')
     .eq('workspace_id', context.workspace.id)
     .order('created_at', { ascending: false });
 
@@ -29,7 +29,25 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ entries: data ?? [] });
+  // Fetch campaign names separately (no FK constraint exists for the join shorthand)
+  const campaignIds = [...new Set((data ?? []).map((e: any) => e.campaign_id).filter(Boolean))];
+  let campaignMap: Record<string, string> = {};
+  if (campaignIds.length > 0) {
+    const { data: campaigns } = await supabase
+      .from('campaigns')
+      .select('id, name')
+      .in('id', campaignIds);
+    for (const c of campaigns ?? []) {
+      campaignMap[c.id] = c.name;
+    }
+  }
+
+  const entries = (data ?? []).map((e: any) => ({
+    ...e,
+    campaigns: e.campaign_id ? { name: campaignMap[e.campaign_id] ?? null } : null,
+  }));
+
+  return NextResponse.json({ entries });
 }
 
 export async function POST(request: NextRequest) {
