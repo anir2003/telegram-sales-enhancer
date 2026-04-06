@@ -65,6 +65,7 @@ export type CampaignDetail = {
   attachedLeads: CampaignLead[];
   accounts: Account[];
   assignedAccountIds: string[];
+  accountAssignments: Array<{ telegram_account_id: string; message_limit: number | null }>;
   leads: Lead[];
 };
 

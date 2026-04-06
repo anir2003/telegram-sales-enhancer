@@ -707,11 +707,16 @@ export default function CampaignDetailPage() {
                 const accountLeads = (detail?.attachedLeads ?? []).filter((l: any) => l.assigned_account_id === account.id);
                 const sentFromAccount = accountLeads.filter((l: any) => l.last_sent_at).length;
                 const repliesFromAccount = accountLeads.filter((l: any) => l.status === 'replied').length;
+                const campaignAssignment = (detail?.accountAssignments ?? []).find((a: any) => a.telegram_account_id === account.id);
+                const campaignLimit = campaignAssignment?.message_limit ?? null;
+                const capLabel = campaignLimit !== null
+                  ? `campaign cap ${campaignLimit}/day (global ${account.daily_limit})`
+                  : `cap ${account.daily_limit}/day`;
                 return (
                   <div key={account.id} className="metric-row">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <AccountPill account={account} colorIndex={idx} />
-                      <div className="dim">@{account.telegram_username} · {sentFromAccount} sent · {repliesFromAccount} replies · cap {account.daily_limit}/day</div>
+                      <div className="dim">@{account.telegram_username} · {sentFromAccount} sent · {repliesFromAccount} replies · {capLabel}</div>
                     </div>
                     <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
                   </div>
