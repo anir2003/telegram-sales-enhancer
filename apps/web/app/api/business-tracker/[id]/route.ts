@@ -19,10 +19,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ entry: { id, ...body } });
     }
 
+    // Strip joined relation objects — they are not real columns in business_tracker
+    const { campaigns, leads, telegram_accounts, ...fields } = body;
+
     const supabase = getAdminSupabaseClient()!;
     const { data, error } = await supabase
       .from('business_tracker')
-      .update({ ...body, updated_at: new Date().toISOString() })
+      .update({ ...fields, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('workspace_id', context.workspace.id)
       .select()
