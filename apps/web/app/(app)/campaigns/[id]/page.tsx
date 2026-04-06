@@ -1085,37 +1085,92 @@ export default function CampaignDetailPage() {
             </div>
             <div className="sequence-stack" style={{ marginTop: 24 }}>
               {stepsForm.length ? stepsForm.map((step: any, idx) => {
-                const randomLead = detail.attachedLeads[0] ? leadById.get(detail.attachedLeads[0].lead_id) : { first_name: 'Light', company_name: 'Stark Ind.', telegram_username: 'lightwaslost' };
+                // Always use mock lead so the preview is consistent regardless of attached leads
+                const mockLead = { first_name: 'Light', company_name: 'Stark Industries', telegram_username: 'lightwaslost' };
+                const isOpen = activeEditorStep === idx;
                 return (
-                  <div key={step.id} className={`sequence-step-card ${activeEditorStep === idx ? 'active' : ''}`}>
-                    <div className="sequence-step-header" onClick={() => setActiveEditorStep(idx)}>
+                  <div key={step.id} className={`sequence-step-card ${isOpen ? 'active' : ''}`}>
+                    <div className="sequence-step-header" onClick={() => setActiveEditorStep(isOpen ? -1 : idx)}>
                       <div className="sequence-step-header-left">
                         <div className="sequence-step-number">{step.step_order}</div>
-                        <span style={{ fontSize: 13, color: 'var(--text)' }}>{step.step_name || `Step ${step.step_order}`}</span>
+                        <div>
+                          <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{step.step_name || `Step ${step.step_order}`}</div>
+                          {!isOpen && step.message_template && (
+                            <div className="dim" style={{ fontSize: 11, marginTop: 2, maxWidth: 480, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {step.message_template.slice(0, 80)}{step.message_template.length > 80 ? '…' : ''}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="sequence-step-meta">
-                        <span className="dim" style={{ fontSize: 11 }}>Delay {step.delay_days} day(s)</span>
-                        {activeEditorStep === idx && <span className="badge" style={{ fontSize: 9 }}>editing</span>}
+                        <span className="dim" style={{ fontSize: 11 }}>
+                          {step.delay_days === 0 ? 'Send immediately' : `+${step.delay_days} day${step.delay_days !== 1 ? 's' : ''}`}
+                        </span>
+                        {isOpen && <span className="badge" style={{ fontSize: 9 }}>editing</span>}
                       </div>
                     </div>
-                    {activeEditorStep === idx && (
+                    {isOpen && (
                       <div className="sequence-step-body">
                         <div className="editor-wrapper">
+                          {/* ── Write pane */}
                           <div className="editor-pane">
-                            <textarea className="message-input" ref={(el) => { editorRefs.current[idx] = el; }} value={step.message_template} onFocus={() => setActiveEditorStep(idx)}
-                              onChange={(e) => { setStepsForm(current => { const next = [...current]; next[idx] = { ...next[idx], message_template: e.target.value }; return next; }); }}
-                              placeholder="Type your message here..." />
+                            <textarea
+                              className="message-input"
+                              ref={(el) => { editorRefs.current[idx] = el; }}
+                              value={step.message_template}
+                              onFocus={() => setActiveEditorStep(idx)}
+                              onChange={(e) => {
+                                setStepsForm(current => {
+                                  const next = [...current];
+                                  next[idx] = { ...next[idx], message_template: e.target.value };
+                                  return next;
+                                });
+                              }}
+                              placeholder="Type your message here…"
+                            />
                           </div>
+                          {/* ── Preview pane */}
                           <div className="preview-pane">
-                            <div className="preview-header">
-                              <div className="preview-avatar">L</div>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Light ✨</div>
-                                <div className="dim" style={{ fontSize: 11 }}>@lightwaslost</div>
+                            {/* Chat top-bar */}
+                            <div className="preview-topbar">
+                              <div className="preview-avatar">
+                                <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+                                  <rect width="36" height="36" rx="18" fill="#0d0928"/>
+                                  {/* Purple hair */}
+                                  <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
+                                  <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
+                                  {/* Skin */}
+                                  <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
+                                  {/* Eyes */}
+                                  <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                  <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                  <rect x="12" y="17" width="2" height="2" fill="white"/>
+                                  <rect x="21" y="17" width="2" height="2" fill="white"/>
+                                  {/* Mouth */}
+                                  <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
+                                  <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
+                                  {/* Gold earrings */}
+                                  <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
+                                  <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
+                                </svg>
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
+                                <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                              </div>
+                              {/* Telegram-style action icons */}
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                            </div>
+                            {/* Chat area */}
+                            <div className="preview-chat-area">
+                              <div className="preview-bubble">
+                                {renderMessageTemplate(step.message_template, mockLead)}
+                              </div>
+                              <div className="preview-time">
+                                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                               </div>
                             </div>
-                            <div className="preview-bubble">{renderMessageTemplate(step.message_template, randomLead)}</div>
-                            <div className="preview-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} ✓</div>
                           </div>
                         </div>
                       </div>
