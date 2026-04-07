@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
+import { SkeletonPageContent } from '@/components/ui/skeleton';
 import { CustomSelect } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
 
@@ -214,8 +216,12 @@ function StatusCell({ entry, isOpen, onOpen, onClose, onSelect }: {
 }
 
 export default function BusinessTrackerPage() {
-  const [entries, setEntries] = useState<TrackerEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: trackerData, isLoading, mutate: mutateTracker } = useSWR<{ entries: TrackerEntry[] }>('/api/business-tracker');
+  const { data: leadsData } = useSWR<{ leads: any[] }>('/api/leads');
+
+  const entries = trackerData?.entries ?? [];
+  const allLeads = leadsData?.leads ?? [];
+
   const [showModal, setShowModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<TrackerEntry | null>(null);
   const [form, setForm] = useState<Partial<TrackerEntry>>(emptyEntry());
@@ -226,7 +232,6 @@ export default function BusinessTrackerPage() {
   const [openStatusFor, setOpenStatusFor] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<CompanyGroup | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [allLeads, setAllLeads] = useState<any[]>([]);
 
   const copyUsername = (username: string) => {
     navigator.clipboard.writeText(username);
@@ -235,26 +240,13 @@ export default function BusinessTrackerPage() {
   };
 
   const patchEntry = async (id: string, patch: Partial<TrackerEntry>) => {
-    setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
     try {
       await fetchJson(`/api/business-tracker/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      await mutateTracker();
     } catch {
-      await load();
+      await mutateTracker();
     }
   };
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [data, leadsData] = await Promise.all([
-      fetchJson<{ entries: TrackerEntry[] }>('/api/business-tracker'),
-      fetchJson<{ leads: any[] }>('/api/leads'),
-    ]);
-    setEntries(data.entries ?? []);
-    setAllLeads(leadsData.leads ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   // Group by company_name
   const groups: CompanyGroup[] = (() => {
@@ -303,7 +295,7 @@ export default function BusinessTrackerPage() {
         await fetchJson('/api/business-tracker', { method: 'POST', body: JSON.stringify(form) });
       }
       setShowModal(false);
-      await load();
+      await mutateTracker();
     } catch (err: any) {
       setStatusMsg(`Error: ${err?.message ?? 'Failed to save'}`);
     } finally {
@@ -314,7 +306,7 @@ export default function BusinessTrackerPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this entry?')) return;
     await fetchJson(`/api/business-tracker/${id}`, { method: 'DELETE' });
-    await load();
+    await mutateTracker();
   };
 
   return (
@@ -338,7 +330,7 @@ export default function BusinessTrackerPage() {
         ].map(s => (
           <div key={s.label} className="card">
             <div className="card-title">{s.label}</div>
-            <div className="card-value">{loading ? '...' : s.value}</div>
+            <div className="card-value">{isLoading ? '...' : s.value}</div>
           </div>
         ))}
       </div>
@@ -369,7 +361,7 @@ export default function BusinessTrackerPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {isLoading ? (
               <tr><td colSpan={12} style={{ textAlign: 'center', padding: 32, color: 'var(--text-dim)' }}>Loading...</td></tr>
             ) : filtered.length ? filtered.map(({ primary: entry, extras }) => (
               <tr key={entry.id} className="bt-table-row">

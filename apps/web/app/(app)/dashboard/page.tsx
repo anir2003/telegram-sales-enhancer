@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { fetchJson, invalidateCache } from '@/lib/web/fetch-json';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import useSWR from 'swr';
+import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { AvatarCircle } from '@/components/ui/avatar';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────
 type CalendarHighlight = {
@@ -422,43 +424,26 @@ function MiniCalendar({ activity, campaigns, details, accounts }: {
 
 // ─── Dashboard Page ───────────────────────────────────────────────
 export default function DashboardPage() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [activity, setActivity] = useState<Activity[]>([]);
-  const [details, setDetails] = useState<CampaignDetail[]>([]);
-  const [loading, setLoading] = useState(true);
   const [hoveredCell, setHoveredCell] = useState<{ day: HeatmapDay; x: number; y: number } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [campaignResponse, accountResponse, leadResponse, activityResponse] = await Promise.all([
-      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
-      fetchJson<{ accounts: Account[] }>('/api/accounts'),
-      fetchJson<{ leads: Lead[] }>('/api/leads'),
-      fetchJson<{ activity: Activity[] }>('/api/activity'),
-    ]);
-    const nextCampaigns = campaignResponse.campaigns ?? [];
-    setCampaigns(nextCampaigns);
-    setAccounts(accountResponse.accounts ?? []);
-    setLeads(leadResponse.leads ?? []);
-    setActivity(activityResponse.activity ?? []);
-    if (nextCampaigns.length > 0) {
-      const nextDetails = await Promise.all(nextCampaigns.map((c: Campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)));
-      setDetails(nextDetails);
-    } else {
-      setDetails([]);
-    }
-    setLoading(false);
-  }, []);
+  const { data: campaignsData, isLoading: loadingCampaigns } = useSWR<{ campaigns: Campaign[] }>('/api/campaigns');
+  const { data: accountsData, isLoading: loadingAccounts } = useSWR<{ accounts: Account[] }>('/api/accounts');
+  const { data: leadsData, isLoading: loadingLeads } = useSWR<{ leads: Lead[] }>('/api/leads');
+  const { data: activityData, isLoading: loadingActivity } = useSWR<{ activity: Activity[] }>('/api/activity');
 
-  const refresh = useCallback(async () => { invalidateCache('/api/'); await load(); }, [load]);
+  const campaigns = campaignsData?.campaigns ?? [];
+  const accounts = accountsData?.accounts ?? [];
+  const leads = leadsData?.leads ?? [];
+  const activity = activityData?.activity ?? [];
 
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    const interval = setInterval(() => { void refresh(); }, 60000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  const isLoading = loadingCampaigns || loadingAccounts || loadingLeads || loadingActivity;
+
+  // Fetch ALL campaign details as one SWR key (avoids hook-in-loop)
+  const detailsKey = campaigns.length > 0 ? `campaign-details:${campaigns.map(c => c.id).sort().join(',')}` : null;
+  const { data: details = [] } = useSWR<CampaignDetail[]>(detailsKey, async () => {
+    const results = await Promise.all(campaigns.map(c => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)));
+    return results;
+  });
 
   const metrics = useMemo(() => {
     const campaignSummaries = details.map((detail) => ({ campaign: detail.campaign, ...summariseCampaign(detail, activity) }));
@@ -493,22 +478,22 @@ export default function DashboardPage() {
       <div className="grid grid-4">
         <div className="card">
           <div className="card-title">Telegram Accounts Active</div>
-          <div className="card-value">{loading ? '...' : metrics.activeAccounts}</div>
+          <div className="card-value">{isLoading ? <Skeleton height={28} width={50} /> : metrics.activeAccounts}</div>
           <div className="card-subtitle">Sender accounts available.</div>
         </div>
         <div className="card">
           <div className="card-title">Avg Reply Rate</div>
-          <div className="card-value">{loading ? '...' : formatPercent(metrics.avgReplyRate)}</div>
+          <div className="card-value">{isLoading ? <Skeleton height={28} width={50} /> : formatPercent(metrics.avgReplyRate)}</div>
           <div className="card-subtitle">Across all campaign activity.</div>
         </div>
         <div className="card">
           <div className="card-title">Active Campaigns</div>
-          <div className="card-value">{loading ? '...' : metrics.liveCampaigns}</div>
+          <div className="card-value">{isLoading ? <Skeleton height={28} width={50} /> : metrics.liveCampaigns}</div>
           <div className="card-subtitle">Currently sending tasks.</div>
         </div>
         <div className="card">
           <div className="card-title">Leads In Motion</div>
-          <div className="card-value">{loading ? '...' : metrics.openLeads}</div>
+          <div className="card-value">{isLoading ? <Skeleton height={28} width={50} /> : metrics.openLeads}</div>
           <div className="card-subtitle">{metrics.blockedLeads} blocked · {metrics.totalLeads} total in CRM.</div>
         </div>
       </div>

@@ -1,16 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useState, useRef, useCallback, useId } from 'react';
+import { useMemo, useState, useRef, useId, useEffect } from 'react';
+import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { AvatarCircle } from '@/components/ui/avatar';
+import { SkeletonPageContent } from '@/components/ui/skeleton';
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [details, setDetails] = useState<CampaignDetail[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: leadsData, isLoading: loadingLeads, mutate: mutateLeads } = useSWR<{ leads: Lead[] }>('/api/leads');
+  const { data: campaignsData } = useSWR<{ campaigns: Campaign[] }>('/api/campaigns');
+
+  const leads = leadsData?.leads ?? [];
+  const campaigns = campaignsData?.campaigns ?? [];
+
+  const detailsKey = campaigns.length > 0 ? `campaign-details:${campaigns.map(c => c.id).sort().join(',')}` : null;
+  const { data: details = [] } = useSWR<CampaignDetail[]>(detailsKey, async () =>
+    Promise.all(campaigns.map(c => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)))
+  );
+
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState<'success' | 'danger' | 'neutral'>('neutral');
   const [search, setSearch] = useState('');
@@ -47,27 +57,6 @@ export default function LeadsPage() {
     source: 'Manual',
   });
 
-  const loadLeads = useCallback(async () => {
-    setLoading(true);
-    const [leadResponse, campaignResponse] = await Promise.all([
-      fetchJson<{ leads: Lead[] }>('/api/leads'),
-      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
-    ]);
-    const nextLeads = leadResponse.leads ?? [];
-    const campaigns = campaignResponse.campaigns ?? [];
-    if (campaigns.length > 0) {
-      const nextDetails = await Promise.all(
-        campaigns.map((campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
-      );
-      setDetails(nextDetails);
-    } else {
-      setDetails([]);
-    }
-    setLeads(nextLeads);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { void loadLeads(); }, [loadLeads]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -115,7 +104,7 @@ export default function LeadsPage() {
     setForm({ first_name: '', last_name: '', company_name: '', telegram_username: '', tags: '', source: 'Manual' });
     setStatus('Lead added.');
     setStatusTone('success');
-    await loadLeads();
+    await mutateLeads();
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,7 +131,7 @@ export default function LeadsPage() {
       setStatusTone('success');
       setPendingFile(null);
       setImportTags('');
-      await loadLeads();
+      await mutateLeads();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Import failed.');
       setStatusTone('danger');
@@ -155,7 +144,7 @@ export default function LeadsPage() {
     try {
       await fetchJson(`/api/leads/${leadId}`, { method: 'DELETE' });
       setOpenMenu(null);
-      await loadLeads();
+      await mutateLeads();
     } catch {
       setStatus('Failed to delete lead.');
       setStatusTone('danger');
@@ -187,7 +176,7 @@ export default function LeadsPage() {
       );
       if (res.ok && res.avatarUrl) {
         setEditingLead((prev) => prev ? { ...prev, profile_picture_url: res.avatarUrl } : prev);
-        setLeads((prev) => prev.map((l) => l.id === editingLead.id ? { ...l, profile_picture_url: res.avatarUrl } : l));
+        void mutateLeads();
         setAvatarStatus('✓ Profile picture saved');
       } else {
         setAvatarStatus(res.message ?? 'No picture found for this username');
@@ -209,7 +198,7 @@ export default function LeadsPage() {
         }),
       });
       setEditingLead(null);
-      await loadLeads();
+      await mutateLeads();
     } catch {
       setStatus('Failed to update lead.');
       setStatusTone('danger');
@@ -273,9 +262,9 @@ export default function LeadsPage() {
           method: 'PATCH',
           body: JSON.stringify({ tags: updatedTags }),
         });
-        setLeads((prev) => prev.map((l) => l.id === id ? { ...l, tags: updatedTags } : l));
       } catch { /* skip per-lead errors */ }
     }
+    await mutateLeads();
     setBulkApplying(false);
     setBulkTagAction(null);
     setBulkTagValue('');
@@ -294,9 +283,9 @@ export default function LeadsPage() {
           method: 'PATCH',
           body: JSON.stringify({ tags: updatedTags }),
         });
-        setLeads((prev) => prev.map((l) => l.id === id ? { ...l, tags: updatedTags } : l));
       } catch { /* skip per-lead errors */ }
     }
+    await mutateLeads();
     setBulkApplying(false);
     setBulkTagAction(null);
     setBulkTagValue('');
@@ -499,8 +488,14 @@ export default function LeadsPage() {
           <div>Tags</div>
           <div></div>
         </div>
-        {loading ? (
-          <div className="empty-state">Loading leads...</div>
+        {loadingLeads ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="table-row" style={{ display: 'grid', gridTemplateColumns: '32px 1.2fr 0.9fr 0.8fr 1.1fr 40px', gap: 16, padding: '10px 16px', alignItems: 'center' }}>
+              <div /><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div style={{ width: 30, height: 30, borderRadius: '50%', flexShrink: 0 }} className="skeleton" /><div style={{ flex: 1 }}><div className="skeleton" style={{ height: 12, width: '70%', marginBottom: 5 }} /><div className="skeleton" style={{ height: 10, width: '50%' }} /></div></div>
+              {[0, 1, 2].map(j => <div key={j} className="skeleton" style={{ height: 12, width: `${55 + j * 12}%` }} />)}
+              <div />
+            </div>
+          ))
         ) : filteredLeads.length ? (
           filteredLeads.map((lead) => (
             <div

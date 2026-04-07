@@ -1,14 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { fetchJson } from '@/lib/web/fetch-json';
+import useSWR from 'swr';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function ActivityPage() {
-  const [activity, setActivity] = useState<any[]>([]);
-
-  useEffect(() => {
-    void fetchJson<{ activity: any[] }>('/api/activity').then((response) => setActivity(response.activity ?? []));
-  }, []);
+  const { data, isLoading } = useSWR<{ activity: any[] }>('/api/activity');
+  const activity = data?.activity ?? [];
 
   return (
     <div className="page-content">
@@ -20,7 +17,16 @@ export default function ActivityPage() {
           <div>Payload</div>
           <div>When</div>
         </div>
-        {activity.length ? activity.map((item) => (
+        {isLoading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="table-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16, padding: '10px 16px', alignItems: 'center' }}>
+              <Skeleton height={12} width="70%" />
+              <Skeleton height={12} width="55%" />
+              <Skeleton height={12} width="85%" />
+              <Skeleton height={12} width="60%" />
+            </div>
+          ))
+        ) : activity.length ? activity.map((item) => (
           <div key={item.id} className="table-row">
             <div>{item.event_label}</div>
             <div>{item.event_type}</div>

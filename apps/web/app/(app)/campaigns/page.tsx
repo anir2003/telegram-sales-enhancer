@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, formatPercent, summariseCampaign, type Account, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
@@ -69,10 +70,18 @@ type AccountMessageLimit = {
 };
 
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [details, setDetails] = useState<CampaignDetail[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const { data: campaignsData, mutate: mutateCampaigns } = useSWR<{ campaigns: Campaign[] }>('/api/campaigns');
+  const { data: leadsData } = useSWR<{ leads: Lead[] }>('/api/leads');
+  const { data: accountsData } = useSWR<{ accounts: Account[] }>('/api/accounts');
+
+  const campaigns = campaignsData?.campaigns ?? [];
+  const leads = leadsData?.leads ?? [];
+  const accounts = accountsData?.accounts ?? [];
+
+  const detailsKey = campaigns.length > 0 ? `campaign-details:${campaigns.map(c => c.id).sort().join(',')}` : null;
+  const { data: details = [] } = useSWR<CampaignDetail[]>(detailsKey, async () =>
+    Promise.all(campaigns.map(c => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)))
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [builderMessage, setBuilderMessage] = useState('');
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -101,34 +110,6 @@ export default function CampaignsPage() {
     emptyStep(1),
     emptyStep(2),
   ]);
-
-  // Use useCallback to prevent recreating the load function on every render
-  const load = useCallback(async () => {
-    const [campaignResponse, leadResponse, accountResponse] = await Promise.all([
-      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
-      fetchJson<{ leads: Lead[] }>('/api/leads'),
-      fetchJson<{ accounts: Account[] }>('/api/accounts'),
-    ]);
-
-    const nextCampaigns = campaignResponse.campaigns ?? [];
-    setCampaigns(nextCampaigns);
-    setLeads(leadResponse.leads ?? []);
-    setAccounts(accountResponse.accounts ?? []);
-
-    // Only fetch campaign details if there are campaigns
-    if (nextCampaigns.length > 0) {
-      const nextDetails = await Promise.all(
-        nextCampaigns.map((campaign: Campaign) => fetchJson<CampaignDetail>(`/api/campaigns/${campaign.id}`)),
-      );
-      setDetails(nextDetails);
-    } else {
-      setDetails([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   // Initialize account message limits when accounts are selected
   useEffect(() => {
@@ -230,7 +211,7 @@ export default function CampaignsPage() {
       setShowWizard(false);
       setWizardStep('setup');
       setBuilderMessage('Campaign created successfully.');
-      await load();
+      await mutateCampaigns();
     } catch (err: any) {
       console.error('Campaign creation failed:', err);
       setBuilderMessage(`Error: ${err?.message ?? 'Failed to create campaign'}`);
