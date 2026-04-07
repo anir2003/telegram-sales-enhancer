@@ -3,10 +3,13 @@
   "configurations": [
     {
       "name": "sales-dashboard",
-      "runtimeExecutable": "/bin/bash",
-      "runtimeArgs": ["-c", "cd /Users/anir/Desktop/salessystem/apps/web && PATH=/usr/local/bin:/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm dev"],
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": [
+        "/Users/anir/Desktop/salessystem/node_modules/.pnpm/node_modules/next/dist/bin/next",
+        "dev"
+      ],
       "port": 3000,
-      "autoPort": false
+      "cwd": "/Users/anir/Desktop/salessystem/apps/web"
     }
   ]
 }

@@ -162,7 +162,7 @@ export default function KanbanPage() {
       </div>
 
       {/* Board */}
-      <div style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, minHeight: 0, paddingBottom: 16, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 16, overflowX: 'auto', flex: 1, minHeight: 0, paddingBottom: 8, alignItems: 'flex-start', scrollbarWidth: 'thin', scrollbarColor: 'var(--border-strong) transparent' }}>
         {columns.map((col, colIdx) => {
           const accent = COLUMN_ACCENT[colIdx % COLUMN_ACCENT.length];
           const cc = colCards(col.id);
@@ -181,8 +181,7 @@ export default function KanbanPage() {
               onDrop={(e) => onDrop(e, col.id)}
               onDragLeave={() => setDragOverColId(null)}
             >
-              {/* Column header — top accent bar + title row */}
-              <div style={{ height: 3, background: accent, borderRadius: '6px 6px 0 0' }} />
+              {/* Column header */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px 11px', borderBottom: '1px solid var(--border-soft)' }}>
                 {editingColId === col.id ? (
                   <input
@@ -194,12 +193,12 @@ export default function KanbanPage() {
                     style={{
                       flex: 1, background: 'var(--panel-strong)', border: '1px solid var(--border-soft)',
                       borderRadius: 4, padding: '3px 7px', fontSize: 12, fontWeight: 700,
-                      color: 'var(--text)', fontFamily: 'inherit', letterSpacing: '0.02em',
+                      color: accent, fontFamily: 'inherit', letterSpacing: '0.02em',
                     }}
                   />
                 ) : (
                   <div
-                    style={{ flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--text)', cursor: 'text', letterSpacing: '0.02em', textTransform: 'uppercase' }}
+                    style={{ flex: 1, fontSize: 12, fontWeight: 700, color: accent, cursor: 'text', letterSpacing: '0.03em' }}
                     onClick={() => startEditCol(col)}
                     title="Click to rename"
                   >
@@ -235,7 +234,6 @@ export default function KanbanPage() {
                     style={{
                       background: 'var(--panel-strong)',
                       border: '1px solid var(--border-soft)',
-                      borderLeft: `3px solid ${accent}`,
                       borderRadius: 4,
                       padding: '12px 13px',
                       cursor: 'grab',
@@ -245,10 +243,10 @@ export default function KanbanPage() {
                       flexDirection: 'column',
                       justifyContent: 'space-between',
                       opacity: draggingId === card.id ? 0.35 : 1,
-                      transition: 'opacity 0.1s, box-shadow 0.12s',
+                      transition: 'opacity 0.1s, box-shadow 0.12s, border-color 0.12s',
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = `0 2px 10px rgba(0,0,0,0.25), 0 0 0 1px ${accent}44`; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = `${accent}55`; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.18)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-soft)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
                   >
                     {/* Title */}
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
@@ -369,10 +367,7 @@ export default function KanbanPage() {
             background: 'var(--panel)', border: '1px solid var(--border-soft)',
             borderRadius: 6, width: '100%', maxWidth: 520,
             boxShadow: '0 24px 64px rgba(0,0,0,0.55)',
-            overflow: 'hidden',
           }}>
-            {/* Modal accent bar */}
-            <div style={{ height: 3, background: COLUMN_ACCENT[columns.findIndex((c) => c.id === modalForm.column_id) % COLUMN_ACCENT.length] ?? '#6366f1' }} />
             <div style={{ padding: '22px 24px 24px' }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 16 }}>Edit Card</div>
 

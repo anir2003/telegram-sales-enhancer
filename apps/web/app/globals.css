@@ -89,11 +89,16 @@ button, input, textarea, select {
 
 ::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 2px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .app-layout {
