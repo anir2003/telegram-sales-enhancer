@@ -288,6 +288,7 @@ export async function createLead(input: unknown, context?: WorkspaceContext) {
       owner_id: payload.owner_id ?? null,
       notes: payload.notes ?? null,
       source: payload.source ?? null,
+      profile_picture_url: null,
     };
     demoState.leads.unshift(record);
     await logActivity({
@@ -538,6 +539,7 @@ export async function createAccount(input: unknown, context?: WorkspaceContext) 
       id: demoId('account'),
       created_at: nowIso(),
       telegram_user_id: null,
+      profile_picture_url: null,
       ...payload,
     };
     demoState.accounts.unshift(record);
@@ -1060,6 +1062,7 @@ export async function consumeAccountLinkCode(input: {
       is_active: true,
       owner_id: match.profile_id,
       telegram_user_id: input.telegramUserId,
+      profile_picture_url: null,
       created_at: nowIso(),
     };
     demoState.accounts.unshift(record);

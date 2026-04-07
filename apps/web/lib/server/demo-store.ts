@@ -49,6 +49,7 @@ export const demoState: {
       notes: 'Prefers async intros.',
       source: 'CSV import',
       owner_id: null,
+      profile_picture_url: null,
       created_at: now,
     },
     {
@@ -62,6 +63,7 @@ export const demoState: {
       notes: null,
       source: 'CSV import',
       owner_id: null,
+      profile_picture_url: null,
       created_at: now,
     },
     {
@@ -75,6 +77,7 @@ export const demoState: {
       notes: null,
       source: 'Manual',
       owner_id: null,
+      profile_picture_url: null,
       created_at: now,
     },
   ],
@@ -88,6 +91,7 @@ export const demoState: {
       telegram_username: 'team_sender_01',
       daily_limit: 25,
       is_active: true,
+      profile_picture_url: null,
       created_at: now,
     },
     {
@@ -99,6 +103,7 @@ export const demoState: {
       telegram_username: 'team_sender_02',
       daily_limit: 25,
       is_active: true,
+      profile_picture_url: null,
       created_at: now,
     },
   ],
