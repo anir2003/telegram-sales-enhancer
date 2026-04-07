@@ -864,7 +864,10 @@ export default function CampaignDetailPage() {
                   const vs = getVirtualStage(item);
                   return (
                     <div key={item.id} className="table-row" style={{ cursor: 'pointer' }} onClick={() => openLeadEdit(item)}>
-                      <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <AvatarCircle url={lead?.profile_picture_url} name={lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'} size={22} style={{ flexShrink: 0 }} />
+                        {lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}
+                      </div>
                       <div>{lead?.company_name ?? 'Company'}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <StageIcon stage={vs} />
@@ -920,8 +923,13 @@ export default function CampaignDetailPage() {
               return (
                 <div key={item.id} className="table-row" style={{ cursor: 'pointer' }} onClick={() => openLeadEdit(item)}>
                   <div>
-                    <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
-                    <div className="dim" style={{ fontSize: 11 }}>@{lead?.telegram_username}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <AvatarCircle url={lead?.profile_picture_url} name={lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'} size={22} style={{ flexShrink: 0 }} />
+                      <div>
+                        <div>{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</div>
+                        <div className="dim" style={{ fontSize: 11 }}>@{lead?.telegram_username}</div>
+                      </div>
+                    </div>
                   </div>
                   <div>{lead?.company_name ?? '—'}</div>
                   <div><AccountPill account={account} colorIndex={colorIdx} /></div>
