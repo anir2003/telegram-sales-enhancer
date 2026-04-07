@@ -6,6 +6,7 @@ export type Lead = {
   telegram_username: string;
   tags: string[];
   source?: string | null;
+  profile_picture_url?: string | null;
 };
 
 export type Account = {
@@ -14,6 +15,7 @@ export type Account = {
   telegram_username: string;
   daily_limit: number;
   is_active: boolean;
+  profile_picture_url?: string | null;
 };
 
 export type Campaign = {

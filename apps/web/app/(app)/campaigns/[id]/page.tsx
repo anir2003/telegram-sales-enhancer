@@ -6,6 +6,7 @@ import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
+import { AvatarCircle } from '@/components/ui/avatar';
 
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Kolkata',        label: 'IST — India Standard Time (UTC+5:30)' },
@@ -786,7 +787,10 @@ export default function CampaignDetailPage() {
                         <div key={item.id} className={`board-card ${draggingLeadId === item.id ? 'dragging' : ''}`}
                           draggable onDragStart={(e) => handleDragStart(e, item.id)} onDragEnd={handleDragEnd}>
                           <div className="board-card-header">
-                            <span className="board-card-title">{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                              <AvatarCircle url={lead?.profile_picture_url} name={lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'} size={22} style={{ flexShrink: 0 }} />
+                              <span className="board-card-title">{lead ? `${lead.first_name} ${lead.last_name}` : 'Lead'}</span>
+                            </div>
                             <span className="drag-handle" title="Drag to move">⠿</span>
                           </div>
                           <div className="board-card-meta">

@@ -316,6 +316,7 @@ export async function updateLead(leadId: string, input: Record<string, unknown>,
   if (input.telegram_username !== undefined) payload.telegram_username = normalizeTelegramUsername(String(input.telegram_username));
   if (input.tags !== undefined) payload.tags = Array.isArray(input.tags) ? input.tags : [];
   if (input.source !== undefined) payload.source = String(input.source).trim() || null;
+  if (input.profile_picture_url !== undefined) payload.profile_picture_url = input.profile_picture_url || null;
 
   if (!isSupabaseConfigured()) {
     const record = demoState.leads.find((l) => l.id === leadId);

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { fetchJson, invalidateCache } from '@/lib/web/fetch-json';
 import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { AvatarCircle } from '@/components/ui/avatar';
 
 // ─── Types ────────────────────────────────────────────────────────
 type CalendarHighlight = {
@@ -620,7 +621,10 @@ export default function DashboardPage() {
             {metrics.accountInsights.length ? metrics.accountInsights.map((account) => (
               <div key={account.id} className="pulse-table-row">
                 <div className="pulse-table-main">
-                  <div className="pulse-table-name">{account.label}</div>
+                  <div className="pulse-table-name" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <AvatarCircle url={account.profile_picture_url} name={account.label} size={24} style={{ flexShrink: 0 }} />
+                    {account.label}
+                  </div>
                   <div className="pulse-table-meta">@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentYesterday} yesterday</div>
                 </div>
                 <div className="pulse-table-right">

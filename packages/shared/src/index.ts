@@ -38,6 +38,7 @@ export interface LeadRecord {
   source: string | null;
   owner_id: string | null;
   created_at: string;
+  profile_picture_url: string | null;
 }
 
 export interface CampaignRecord {
@@ -82,6 +83,7 @@ export interface TelegramAccountRecord {
   daily_limit: number;
   is_active: boolean;
   created_at: string;
+  profile_picture_url: string | null;
 }
 
 export interface CampaignLeadRecord {

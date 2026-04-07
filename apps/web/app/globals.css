@@ -3373,3 +3373,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-style: solid;
   background: var(--panel-alt);
 }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
