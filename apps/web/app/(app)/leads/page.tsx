@@ -27,8 +27,9 @@ export default function LeadsPage() {
 
   // Bulk select
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkFetching, setBulkFetching] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkTagAction, setBulkTagAction] = useState<'add' | 'remove' | null>(null);
+  const [bulkTagValue, setBulkTagValue] = useState('');
+  const [bulkApplying, setBulkApplying] = useState(false);
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -251,32 +252,62 @@ export default function LeadsPage() {
     setSelectedIds(allSelected ? new Set() : new Set(allFilteredIds));
   };
 
-  const clearSelection = () => setSelectedIds(new Set());
-
-  const handleBulkFetchAvatars = async () => {
-    if (selectedIds.size === 0 || bulkFetching) return;
-    const ids = [...selectedIds];
-    setBulkFetching(true);
-    setBulkProgress({ done: 0, total: ids.length });
-    let done = 0;
-    for (const id of ids) {
-      try {
-        const res = await fetchJson<{ ok: boolean; avatarUrl: string | null }>(
-          `/api/leads/${id}/fetch-avatar`,
-          { method: 'POST' },
-        );
-        if (res.ok && res.avatarUrl) {
-          const url = res.avatarUrl;
-          setLeads((prev) => prev.map((l) => l.id === id ? { ...l, profile_picture_url: url } : l));
-        }
-      } catch { /* skip errors per lead */ }
-      done++;
-      setBulkProgress({ done, total: ids.length });
-    }
-    setBulkFetching(false);
-    setBulkProgress(null);
+  const clearSelection = () => {
     setSelectedIds(new Set());
+    setBulkTagAction(null);
+    setBulkTagValue('');
   };
+
+  const handleBulkAddTag = async (tag: string) => {
+    if (!tag.trim() || bulkApplying) return;
+    const trimmed = tag.trim();
+    setBulkApplying(true);
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) continue;
+      if (lead.tags.includes(trimmed)) continue;
+      const updatedTags = [...lead.tags, trimmed];
+      try {
+        await fetchJson(`/api/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ tags: updatedTags }),
+        });
+        setLeads((prev) => prev.map((l) => l.id === id ? { ...l, tags: updatedTags } : l));
+      } catch { /* skip per-lead errors */ }
+    }
+    setBulkApplying(false);
+    setBulkTagAction(null);
+    setBulkTagValue('');
+  };
+
+  const handleBulkRemoveTag = async (tag: string) => {
+    if (!tag || bulkApplying) return;
+    setBulkApplying(true);
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      const lead = leads.find((l) => l.id === id);
+      if (!lead || !lead.tags.includes(tag)) continue;
+      const updatedTags = lead.tags.filter((t) => t !== tag);
+      try {
+        await fetchJson(`/api/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ tags: updatedTags }),
+        });
+        setLeads((prev) => prev.map((l) => l.id === id ? { ...l, tags: updatedTags } : l));
+      } catch { /* skip per-lead errors */ }
+    }
+    setBulkApplying(false);
+    setBulkTagAction(null);
+    setBulkTagValue('');
+  };
+
+  // Tags present across selected leads (for remove picker)
+  const selectedLeadTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    leads.filter((l) => selectedIds.has(l.id)).forEach((l) => l.tags.forEach((t) => tagSet.add(t)));
+    return [...tagSet].sort();
+  }, [leads, selectedIds]);
 
   return (
     <div className="page-content">
@@ -517,42 +548,91 @@ export default function LeadsPage() {
         <div className="bulk-action-bar">
           <span className="bulk-action-bar-count">{selectedIds.size} selected</span>
 
-          {/* Select all visible if not everything is checked yet */}
           {filteredLeads.some((l) => !selectedIds.has(l.id)) && (
             <button className="bulk-action-bar-link" onClick={toggleSelectAll}>
               Select all {filteredLeads.length}
             </button>
           )}
 
-          <button className="bulk-action-bar-link" onClick={clearSelection} disabled={bulkFetching}>
+          <button className="bulk-action-bar-link" onClick={clearSelection} disabled={bulkApplying}>
             Clear
           </button>
 
           <div className="bulk-action-bar-divider" />
 
-          {bulkFetching && bulkProgress ? (
-            <>
-              <span className="bulk-action-bar-progress">
-                Fetching {bulkProgress.done}/{bulkProgress.total}
-              </span>
-              <div className="bulk-progress-bar">
-                <div
-                  className="bulk-progress-fill"
-                  style={{ width: `${Math.round((bulkProgress.done / bulkProgress.total) * 100)}%` }}
-                />
-              </div>
-            </>
+          {bulkApplying ? (
+            <span className="bulk-action-bar-progress">Applying…</span>
+          ) : bulkTagAction === 'add' ? (
+            /* Inline add-tag input */
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                className="input bulk-tag-input"
+                placeholder="Tag name…"
+                value={bulkTagValue}
+                onChange={(e) => setBulkTagValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleBulkAddTag(bulkTagValue); if (e.key === 'Escape') { setBulkTagAction(null); setBulkTagValue(''); } }}
+                autoFocus
+                style={{ width: 120, fontSize: 11, padding: '4px 8px', height: 26 }}
+              />
+              <button
+                className="btn"
+                onClick={() => void handleBulkAddTag(bulkTagValue)}
+                disabled={!bulkTagValue.trim()}
+                style={{ fontSize: 11, padding: '4px 10px', height: 26 }}
+              >Apply</button>
+              <button
+                className="bulk-action-bar-link"
+                onClick={() => { setBulkTagAction(null); setBulkTagValue(''); }}
+                style={{ fontSize: 11 }}
+              >Cancel</button>
+            </div>
+          ) : bulkTagAction === 'remove' ? (
+            /* Remove-tag picker */
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Remove:</span>
+              {selectedLeadTags.length === 0 ? (
+                <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>No tags</span>
+              ) : (
+                selectedLeadTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => void handleBulkRemoveTag(tag)}
+                    style={{
+                      fontSize: 11, padding: '3px 9px',
+                      background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)',
+                      borderRadius: 4, color: '#f87171', cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.22)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.12)'; }}
+                  >{tag}</button>
+                ))
+              )}
+              <button
+                className="bulk-action-bar-link"
+                onClick={() => setBulkTagAction(null)}
+                style={{ fontSize: 11 }}
+              >Cancel</button>
+            </div>
           ) : (
-            <button
-              className="btn"
-              onClick={handleBulkFetchAvatars}
-              style={{ fontSize: 11, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0112 0v2"/>
-              </svg>
-              Fetch Profile Pics
-            </button>
+            /* Default action buttons */
+            <>
+              <button
+                className="btn"
+                onClick={() => { setBulkTagAction('add'); setBulkTagValue(''); }}
+                style={{ fontSize: 11, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Add Tag
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setBulkTagAction('remove')}
+                style={{ fontSize: 11, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14"/></svg>
+                Remove Tag
+              </button>
+            </>
           )}
         </div>
       )}

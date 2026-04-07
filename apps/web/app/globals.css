@@ -491,12 +491,58 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 /* Bulk-select checkbox */
 .lead-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
   width: 15px;
   height: 15px;
   cursor: pointer;
-  accent-color: #6366f1;
   flex-shrink: 0;
   margin: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--panel-alt);
+  transition: background 0.1s, border-color 0.1s;
+  position: relative;
+}
+
+.lead-checkbox:hover {
+  border-color: #6366f1;
+}
+
+.lead-checkbox:checked,
+.lead-checkbox:indeterminate {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+
+.lead-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: 1.5px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.lead-checkbox:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  width: 7px;
+  height: 1.5px;
+  background: #fff;
+  border-radius: 1px;
+}
+
+/* Inline tag input inside bulk bar */
+.bulk-tag-input {
+  background: var(--panel) !important;
+  border-color: var(--border-strong) !important;
 }
 
 /* Floating bulk-action bar */
