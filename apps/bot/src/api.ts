@@ -48,8 +48,8 @@ export class AppApiClient {
     return this.post<{ task: { id: string } | null }>('/api/bot/task/sent', { taskId, telegramUserId });
   }
 
-  markTaskSkipped(taskId: string, telegramUserId: number) {
-    return this.post<{ task: { id: string } | null }>('/api/bot/task/skip', { taskId, telegramUserId });
+  markTaskSkipped(taskId: string, telegramUserId: number, skipNote?: string) {
+    return this.post<{ task: { id: string } | null }>('/api/bot/task/skip', { taskId, telegramUserId, skipNote });
   }
 
   markTaskReply(taskId: string, telegramUserId: number, replyStatus: 'interested' | 'not_interested' | 'replied') {

@@ -46,8 +46,14 @@ export function buildTaskKeyboard(task: BotTask) {
 
   keyboard.text('Sent', `task:sent:${task.taskId}`);
   keyboard.text('Replied', `task:reply:replied:${task.taskId}`);
+  keyboard.row();
+  keyboard.text('⏭ Skip', `task:skip:ask:${task.taskId}`);
 
   return keyboard;
+}
+
+export function buildSkipPromptKeyboard(taskId: string) {
+  return new InlineKeyboard().text('Skip without reason', `task:skip:confirm:${taskId}`);
 }
 
 export function buildSentKeyboard(taskId: string) {

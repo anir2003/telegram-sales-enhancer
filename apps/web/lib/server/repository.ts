@@ -1237,8 +1237,8 @@ export async function markTaskSent(taskId: string, telegramUserId: number) {
   return completeBotTask(taskId, telegramUserId, { taskStatus: 'sent', replyStatus: null });
 }
 
-export async function markTaskSkipped(taskId: string, telegramUserId: number) {
-  return completeBotTask(taskId, telegramUserId, { taskStatus: 'skipped', replyStatus: null });
+export async function markTaskSkipped(taskId: string, telegramUserId: number, skipNote?: string) {
+  return completeBotTask(taskId, telegramUserId, { taskStatus: 'skipped', replyStatus: null, skipNote });
 }
 
 export async function markTaskReply(taskId: string, telegramUserId: number, replyStatus: 'interested' | 'not_interested' | 'replied') {
@@ -1248,7 +1248,7 @@ export async function markTaskReply(taskId: string, telegramUserId: number, repl
 async function completeBotTask(
   taskId: string,
   telegramUserId: number,
-  options: { taskStatus: 'sent' | 'skipped'; replyStatus: 'interested' | 'not_interested' | 'replied' | null },
+  options: { taskStatus: 'sent' | 'skipped'; replyStatus: 'interested' | 'not_interested' | 'replied' | null; skipNote?: string },
 ) {
   const active = getDemoContext();
 
@@ -1271,7 +1271,11 @@ async function completeBotTask(
         campaignLead.step_events = events;
       } else if (options.taskStatus === 'skipped') {
         campaignLead.status = 'skipped';
-        campaignLead.stop_reason = 'Skipped manually';
+        campaignLead.stop_reason = options.skipNote ? `Skipped: ${options.skipNote}` : 'Skipped manually';
+        if (options.skipNote) {
+          const existing = campaignLead.notes ? `${campaignLead.notes}\n` : '';
+          campaignLead.notes = `${existing}[Skip note] ${options.skipNote}`;
+        }
       } else {
         // Record sent event
         const events = campaignLead.step_events || [];
@@ -1352,11 +1356,15 @@ async function completeBotTask(
       })
       .eq('id', campaignLead.id);
   } else if (options.taskStatus === 'skipped') {
+    const skipReason = options.skipNote ? `Skipped: ${options.skipNote}` : 'Skipped manually';
+    const existingNotes = campaignLead.notes ? `${campaignLead.notes}\n` : '';
+    const updatedNotes = options.skipNote ? `${existingNotes}[Skip note] ${options.skipNote}` : campaignLead.notes;
     await supabase!
       .from('campaign_leads')
       .update({
         status: 'skipped',
-        stop_reason: 'Skipped manually',
+        stop_reason: skipReason,
+        ...(options.skipNote ? { notes: updatedNotes } : {}),
       })
       .eq('id', campaignLead.id);
   } else {
