@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useState, useRef, useCallback, useId } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
@@ -24,6 +24,13 @@ export default function LeadsPage() {
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', company_name: '', telegram_username: '', tags: '', source: '' });
   const [fetchingAvatar, setFetchingAvatar] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
+
+  // Bulk select
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkFetching, setBulkFetching] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
   const menuRef = useRef<HTMLDivElement>(null);
   const [tagPickerOpen, setTagPickerOpen] = useState<'add' | 'import' | null>(null);
   const tagPickerRef = useRef<HTMLDivElement>(null);
@@ -220,6 +227,57 @@ export default function LeadsPage() {
     });
   }, [leadRows, search, sourceFilter, tagFilter]);
 
+  // Keep header checkbox indeterminate state in sync
+  useEffect(() => {
+    const el = headerCheckboxRef.current;
+    if (!el) return;
+    const total = filteredLeads.length;
+    const numSelected = filteredLeads.filter((l) => selectedIds.has(l.id)).length;
+    el.checked = total > 0 && numSelected === total;
+    el.indeterminate = numSelected > 0 && numSelected < total;
+  }, [selectedIds, filteredLeads]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const allFilteredIds = filteredLeads.map((l) => l.id);
+    const allSelected = allFilteredIds.every((id) => selectedIds.has(id));
+    setSelectedIds(allSelected ? new Set() : new Set(allFilteredIds));
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkFetchAvatars = async () => {
+    if (selectedIds.size === 0 || bulkFetching) return;
+    const ids = [...selectedIds];
+    setBulkFetching(true);
+    setBulkProgress({ done: 0, total: ids.length });
+    let done = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetchJson<{ ok: boolean; avatarUrl: string | null }>(
+          `/api/leads/${id}/fetch-avatar`,
+          { method: 'POST' },
+        );
+        if (res.ok && res.avatarUrl) {
+          const url = res.avatarUrl;
+          setLeads((prev) => prev.map((l) => l.id === id ? { ...l, profile_picture_url: url } : l));
+        }
+      } catch { /* skip errors per lead */ }
+      done++;
+      setBulkProgress({ done, total: ids.length });
+    }
+    setBulkFetching(false);
+    setBulkProgress(null);
+    setSelectedIds(new Set());
+  };
+
   return (
     <div className="page-content">
       <div className="grid grid-4">
@@ -395,6 +453,15 @@ export default function LeadsPage() {
 
       <div className="table lead-crm-table">
         <div className="table-header">
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <input
+              ref={headerCheckboxRef}
+              type="checkbox"
+              className="lead-checkbox"
+              onChange={toggleSelectAll}
+              title={filteredLeads.every((l) => selectedIds.has(l.id)) ? 'Deselect all' : 'Select all'}
+            />
+          </div>
           <div>Lead</div>
           <div>Company</div>
           <div>Source</div>
@@ -405,7 +472,20 @@ export default function LeadsPage() {
           <div className="empty-state">Loading leads...</div>
         ) : filteredLeads.length ? (
           filteredLeads.map((lead) => (
-            <div key={lead.id} className="table-row">
+            <div
+              key={lead.id}
+              className="table-row"
+              style={selectedIds.has(lead.id) ? { background: 'rgba(99,102,241,0.06)' } : undefined}
+            >
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  className="lead-checkbox"
+                  checked={selectedIds.has(lead.id)}
+                  onChange={() => toggleSelect(lead.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <AvatarCircle url={lead.profile_picture_url} name={`${lead.first_name} ${lead.last_name}`} size={30} style={{ flexShrink: 0 }} />
                 <div>
@@ -431,6 +511,51 @@ export default function LeadsPage() {
           <div className="empty-state">No leads match the current search and filter settings.</div>
         )}
       </div>
+
+      {/* Floating bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="bulk-action-bar">
+          <span className="bulk-action-bar-count">{selectedIds.size} selected</span>
+
+          {/* Select all visible if not everything is checked yet */}
+          {filteredLeads.some((l) => !selectedIds.has(l.id)) && (
+            <button className="bulk-action-bar-link" onClick={toggleSelectAll}>
+              Select all {filteredLeads.length}
+            </button>
+          )}
+
+          <button className="bulk-action-bar-link" onClick={clearSelection} disabled={bulkFetching}>
+            Clear
+          </button>
+
+          <div className="bulk-action-bar-divider" />
+
+          {bulkFetching && bulkProgress ? (
+            <>
+              <span className="bulk-action-bar-progress">
+                Fetching {bulkProgress.done}/{bulkProgress.total}
+              </span>
+              <div className="bulk-progress-bar">
+                <div
+                  className="bulk-progress-fill"
+                  style={{ width: `${Math.round((bulkProgress.done / bulkProgress.total) * 100)}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <button
+              className="btn"
+              onClick={handleBulkFetchAvatars}
+              style={{ fontSize: 11, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0112 0v2"/>
+              </svg>
+              Fetch Profile Pics
+            </button>
+          )}
+        </div>
+      )}
 
       {editingLead && (
         <div className="edit-lead-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditingLead(null); }}>
