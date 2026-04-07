@@ -486,7 +486,84 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .lead-crm-table .table-header,
 .lead-crm-table .table-row {
-  grid-template-columns: 1.2fr 0.9fr 0.8fr 1.1fr 40px;
+  grid-template-columns: 32px 1.2fr 0.9fr 0.8fr 1.1fr 40px;
+}
+
+/* Bulk-select checkbox */
+.lead-checkbox {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: #6366f1;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* Floating bulk-action bar */
+.bulk-action-bar {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 9px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.04);
+  white-space: nowrap;
+}
+
+.bulk-action-bar-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bulk-action-bar-link {
+  font-size: 11px;
+  color: #6366f1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.12s;
+}
+.bulk-action-bar-link:hover {
+  text-decoration-color: #6366f1;
+}
+
+.bulk-action-bar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-soft);
+  flex-shrink: 0;
+}
+
+.bulk-action-bar-progress {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.bulk-progress-bar {
+  width: 80px;
+  height: 3px;
+  background: var(--panel-alt);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bulk-progress-fill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 2px;
+  transition: width 0.2s ease;
 }
 
 .campaign-table .table-header,
