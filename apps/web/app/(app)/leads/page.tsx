@@ -5,6 +5,7 @@ import { fetchJson } from '@/lib/web/fetch-json';
 import { buildLeadMemberships, type Campaign, type CampaignDetail, type Lead } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { AvatarCircle } from '@/components/ui/avatar';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -21,6 +22,8 @@ export default function LeadsPage() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', company_name: '', telegram_username: '', tags: '', source: '' });
+  const [fetchingAvatar, setFetchingAvatar] = useState(false);
+  const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [tagPickerOpen, setTagPickerOpen] = useState<'add' | 'import' | null>(null);
   const tagPickerRef = useRef<HTMLDivElement>(null);
@@ -161,7 +164,30 @@ export default function LeadsPage() {
       tags: lead.tags.join(', '),
       source: lead.source ?? 'Manual',
     });
+    setAvatarStatus(null);
     setOpenMenu(null);
+  };
+
+  const handleFetchAvatar = async () => {
+    if (!editingLead) return;
+    setFetchingAvatar(true);
+    setAvatarStatus(null);
+    try {
+      const res = await fetchJson<{ ok: boolean; avatarUrl: string | null; message?: string }>(
+        `/api/leads/${editingLead.id}/fetch-avatar`,
+        { method: 'POST' },
+      );
+      if (res.ok && res.avatarUrl) {
+        setEditingLead((prev) => prev ? { ...prev, profile_picture_url: res.avatarUrl } : prev);
+        setLeads((prev) => prev.map((l) => l.id === editingLead.id ? { ...l, profile_picture_url: res.avatarUrl } : l));
+        setAvatarStatus('✓ Profile picture saved');
+      } else {
+        setAvatarStatus(res.message ?? 'No picture found for this username');
+      }
+    } catch {
+      setAvatarStatus('Failed to fetch — check the username');
+    }
+    setFetchingAvatar(false);
   };
 
   const handleEditSave = async () => {
@@ -380,9 +406,12 @@ export default function LeadsPage() {
         ) : filteredLeads.length ? (
           filteredLeads.map((lead) => (
             <div key={lead.id} className="table-row">
-              <div>
-                <div>{lead.first_name} {lead.last_name}</div>
-                <div className="dim">@{lead.telegram_username}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <AvatarCircle url={lead.profile_picture_url} name={`${lead.first_name} ${lead.last_name}`} size={30} style={{ flexShrink: 0 }} />
+                <div>
+                  <div>{lead.first_name} {lead.last_name}</div>
+                  <div className="dim">@{lead.telegram_username}</div>
+                </div>
               </div>
               <div>{lead.company_name}</div>
               <div>{lead.source ?? 'Manual'}</div>
@@ -406,7 +435,47 @@ export default function LeadsPage() {
       {editingLead && (
         <div className="edit-lead-overlay" onClick={(e) => { if (e.target === e.currentTarget) setEditingLead(null); }}>
           <div className="edit-lead-modal">
-            <div className="card-title">Edit Lead</div>
+            {/* Avatar header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+              <AvatarCircle
+                url={editingLead.profile_picture_url}
+                name={`${editForm.first_name || editingLead.first_name} ${editForm.last_name || editingLead.last_name}`}
+                size={48}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                  {editForm.first_name} {editForm.last_name}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>@{editForm.telegram_username}</div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                <button
+                  className="btn-secondary"
+                  onClick={handleFetchAvatar}
+                  disabled={fetchingAvatar}
+                  style={{ fontSize: 11, padding: '5px 11px', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}
+                >
+                  {fetchingAvatar ? (
+                    <>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.25"/><path d="M21 12a9 9 0 00-9-9"/></svg>
+                      Fetching…
+                    </>
+                  ) : (
+                    <>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                      Fetch Profile Pic
+                    </>
+                  )}
+                </button>
+                {avatarStatus && (
+                  <div style={{ fontSize: 10, color: avatarStatus.startsWith('✓') ? '#10b981' : 'var(--text-dim)', textAlign: 'right' }}>
+                    {avatarStatus}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card-title" style={{ marginBottom: 12 }}>Edit Lead</div>
             <div className="form-grid columns-2">
               <input className="input" placeholder="First Name" value={editForm.first_name} onChange={(e) => setEditForm((c) => ({ ...c, first_name: e.target.value }))} />
               <input className="input" placeholder="Last Name" value={editForm.last_name} onChange={(e) => setEditForm((c) => ({ ...c, last_name: e.target.value }))} />

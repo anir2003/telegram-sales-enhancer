@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, type Campaign, type CampaignDetail } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
+import { AvatarCircle } from '@/components/ui/avatar';
 
 type Account = {
   id: string;
@@ -12,6 +13,7 @@ type Account = {
   daily_limit: number;
   is_active: boolean;
   created_at: string;
+  profile_picture_url?: string | null;
 };
 
 export default function AccountsPage() {
@@ -28,6 +30,8 @@ export default function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editForm, setEditForm] = useState({ label: '', daily_limit: 20, is_active: true });
   const [saving, setSaving] = useState(false);
+  const [fetchingAvatar, setFetchingAvatar] = useState(false);
+  const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +74,29 @@ export default function AccountsPage() {
   const handleEdit = (account: Account) => {
     setEditingAccount(account);
     setEditForm({ label: account.label, daily_limit: account.daily_limit, is_active: account.is_active });
+    setAvatarStatus(null);
+  };
+
+  const handleFetchAvatar = async () => {
+    if (!editingAccount) return;
+    setFetchingAvatar(true);
+    setAvatarStatus(null);
+    try {
+      const res = await fetchJson<{ ok: boolean; avatarUrl: string | null; message?: string }>(
+        `/api/accounts/${editingAccount.id}/fetch-avatar`,
+        { method: 'POST' },
+      );
+      if (res.ok && res.avatarUrl) {
+        setEditingAccount((prev) => prev ? { ...prev, profile_picture_url: res.avatarUrl } : prev);
+        setAccounts((prev) => prev.map((a) => a.id === editingAccount.id ? { ...a, profile_picture_url: res.avatarUrl } : a));
+        setAvatarStatus('✓ Profile picture saved');
+      } else {
+        setAvatarStatus(res.message ?? 'No picture found for this username');
+      }
+    } catch {
+      setAvatarStatus('Failed to fetch — check the username');
+    }
+    setFetchingAvatar(false);
   };
 
   const handleSaveEdit = async () => {
@@ -191,9 +218,12 @@ export default function AccountsPage() {
                   onClick={() => setSelectedAccountId(isSelected ? null : account.id)}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{account.label}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>@{account.telegram_username}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <AvatarCircle url={account.profile_picture_url} name={account.label} size={32} style={{ flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{account.label}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>@{account.telegram_username}</div>
+                      </div>
                     </div>
                     <span style={{
                       flexShrink: 0, marginLeft: 8,
@@ -229,9 +259,12 @@ export default function AccountsPage() {
           {selectedAccount && (
             <div className="card" style={{ padding: '16px 18px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{selectedAccount.label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>@{selectedAccount.telegram_username}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <AvatarCircle url={selectedAccount.profile_picture_url} name={selectedAccount.label} size={40} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{selectedAccount.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>@{selectedAccount.telegram_username}</div>
+                  </div>
                 </div>
                 <button className="board-card-btn" onClick={() => handleEdit(accounts.find(a => a.id === selectedAccount.id)!)} style={{ padding: '4px 8px' }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -279,6 +312,40 @@ export default function AccountsPage() {
       {editingAccount && (
         <div className="edit-lead-overlay" onClick={e => { if (e.target === e.currentTarget) setEditingAccount(null); }}>
           <div className="edit-lead-modal" style={{ maxWidth: 400 }}>
+            {/* Avatar header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+              <AvatarCircle url={editingAccount.profile_picture_url} name={editForm.label || editingAccount.label} size={48} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{editForm.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>@{editingAccount.telegram_username}</div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                <button
+                  className="btn-secondary"
+                  onClick={handleFetchAvatar}
+                  disabled={fetchingAvatar}
+                  style={{ fontSize: 11, padding: '5px 11px', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}
+                >
+                  {fetchingAvatar ? (
+                    <>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.25"/><path d="M21 12a9 9 0 00-9-9"/></svg>
+                      Fetching…
+                    </>
+                  ) : (
+                    <>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+                      Fetch Profile Pic
+                    </>
+                  )}
+                </button>
+                {avatarStatus && (
+                  <div style={{ fontSize: 10, color: avatarStatus.startsWith('✓') ? '#10b981' : 'var(--text-dim)', textAlign: 'right' }}>
+                    {avatarStatus}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="card-title" style={{ marginBottom: 16 }}>Edit Account</div>
             <div className="form-grid">
               <div className="form-grid">

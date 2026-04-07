@@ -22,6 +22,7 @@ export async function PATCH(
   if (body.label !== undefined) payload.label = String(body.label).trim();
   if (body.daily_limit !== undefined) payload.daily_limit = Number(body.daily_limit);
   if (body.is_active !== undefined) payload.is_active = Boolean(body.is_active);
+  if (body.profile_picture_url !== undefined) payload.profile_picture_url = body.profile_picture_url || null;
 
   if (!isSupabaseConfigured()) {
     // Demo mode
