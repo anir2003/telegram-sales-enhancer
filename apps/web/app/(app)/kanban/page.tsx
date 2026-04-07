@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type KanbanColumn = { id: string; name: string; position: number };
 type KanbanCard = {
@@ -19,9 +21,18 @@ const COLUMN_ACCENT = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#
 const CARD_HEIGHT = 110;
 
 export default function KanbanPage() {
+  const { data, isLoading, mutate } = useSWR<{ columns: KanbanColumn[]; cards: KanbanCard[] }>('/api/kanban');
+
   const [columns, setColumns] = useState<KanbanColumn[]>([]);
   const [cards, setCards] = useState<KanbanCard[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Sync local state from SWR data
+  useEffect(() => {
+    if (data) {
+      setColumns((data.columns ?? []).sort((a, b) => a.position - b.position));
+      setCards(data.cards ?? []);
+    }
+  }, [data]);
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColId, setDragOverColId] = useState<string | null>(null);
@@ -41,15 +52,6 @@ export default function KanbanPage() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColName, setNewColName] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const data = await fetchJson<{ columns: KanbanColumn[]; cards: KanbanCard[] }>('/api/kanban');
-    setColumns((data.columns ?? []).sort((a, b) => a.position - b.position));
-    setCards(data.cards ?? []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (editingColId && colNameInputRef.current) colNameInputRef.current.focus(); }, [editingColId]);
 
   // ── Column actions ──────────────────────────────────────────────────
@@ -75,8 +77,8 @@ export default function KanbanPage() {
     if (!name) { setAddingColumn(false); return; }
     setAddingColumn(false);
     setNewColName('');
-    const data = await fetchJson<{ column: KanbanColumn }>('/api/kanban', { method: 'POST', body: JSON.stringify({ name }) });
-    if (data.column) setColumns((prev) => [...prev, data.column]);
+    const result = await fetchJson<{ column: KanbanColumn }>('/api/kanban', { method: 'POST', body: JSON.stringify({ name }) });
+    if (result.column) setColumns((prev) => [...prev, result.column]);
   };
 
   // ── Card actions ────────────────────────────────────────────────────
@@ -88,11 +90,11 @@ export default function KanbanPage() {
     const d = newCardDesc.trim() || null;
     setNewCardTitle('');
     setNewCardDesc('');
-    const data = await fetchJson<{ card: KanbanCard }>('/api/kanban/cards', {
+    const result = await fetchJson<{ card: KanbanCard }>('/api/kanban/cards', {
       method: 'POST',
       body: JSON.stringify({ column_id: colId, title: t, description: d }),
     });
-    if (data.card) setCards((prev) => [...prev, data.card]);
+    if (result.card) setCards((prev) => [...prev, result.card]);
   };
 
   const openCard = (card: KanbanCard) => {
@@ -141,7 +143,27 @@ export default function KanbanPage() {
 
   const colCards = (colId: string) => cards.filter((c) => c.column_id === colId).sort((a, b) => a.position - b.position);
 
-  if (loading) return <div className="page-content"><div className="empty-state" style={{ marginTop: 80 }}>Loading board…</div></div>;
+  if (isLoading) return (
+    <div className="page-content" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexShrink: 0 }}>
+        <div>
+          <Skeleton height={18} width={120} style={{ marginBottom: 8 }} />
+          <Skeleton height={11} width={260} />
+        </div>
+        <Skeleton height={32} width={110} style={{ borderRadius: 4 }} />
+      </div>
+      <div style={{ display: 'flex', gap: 16, flex: 1 }}>
+        {[1, 2, 3].map((i) => (
+          <div key={i} style={{ width: 300, flexShrink: 0, background: 'var(--panel)', borderRadius: 6, border: '1px solid var(--border-soft)', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Skeleton height={14} width="60%" style={{ marginBottom: 4 }} />
+            {Array.from({ length: i + 1 }).map((_, j) => (
+              <Skeleton key={j} height={CARD_HEIGHT} style={{ borderRadius: 4 }} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-content" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -248,15 +270,12 @@ export default function KanbanPage() {
                     onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = `${accent}55`; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.18)'; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-soft)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
                   >
-                    {/* Title */}
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                       {card.title}
                     </div>
-                    {/* Description preview */}
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', marginTop: 4, flex: 1 }}>
                       {card.description ? card.description : <span style={{ opacity: 0.35, fontStyle: 'italic' }}>No description</span>}
                     </div>
-                    {/* Footer */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
                       {card.assigned_to ? (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>

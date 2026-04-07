@@ -1,17 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import useSWR from 'swr';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { fetchJson } from '@/lib/web/fetch-json';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [me, setMe] = useState<any>(null);
+  const { data: me, isLoading } = useSWR<any>('/api/me');
   const [loggingOut, setLoggingOut] = useState(false);
-
-  useEffect(() => {
-    void fetchJson<any>('/api/me').then(setMe);
-  }, []);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -30,11 +28,24 @@ export default function SettingsPage() {
       <div className="grid grid-2">
         <div className="card">
           <div className="card-title">Current Session</div>
-          <div className="kv"><span className="muted">Configured</span><span>{me?.configured ? 'Yes' : 'Demo mode'}</span></div>
-          <div className="kv"><span className="muted">Organization</span><span>{me?.workspace?.name ?? 'Not joined yet'}</span></div>
-          <div className="kv"><span className="muted">Slug</span><span>{me?.workspace?.slug ?? 'Set during organization onboarding'}</span></div>
-          <div className="kv"><span className="muted">User</span><span>{me?.profile?.email ?? 'demo@workspace.local'}</span></div>
-          <div className="kv"><span className="muted">Role</span><span>{me?.profile?.role ?? 'admin'}</span></div>
+          {isLoading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Skeleton height={11} width={80} />
+                  <Skeleton height={11} width={140} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="kv"><span className="muted">Configured</span><span>{me?.configured ? 'Yes' : 'Demo mode'}</span></div>
+              <div className="kv"><span className="muted">Organization</span><span>{me?.workspace?.name ?? 'Not joined yet'}</span></div>
+              <div className="kv"><span className="muted">Slug</span><span>{me?.workspace?.slug ?? 'Set during organization onboarding'}</span></div>
+              <div className="kv"><span className="muted">User</span><span>{me?.profile?.email ?? 'demo@workspace.local'}</span></div>
+              <div className="kv"><span className="muted">Role</span><span>{me?.profile?.role ?? 'admin'}</span></div>
+            </>
+          )}
         </div>
       </div>
 
@@ -45,13 +56,13 @@ export default function SettingsPage() {
           <div className="card-subtitle" style={{ marginBottom: 16 }}>
             End your current session and return to the login screen.
           </div>
-          <button 
-            className="btn" 
+          <button
+            className="btn"
             onClick={handleLogout}
             disabled={loggingOut}
-            style={{ 
+            style={{
               background: 'transparent',
-              color: '#e74c3c', 
+              color: '#e74c3c',
               border: '1px solid #e74c3c',
             }}
           >

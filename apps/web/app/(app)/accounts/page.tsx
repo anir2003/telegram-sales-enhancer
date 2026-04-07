@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
+import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, type Campaign, type CampaignDetail } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { AvatarCircle } from '@/components/ui/avatar';
+import { SkeletonPageContent } from '@/components/ui/skeleton';
 
 type Account = {
   id: string;
@@ -17,10 +19,18 @@ type Account = {
 };
 
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [details, setDetails] = useState<CampaignDetail[]>([]);
+  const { data: accountsData, isLoading: loadingAccounts, mutate: mutateAccounts } = useSWR<{ accounts: Account[] }>('/api/accounts');
+  const { data: campaignsData } = useSWR<{ campaigns: Campaign[] }>('/api/campaigns');
+
+  const rawAccounts = accountsData?.accounts ?? [];
+  const campaigns = campaignsData?.campaigns ?? [];
+
+  const detailsKey = campaigns.length > 0 ? `campaign-details:${campaigns.map(c => c.id).sort().join(',')}` : null;
+  const { data: details = [] } = useSWR<CampaignDetail[]>(detailsKey, async () =>
+    Promise.all(campaigns.map(c => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)))
+  );
+
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [showConnect, setShowConnect] = useState(false);
   const [connectLabel, setConnectLabel] = useState('');
   const [connectDailyLimit, setConnectDailyLimit] = useState(20);
@@ -33,22 +43,10 @@ export default function AccountsPage() {
   const [fetchingAvatar, setFetchingAvatar] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [accountResponse, campaignResponse] = await Promise.all([
-      fetchJson<{ accounts: Account[] }>('/api/accounts'),
-      fetchJson<{ campaigns: Campaign[] }>('/api/campaigns'),
-    ]);
-    const nextAccounts = accountResponse.accounts ?? [];
-    setAccounts(nextAccounts);
-    const campaigns = campaignResponse.campaigns ?? [];
-    const nextDetails = await Promise.all(campaigns.map((c) => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)));
-    setDetails(nextDetails);
-    setSelectedAccountId((cur) => cur ?? nextAccounts[0]?.id ?? null);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
+  // Auto-select first account once data loads
+  if (!selectedAccountId && rawAccounts.length > 0) {
+    setSelectedAccountId(rawAccounts[0].id);
+  }
 
   const generateConnectCode = async () => {
     setConnectError('');
@@ -88,7 +86,7 @@ export default function AccountsPage() {
       );
       if (res.ok && res.avatarUrl) {
         setEditingAccount((prev) => prev ? { ...prev, profile_picture_url: res.avatarUrl } : prev);
-        setAccounts((prev) => prev.map((a) => a.id === editingAccount.id ? { ...a, profile_picture_url: res.avatarUrl } : a));
+        await mutateAccounts();
         setAvatarStatus('✓ Profile picture saved');
       } else {
         setAvatarStatus(res.message ?? 'No picture found for this username');
@@ -104,7 +102,8 @@ export default function AccountsPage() {
     setSaving(true);
     try {
       await fetchJson(`/api/accounts/${editingAccount.id}`, { method: 'PATCH', body: JSON.stringify(editForm) });
-      setEditingAccount(null); await load();
+      setEditingAccount(null);
+      await mutateAccounts();
     } catch (err) { alert(err instanceof Error ? err.message : 'Failed to save'); }
     setSaving(false);
   };
@@ -117,12 +116,12 @@ export default function AccountsPage() {
       await fetchJson(`/api/accounts/${editingAccount.id}`, { method: 'DELETE' });
       setEditingAccount(null);
       if (selectedAccountId === editingAccount.id) setSelectedAccountId(null);
-      await load();
+      await mutateAccounts();
     } catch (err) { alert(err instanceof Error ? err.message : 'Failed to delete'); }
     setSaving(false);
   };
 
-  const accountInsights = useMemo(() => buildAccountInsights(accounts, details), [accounts, details]);
+  const accountInsights = useMemo(() => buildAccountInsights(rawAccounts, details), [rawAccounts, details]);
   const selectedAccount = accountInsights.find((a) => a.id === selectedAccountId) ?? null;
   const stats = useMemo(() => ({
     total: accountInsights.length,
@@ -131,7 +130,7 @@ export default function AccountsPage() {
     sentYesterday: accountInsights.reduce((s, a) => s + a.sentYesterday, 0),
   }), [accountInsights]);
 
-  if (loading) return <div className="page-content"><div className="empty-state">Loading...</div></div>;
+  if (loadingAccounts) return <SkeletonPageContent cards={4} tableRows={4} tableCols={4} />;
 
   return (
     <div className="page-content">
@@ -178,7 +177,7 @@ export default function AccountsPage() {
                 <br />Send <code>/connect {connectCode}</code> to the bot · expires in 15 min
               </div>
               <div className="btn-row">
-                <button className="btn-secondary" onClick={() => { resetConnect(); void load(); }}>Done</button>
+                <button className="btn-secondary" onClick={() => { resetConnect(); void mutateAccounts(); }}>Done</button>
                 <button className="btn-secondary" onClick={() => setConnectCode('')}>New Code</button>
               </div>
             </div>
@@ -266,7 +265,7 @@ export default function AccountsPage() {
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>@{selectedAccount.telegram_username}</div>
                   </div>
                 </div>
-                <button className="board-card-btn" onClick={() => handleEdit(accounts.find(a => a.id === selectedAccount.id)!)} style={{ padding: '4px 8px' }}>
+                <button className="board-card-btn" onClick={() => handleEdit(rawAccounts.find(a => a.id === selectedAccount.id)!)} style={{ padding: '4px 8px' }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
               </div>

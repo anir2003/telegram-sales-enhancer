@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { type Account, type CampaignDetail, type Lead, summariseCampaign } from '@/lib/web/insights';
 import { CustomSelect } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
 import { AvatarCircle } from '@/components/ui/avatar';
+import { SkeletonPageContent } from '@/components/ui/skeleton';
 
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Kolkata',        label: 'IST — India Standard Time (UTC+5:30)' },
@@ -174,7 +176,11 @@ export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const campaignId = params.id;
-  const [detail, setDetail] = useState<CampaignDetail | null>(null);
+
+  const { data: detail, isLoading: detailLoading, mutate } = useSWR<CampaignDetail>(
+    campaignId ? `/api/campaigns/${campaignId}` : null
+  );
+  const { data: btRaw } = useSWR<{ entries: any[] }>('/api/business-tracker');
   const [stepsForm, setStepsForm] = useState<any[]>([]);
   const [originalSteps, setOriginalSteps] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'stages' | 'leads' | 'settings'>('overview');
@@ -265,48 +271,49 @@ export default function CampaignDetailPage() {
           msg: `${res.matched} leads matched "${addLeadsTag}" — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
         });
       }
-      void load();
+      void mutate();
     } catch (e: any) {
       setAddLeadsResult({ ok: false, msg: e.message || 'Failed to add leads.' });
     }
     setAddLeadsLoading(false);
   };
 
-  const load = useCallback(async () => {
-    const [response, btData] = await Promise.all([
-      fetchJson<CampaignDetail>(`/api/campaigns/${campaignId}`),
-      fetchJson<{ entries: any[] }>('/api/business-tracker'),
-    ]);
-    setDetail(response);
-    setStepsForm(response.steps || []);
-    setOriginalSteps(JSON.parse(JSON.stringify(response.steps || [])));
-    setHasUnsavedChanges(false);
-    if (response.campaign) {
+  // Sync local form state from SWR detail (don't overwrite unsaved sequence changes)
+  useEffect(() => {
+    if (!detail) return;
+    if (!hasUnsavedChanges) {
+      setStepsForm(detail.steps || []);
+      setOriginalSteps(JSON.parse(JSON.stringify(detail.steps || [])));
+    }
+    if (detail.campaign) {
       setEditForm({
-        name: response.campaign.name ?? '',
-        description: response.campaign.description ?? '',
-        timezone: response.campaign.timezone ?? 'UTC',
-        send_window_start: response.campaign.send_window_start ?? '09:00',
-        send_window_end: response.campaign.send_window_end ?? '18:00',
-        start_date: response.campaign.start_date ?? '',
-        end_date: response.campaign.end_date ?? '',
+        name: detail.campaign.name ?? '',
+        description: detail.campaign.description ?? '',
+        timezone: detail.campaign.timezone ?? 'UTC',
+        send_window_start: detail.campaign.send_window_start ?? '09:00',
+        send_window_end: detail.campaign.send_window_end ?? '18:00',
+        start_date: detail.campaign.start_date ?? '',
+        end_date: detail.campaign.end_date ?? '',
       });
     }
-    // Restore "added to BT" state from existing entries
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail]);
+
+  // Compute tracker "done" IDs from BT data + campaign leads
+  useEffect(() => {
+    if (!detail || !btRaw) return;
     const btLeadIds = new Set(
-      (btData.entries ?? [])
+      (btRaw.entries ?? [])
         .filter((e: any) => e.campaign_id === campaignId && e.lead_id)
         .map((e: any) => e.lead_id)
     );
     const doneIds = new Set<string>(
-      (response.attachedLeads ?? [])
+      (detail.attachedLeads ?? [])
         .filter((item: any) => btLeadIds.has(item.lead_id))
         .map((item: any) => item.id)
     );
     setTrackerDoneIds(doneIds);
-  }, [campaignId]);
-
-  useEffect(() => { if (campaignId) void load(); }, [campaignId, load]);
+  }, [detail, btRaw, campaignId]);
 
   useEffect(() => {
     const current = JSON.stringify(stepsForm);
@@ -398,8 +405,8 @@ export default function CampaignDetailPage() {
     return Array.from(ids);
   }, [dailyChartData]);
 
-  if (!detail?.campaign || !metrics) {
-    return <div className="page-content"><div className="empty-state">Loading campaign…</div></div>;
+  if (detailLoading || !detail?.campaign || !metrics) {
+    return <SkeletonPageContent cards={4} tableRows={5} tableCols={4} />;
   }
 
   const handleStatusToggle = async () => {
@@ -411,7 +418,7 @@ export default function CampaignDetailPage() {
       } else {
         await fetchJson(`/api/campaigns/${campaignId}/launch`, { method: 'POST' });
       }
-      await load();
+      await mutate();
     } catch (err: any) {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to change status'}`);
     } finally {
@@ -423,7 +430,7 @@ export default function CampaignDetailPage() {
     setRunningScheduler(true);
     try {
       await fetchJson('/api/scheduler/run', { method: 'POST' });
-      await load();
+      await mutate();
     } catch (err: any) {
       setStatusMessage(`Scheduler error: ${err?.message ?? 'Failed'}`);
     } finally {
@@ -448,7 +455,7 @@ export default function CampaignDetailPage() {
       await fetchJson(`/api/campaigns/${campaignId}`, { method: 'PATCH', body: JSON.stringify(editForm) });
       setIsEditing(false);
       setStatusMessage('Saved.');
-      await load();
+      await mutate();
     } catch (err: any) {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to save'}`);
     }
@@ -496,7 +503,7 @@ export default function CampaignDetailPage() {
     const patch = patchForVirtualStage(targetVirtualStage, detail?.steps?.length ?? 2);
     try {
       await fetchJson(`/api/campaigns/${campaignId}/leads/${leadId}`, { method: 'PATCH', body: JSON.stringify(patch) });
-      await load();
+      await mutate();
     } catch (err: any) {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to move lead'}`);
     }
@@ -514,7 +521,7 @@ export default function CampaignDetailPage() {
     try {
       await fetchJson(`/api/campaigns/${campaignId}/leads/${editingLead.id}`, { method: 'PATCH', body: JSON.stringify(leadEditForm) });
       setEditingLead(null);
-      await load();
+      await mutate();
     } catch (err: any) {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to save'}`);
     }
@@ -524,7 +531,7 @@ export default function CampaignDetailPage() {
     try {
       await fetchJson(`/api/campaigns/${campaignId}/leads/${itemId}`, { method: 'PATCH', body: JSON.stringify({ notes: inlineNoteText }) });
       setInlineNoteItem(null);
-      await load();
+      await mutate();
     } catch (err: any) {
       setStatusMessage(`Error: ${err?.message ?? 'Failed to save note'}`);
     }
