@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { Bot, Context, Keyboard, webhookCallback } from 'grammy';
 import { AppApiClient, type BotTask } from './api';
 import { getBotConfig } from './config';
-import { buildResolvedKeyboard, buildSentKeyboard, buildTaskKeyboard, buildTaskMessage } from './task-card';
+import { buildResolvedKeyboard, buildSentKeyboard, buildSkipPromptKeyboard, buildTaskKeyboard, buildTaskMessage } from './task-card';
 
 const config = getBotConfig();
 const api = new AppApiClient({
@@ -12,9 +12,35 @@ const api = new AppApiClient({
 });
 const bot = new Bot(config.token);
 
+// Tracks users who clicked Skip and are expected to type a reason next.
+// Maps telegramUserId → { taskId, promptMsgId, chatId }
+const pendingSkips = new Map<number, { taskId: string; promptMsgId: number; chatId: number }>();
+
 function commandMenu() {
   return new Keyboard().text('Next task').resized();
 }
+
+// Intercept plain text messages from users who are mid-skip flow (typed a reason).
+bot.use(async (ctx, next) => {
+  const userId = ctx.from?.id;
+  const text = ctx.message?.text;
+  if (userId && text && !text.startsWith('/') && pendingSkips.has(userId)) {
+    const pending = pendingSkips.get(userId)!;
+    pendingSkips.delete(userId);
+    await api.markTaskSkipped(pending.taskId, userId, text.trim());
+    try {
+      await ctx.api.editMessageText(
+        pending.chatId,
+        pending.promptMsgId,
+        `⏭ <b>Skipped</b> · <i>Note saved: "${text.trim()}"</i>`,
+        { parse_mode: 'HTML' },
+      );
+    } catch { /* message may already be gone */ }
+    await sendNextTask(ctx);
+    return;
+  }
+  await next();
+});
 
 async function sendTaskCard(ctx: Context, task: BotTask) {
   await ctx.reply(buildTaskMessage(task), {
@@ -169,17 +195,34 @@ bot.callbackQuery(/^task:sent:(.+)$/, async (ctx) => {
   await sendNextTask(ctx);
 });
 
-bot.callbackQuery(/^task:skip:(.+)$/, async (ctx) => {
+// Step 1 — user clicked ⏭ Skip on the task card: ask for a reason.
+bot.callbackQuery(/^task:skip:ask:(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
-  await api.markTaskSkipped(taskId, ctx.from.id);
-  await ctx.answerCallbackQuery({ text: 'Marked skipped' });
+  const userId = ctx.from.id;
+  await ctx.answerCallbackQuery();
   try {
-    await ctx.editMessageReplyMarkup({
-      reply_markup: buildResolvedKeyboard('Status: skipped'),
-    });
-  } catch (error) {
-    console.warn('Unable to update inline keyboard', error);
-  }
+    await ctx.editMessageReplyMarkup({ reply_markup: buildResolvedKeyboard('⏭ Skipping…') });
+  } catch { /* ignore */ }
+  const prompt = await ctx.reply(
+    '⏭ <b>Add a skip note?</b>\n\nType your reason now and it will be saved to this lead\'s CRM notes.\nOr tap below to skip without a note.',
+    {
+      parse_mode: 'HTML',
+      reply_markup: buildSkipPromptKeyboard(taskId),
+    },
+  );
+  pendingSkips.set(userId, { taskId, promptMsgId: prompt.message_id, chatId: prompt.chat.id });
+});
+
+// Step 2a — user tapped "Skip without reason".
+bot.callbackQuery(/^task:skip:confirm:(.+)$/, async (ctx) => {
+  const taskId = ctx.match[1];
+  const userId = ctx.from.id;
+  pendingSkips.delete(userId);
+  await api.markTaskSkipped(taskId, userId);
+  await ctx.answerCallbackQuery({ text: 'Skipped' });
+  try {
+    await ctx.editMessageText('⏭ <b>Skipped</b> · <i>No note added</i>', { parse_mode: 'HTML' });
+  } catch { /* ignore */ }
   await sendNextTask(ctx);
 });
 
