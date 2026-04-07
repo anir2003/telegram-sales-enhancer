@@ -473,7 +473,7 @@ export default function DashboardPage() {
     const openLeads = campaignSummaries.reduce((sum, i) => sum + i.active, 0);
     const blockedLeads = campaignSummaries.reduce((sum, i) => sum + i.blocked, 0);
     const heatmap = buildHeatmap(activity, 36);
-    const accountInsights = buildAccountInsights(accounts, details).sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount).slice(0, 4);
+    const accountInsights = buildAccountInsights(accounts, details).sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount);
     const campaignPulse = campaignSummaries.sort((a, b) => b.sentToday - a.sentToday || b.totalLeads - a.totalLeads).slice(0, 4);
     return { activeAccounts, avgReplyRate, liveCampaigns, openLeads, blockedLeads, heatmap, accountInsights, campaignPulse, sentEvents, totalLeads: leads.length };
   }, [accounts, activity, campaigns, details, leads.length]);
@@ -608,7 +608,15 @@ export default function DashboardPage() {
             </div>
             <Link href="/accounts" className="btn-secondary">Open Accounts</Link>
           </div>
-          <div className="pulse-table">
+          <div
+            className="pulse-table"
+            style={metrics.accountInsights.length > 3 ? {
+              maxHeight: 144,
+              overflowY: 'auto',
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'var(--border-strong) transparent',
+            } : undefined}
+          >
             {metrics.accountInsights.length ? metrics.accountInsights.map((account) => (
               <div key={account.id} className="pulse-table-row">
                 <div className="pulse-table-main">
