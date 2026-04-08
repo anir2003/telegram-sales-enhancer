@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
-import { buildAccountInsights, buildHeatmap, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
+import { buildAccountInsights, buildHeatmap, formatLocalDateKey, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { AvatarCircle } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -89,7 +89,7 @@ function MiniCalendar({ activity, campaigns, details, accounts }: {
 
     activity.forEach(entry => {
       if (!entry.event_type.startsWith('task.')) return;
-      const iso = new Date(entry.created_at).toISOString().slice(0, 10);
+      const iso = formatLocalDateKey(entry.created_at);
       if (!sentByDay.has(iso)) sentByDay.set(iso, { campaigns: new Map(), accounts: new Map() });
       const day = sentByDay.get(iso)!;
 
@@ -156,17 +156,17 @@ function MiniCalendar({ activity, campaigns, details, accounts }: {
   const cells: { date: Date; iso: string; isCurrentMonth: boolean; isToday: boolean }[] = [];
   for (let i = firstDay - 1; i >= 0; i--) {
     const d = new Date(year, month - 1, daysInPrevMonth - i);
-    cells.push({ date: d, iso: d.toISOString().slice(0, 10), isCurrentMonth: false, isToday: false });
+    cells.push({ date: d, iso: formatLocalDateKey(d), isCurrentMonth: false, isToday: false });
   }
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(year, month, d);
     const isToday = date.toDateString() === today.toDateString();
-    cells.push({ date, iso: date.toISOString().slice(0, 10), isCurrentMonth: true, isToday });
+    cells.push({ date, iso: formatLocalDateKey(date), isCurrentMonth: true, isToday });
   }
   const remaining = 35 - cells.length;
   for (let d = 1; d <= remaining; d++) {
     const dt = new Date(year, month + 1, d);
-    cells.push({ date: dt, iso: dt.toISOString().slice(0, 10), isCurrentMonth: false, isToday: false });
+    cells.push({ date: dt, iso: formatLocalDateKey(dt), isCurrentMonth: false, isToday: false });
   }
 
   const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
@@ -175,12 +175,12 @@ function MiniCalendar({ activity, campaigns, details, accounts }: {
   const handleDateClick = (date: Date) => {
     setSelectedDate(date);
     setShowCommentInput(false);
-    const iso = date.toISOString().slice(0, 10);
+    const iso = formatLocalDateKey(date);
     const h = highlightMap.get(iso);
     setCommentText(h?.comment ?? '');
   };
 
-  const selectedIso = selectedDate?.toISOString().slice(0, 10) ?? '';
+  const selectedIso = selectedDate ? formatLocalDateKey(selectedDate) : '';
   const selectedStats = selectedIso ? dayStatsMap.get(selectedIso) : null;
   const selectedHighlight = selectedIso ? highlightMap.get(selectedIso) : null;
 

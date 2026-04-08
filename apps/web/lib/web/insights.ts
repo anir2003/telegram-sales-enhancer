@@ -84,6 +84,14 @@ function startOfDay(date: Date) {
   return value;
 }
 
+export function formatLocalDateKey(value: Date | string) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function sameDay(a: Date, b: Date) {
   return startOfDay(a).getTime() === startOfDay(b).getTime();
 }
@@ -153,7 +161,7 @@ export function buildHeatmap(activity: Activity[], weeks = 12): { days: HeatmapD
     const dow = current.getDay();
     if (dow === 0 && buckets.length > 0) weekIdx++;
     buckets.push({
-      iso: current.toISOString().slice(0, 10),
+      iso: formatLocalDateKey(current),
       label: current.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
       count: 0,
       intensity: 0,
@@ -165,7 +173,7 @@ export function buildHeatmap(activity: Activity[], weeks = 12): { days: HeatmapD
 
   activity.forEach((entry) => {
     if (!entry.event_type.startsWith('task.')) return;
-    const iso = new Date(entry.created_at).toISOString().slice(0, 10);
+    const iso = formatLocalDateKey(entry.created_at);
     const bucket = buckets.find((item) => item.iso === iso);
     if (bucket) bucket.count += 1;
   });

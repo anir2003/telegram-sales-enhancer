@@ -1189,7 +1189,7 @@ export async function listActivity(context?: WorkspaceContext) {
     .select('*')
     .eq('workspace_id', active.workspaceId)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(5000);
   if (error) throw error;
   return data as ActivityLogRecord[];
 }
@@ -1339,6 +1339,11 @@ export async function getNextBotTask(telegramUserId: number) {
     );
 
     if (!task) return null;
+    const step = demoState.steps.find((item) => item.id === task.sequence_step_id);
+    const lead = demoState.leads.find((item) => item.id === task.lead_id);
+    if (step && lead) {
+      task.rendered_message = pickRenderedMessageForStep(step, lead, { excludeRendered: task.rendered_message });
+    }
     task.status = 'claimed';
     task.claimed_by_profile_id = fallbackProfileId;
     return buildBotTaskPayload(task);
@@ -1395,12 +1400,22 @@ export async function getNextBotTask(telegramUserId: number) {
 
   if (!pendingTask) return null;
 
+  const [{ data: step }, { data: lead }] = await Promise.all([
+    supabase!.from('campaign_sequence_steps').select('*').eq('id', pendingTask.sequence_step_id).maybeSingle(),
+    supabase!.from('leads').select('*').eq('id', pendingTask.lead_id).maybeSingle(),
+  ]);
+
+  const rerolledMessage = step && lead
+    ? pickRenderedMessageForStep(step as SequenceStepRecord, lead as LeadRecord, { excludeRendered: pendingTask.rendered_message })
+    : pendingTask.rendered_message;
+
   const { data: claimed } = await supabase!
     .from('send_tasks')
     .update({
       status: 'claimed',
       claimed_by_profile_id: simulatedProfileId || null,
       claimed_at: dueNow,
+      rendered_message: rerolledMessage,
     })
     .eq('id', pendingTask.id)
     .eq('status', 'pending') // optimistic lock
