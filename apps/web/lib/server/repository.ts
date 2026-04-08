@@ -1189,7 +1189,7 @@ export async function listActivity(context?: WorkspaceContext) {
     .select('*')
     .eq('workspace_id', active.workspaceId)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(5000);
   if (error) throw error;
   return data as ActivityLogRecord[];
 }

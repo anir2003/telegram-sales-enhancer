@@ -10,6 +10,14 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { AvatarCircle } from '@/components/ui/avatar';
 import { SkeletonPageContent } from '@/components/ui/skeleton';
 
+function formatLocalDateKey(value: Date | string) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Kolkata',        label: 'IST — India Standard Time (UTC+5:30)' },
   { value: 'UTC',                 label: 'UTC — Coordinated Universal Time' },
@@ -404,7 +412,7 @@ export default function CampaignDetailPage() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = formatLocalDateKey(d);
       days.push({ label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }), iso, accounts: {}, total: 0 });
     }
     detail?.attachedLeads?.forEach((lead: any) => {
@@ -413,13 +421,13 @@ export default function CampaignDetailPage() {
       const events = lead.step_events || [];
       events.forEach((evt: any) => {
         if (evt.event === 'sent' || evt.event === 'followup_sent') {
-          const eventIso = evt.at?.slice(0, 10);
+          const eventIso = evt.at ? formatLocalDateKey(evt.at) : '';
           const day = days.find(d => d.iso === eventIso);
           if (day) { day.accounts[accountId] = (day.accounts[accountId] || 0) + 1; day.total++; }
         }
       });
       if (events.length === 0 && lead.last_sent_at) {
-        const sentIso = lead.last_sent_at.slice(0, 10);
+        const sentIso = formatLocalDateKey(lead.last_sent_at);
         const day = days.find(d => d.iso === sentIso);
         if (day) { day.accounts[accountId] = (day.accounts[accountId] || 0) + 1; day.total++; }
       }
