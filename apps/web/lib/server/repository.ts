@@ -31,6 +31,26 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const openCampaignLeadStatuses = [
+  'queued',
+  'due',
+  'sent_waiting_followup',
+  'first_followup_done',
+  'blocked',
+  'call_in_future',
+  'meeting_scheduled',
+] as const;
+
+function compareCampaignLeadOrder(
+  a: { id: string; created_at?: string | null },
+  b: { id: string; created_at?: string | null },
+) {
+  const aCreated = a.created_at ?? '';
+  const bCreated = b.created_at ?? '';
+  if (aCreated === bCreated) return a.id.localeCompare(b.id);
+  return aCreated.localeCompare(bCreated);
+}
+
 function isDue(value: string | null | undefined) {
   if (!value) return false;
   return new Date(value).getTime() <= Date.now();
@@ -817,6 +837,7 @@ export async function setCampaignAccounts(
         created_at: nowIso(),
       });
     });
+    await assignUnassignedCampaignLeads(campaignId, active);
     return accountIds;
   }
 
@@ -832,6 +853,7 @@ export async function setCampaignAccounts(
   }));
   const { error } = await supabase!.from('campaign_account_assignments').insert(payload);
   if (error) throw error;
+  await assignUnassignedCampaignLeads(campaignId, active);
   return accountIds;
 }
 
@@ -847,6 +869,122 @@ function distributeAccounts(accounts: TelegramAccountRecord[], total: number) {
   return slots;
 }
 
+export async function assignUnassignedCampaignLeads(
+  campaignId: string,
+  context?: WorkspaceContext,
+): Promise<{ assigned: number; availableAccounts: number }> {
+  const active = resolveWorkspaceContext(context);
+
+  if (!isSupabaseConfigured()) {
+    const assignmentIds = demoState.assignments
+      .filter((item) => item.campaign_id === campaignId)
+      .map((item) => item.telegram_account_id);
+    const activeAccounts = demoState.accounts
+      .filter((account) => assignmentIds.includes(account.id) && account.is_active)
+      .sort((a, b) => a.id.localeCompare(b.id));
+
+    if (!activeAccounts.length) {
+      return { assigned: 0, availableAccounts: 0 };
+    }
+
+    const loads = new Map<string, number>();
+    activeAccounts.forEach((account) => loads.set(account.id, 0));
+
+    demoState.campaignLeads
+      .filter((lead) =>
+        lead.campaign_id === campaignId &&
+        lead.assigned_account_id &&
+        openCampaignLeadStatuses.includes((lead.status ?? 'queued') as (typeof openCampaignLeadStatuses)[number]) &&
+        loads.has(lead.assigned_account_id),
+      )
+      .forEach((lead) => {
+        const accountId = lead.assigned_account_id!;
+        loads.set(accountId, (loads.get(accountId) ?? 0) + 1);
+      });
+
+    const unassigned = demoState.campaignLeads
+      .filter((lead) => lead.campaign_id === campaignId && !lead.assigned_account_id)
+      .sort((a, b) => compareCampaignLeadOrder(a as { id: string; created_at?: string | null }, b as { id: string; created_at?: string | null }));
+
+    for (const campaignLead of unassigned) {
+      const account = [...activeAccounts].sort((a, b) => {
+        const loadDiff = (loads.get(a.id) ?? 0) - (loads.get(b.id) ?? 0);
+        if (loadDiff !== 0) return loadDiff;
+        return a.id.localeCompare(b.id);
+      })[0];
+      if (!account) break;
+      campaignLead.assigned_account_id = account.id;
+      loads.set(account.id, (loads.get(account.id) ?? 0) + 1);
+    }
+
+    return { assigned: unassigned.length, availableAccounts: activeAccounts.length };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: assignmentRows } = await supabase!
+    .from('campaign_account_assignments')
+    .select('telegram_account_id')
+    .eq('workspace_id', active.workspaceId)
+    .eq('campaign_id', campaignId);
+
+  const assignedAccountIds = [...new Set((assignmentRows ?? []).map((row) => row.telegram_account_id).filter(Boolean))];
+  if (!assignedAccountIds.length) {
+    return { assigned: 0, availableAccounts: 0 };
+  }
+
+  const { data: activeAccountsData } = await supabase!
+    .from('telegram_accounts')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .eq('is_active', true)
+    .in('id', assignedAccountIds);
+
+  const activeAccounts = ((activeAccountsData ?? []) as TelegramAccountRecord[]).sort((a, b) => a.id.localeCompare(b.id));
+  if (!activeAccounts.length) {
+    return { assigned: 0, availableAccounts: 0 };
+  }
+
+  const { data: campaignLeads } = await supabase!
+    .from('campaign_leads')
+    .select('id, assigned_account_id, status, created_at')
+    .eq('workspace_id', active.workspaceId)
+    .eq('campaign_id', campaignId);
+
+  const loads = new Map<string, number>();
+  activeAccounts.forEach((account) => loads.set(account.id, 0));
+
+  (campaignLeads ?? []).forEach((lead) => {
+    if (
+      lead.assigned_account_id &&
+      loads.has(lead.assigned_account_id) &&
+      openCampaignLeadStatuses.includes((lead.status ?? 'queued') as (typeof openCampaignLeadStatuses)[number])
+    ) {
+      loads.set(lead.assigned_account_id, (loads.get(lead.assigned_account_id) ?? 0) + 1);
+    }
+  });
+
+  const unassigned = (campaignLeads ?? [])
+    .filter((lead) => !lead.assigned_account_id)
+    .sort((a, b) => compareCampaignLeadOrder(a, b));
+
+  for (const campaignLead of unassigned) {
+    const account = [...activeAccounts].sort((a, b) => {
+      const loadDiff = (loads.get(a.id) ?? 0) - (loads.get(b.id) ?? 0);
+      if (loadDiff !== 0) return loadDiff;
+      return a.id.localeCompare(b.id);
+    })[0];
+    if (!account) break;
+    await supabase!
+      .from('campaign_leads')
+      .update({ assigned_account_id: account.id })
+      .eq('workspace_id', active.workspaceId)
+      .eq('id', campaignLead.id);
+    loads.set(account.id, (loads.get(account.id) ?? 0) + 1);
+  }
+
+  return { assigned: unassigned.length, availableAccounts: activeAccounts.length };
+}
+
 export async function launchCampaign(campaignId: string, context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   const detail = await getCampaignDetail(campaignId, active);
@@ -856,28 +994,8 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
 
   const assignedAccounts = detail.accounts.filter((account) => detail.assignedAccountIds.includes(account.id) && account.is_active);
   if (!assignedAccounts.length) throw new Error('Assign at least one active account before launch');
-
-  const slots = distributeAccounts(assignedAccounts, detail.attachedLeads.length);
-  const leadById = new Map(detail.leads.map((lead) => [lead.id, lead]));
-  let queuedCount = 0;
-
-  for (const [index, campaignLead] of detail.attachedLeads.entries()) {
-    const lead = leadById.get(campaignLead.lead_id);
-    if (!lead) continue;
-    const assignedAccountId = slots[index]; // always defined — distributeAccounts covers all leads
-
-    // Queue every lead regardless of daily limits. If this lead was previously
-    // blocked only because of "No account capacity at launch" (the old buggy
-    // behaviour), re-launching will recover it here. The scheduler promotes
-    // leads from queued → due each day up to each account's daily_limit.
-    await updateCampaignLead(campaignLead.id, {
-      assigned_account_id: assignedAccountId,
-      status: 'queued',
-      next_due_at: null,
-      next_step_order: 1,
-    }, active);
-    queuedCount++;
-  }
+  const assignmentResult = await assignUnassignedCampaignLeads(campaignId, active);
+  const queuedCount = detail.attachedLeads.filter((lead) => lead.status === 'queued').length;
 
   if (!isSupabaseConfigured()) {
     const campaign = demoState.campaigns.find((item) => item.id === campaignId)!;
@@ -887,7 +1005,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
       profileId: active.profileId,
       event_type: 'campaign.launched',
       event_label: `${campaign.name} launched`,
-      payload: { campaign_id: campaignId, queued_leads: queuedCount },
+      payload: { campaign_id: campaignId, queued_leads: queuedCount, assigned: assignmentResult.assigned },
     });
     return queuedCount;
   }
@@ -904,7 +1022,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
     profileId: active.profileId,
     event_type: 'campaign.launched',
     event_label: `${detail.campaign.name} launched`,
-    payload: { campaign_id: campaignId, queued_leads: queuedCount },
+    payload: { campaign_id: campaignId, queued_leads: queuedCount, assigned: assignmentResult.assigned },
   });
 
   return queuedCount;
@@ -1461,6 +1579,15 @@ export async function runBotScheduler() {
     let created = 0;
     let blocked = 0;
 
+    const unassignedCampaignIds = [...new Set(
+      demoState.campaignLeads
+        .filter((lead) => lead.status === 'queued' && lead.next_step_order === 1 && !lead.assigned_account_id)
+        .map((lead) => lead.campaign_id),
+    )];
+    for (const campaignId of unassignedCampaignIds) {
+      await assignUnassignedCampaignLeads(campaignId, active);
+    }
+
     // Phase 0: Recover leads that were blocked at launch due to no account capacity.
     // Re-assign them round-robin to active accounts and reset to queued so Phase 1
     // can promote them in this same scheduler run — no manual pause/relaunch needed.
@@ -1612,6 +1739,22 @@ export async function runBotScheduler() {
   const dueNow = nowIso();
   let created = 0;
   let blocked = 0;
+
+  const { data: unassignedQueuedLeads } = await supabase!
+    .from('campaign_leads')
+    .select('campaign_id, workspace_id')
+    .is('assigned_account_id', null)
+    .eq('status', 'queued')
+    .eq('next_step_order', 1);
+
+  const repairTargets = new Map<string, string>();
+  for (const lead of unassignedQueuedLeads ?? []) {
+    repairTargets.set(`${lead.workspace_id}:${lead.campaign_id}`, lead.workspace_id);
+  }
+  for (const key of repairTargets.keys()) {
+    const [workspaceId, campaignId] = key.split(':');
+    await assignUnassignedCampaignLeads(campaignId, { workspaceId, profileId: null });
+  }
 
   // ── Phase 0: Recover blocked-at-launch leads ──────────────────────────────────────────────
   // Leads blocked solely because there was no account capacity at launch time get

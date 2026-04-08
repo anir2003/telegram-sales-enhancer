@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkspaceContext } from '@/lib/server/context';
-import { importLeadsCsv, listLeadsByTag, addLeadsToCampaign } from '@/lib/server/repository';
+import { autoFetchLeadAvatar } from '@/lib/server/auto-fetch-avatar';
+import { importLeadsCsv, listLeadsByTag, addLeadsToCampaign, assignUnassignedCampaignLeads } from '@/lib/server/repository';
 
 export const dynamic = 'force-dynamic';
+
+function queueMissingLeadAvatars(
+  leads: Array<{ id: string; telegram_username: string; profile_picture_url?: string | null }>,
+  context?: { workspaceId: string; profileId: string | null },
+) {
+  let queued = 0;
+  for (const lead of leads) {
+    if (!lead.telegram_username || lead.profile_picture_url) continue;
+    autoFetchLeadAvatar(lead.id, lead.telegram_username, context);
+    queued += 1;
+  }
+  return queued;
+}
 
 export async function POST(
   request: NextRequest,
@@ -37,11 +51,16 @@ export async function POST(
       const csvText = await file.text();
       const leads = await importLeadsCsv(csvText, extraTags, ctx);
       const result = await addLeadsToCampaign(id, leads.map((l) => l.id), ctx);
+      const assignmentResult = await assignUnassignedCampaignLeads(id, ctx);
+      const avatarFetchQueued = queueMissingLeadAvatars(leads, ctx);
 
       return NextResponse.json({
         imported: leads.length,
         added_to_campaign: result.added,
         already_in_campaign: result.skipped,
+        assigned_to_accounts: assignmentResult.assigned,
+        active_accounts: assignmentResult.availableAccounts,
+        avatar_fetch_queued: avatarFetchQueued,
       });
     } else {
       // ── Method B: Tag-based ──────────────────────────────────────
@@ -53,11 +72,16 @@ export async function POST(
 
       const leads = await listLeadsByTag(tag.trim(), ctx);
       const result = await addLeadsToCampaign(id, leads.map((l) => l.id), ctx);
+      const assignmentResult = await assignUnassignedCampaignLeads(id, ctx);
+      const avatarFetchQueued = queueMissingLeadAvatars(leads, ctx);
 
       return NextResponse.json({
         matched: leads.length,
         added_to_campaign: result.added,
         already_in_campaign: result.skipped,
+        assigned_to_accounts: assignmentResult.assigned,
+        active_accounts: assignmentResult.availableAccounts,
+        avatar_fetch_queued: avatarFetchQueued,
       });
     }
   } catch (err: any) {

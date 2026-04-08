@@ -197,6 +197,7 @@ export default function CampaignDetailPage() {
   const [statusMessage, setStatusMessage] = useState('');
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [runningScheduler, setRunningScheduler] = useState(false);
+  const [repairingIntake, setRepairingIntake] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
@@ -248,27 +249,49 @@ export default function CampaignDetailPage() {
         fd.append('file', addLeadsFile);
         if (addLeadsExtraTags.trim()) fd.append('tags', addLeadsExtraTags.trim());
         const res = await fetchJson<{
-          imported: number; added_to_campaign: number; already_in_campaign: number; error?: string;
+          imported: number;
+          added_to_campaign: number;
+          already_in_campaign: number;
+          assigned_to_accounts?: number;
+          active_accounts?: number;
+          avatar_fetch_queued?: number;
+          error?: string;
         }>(`/api/campaigns/${campaignId}/add-leads`, { method: 'POST', body: fd });
         if (res.error) throw new Error(res.error);
+        const extras = [
+          res.assigned_to_accounts ? `${res.assigned_to_accounts} assigned to campaign accounts` : null,
+          res.avatar_fetch_queued ? `${res.avatar_fetch_queued} avatar fetches queued` : null,
+          res.active_accounts === 0 && res.added_to_campaign > 0 ? 'no active campaign accounts available yet' : null,
+        ].filter(Boolean);
         setAddLeadsResult({
           ok: true,
-          msg: `${res.imported} leads imported — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
+          msg: `${res.imported} leads imported — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present${extras.length ? `, ${extras.join(', ')}` : ''}.`,
         });
         setAddLeadsFile(null);
         setAddLeadsExtraTags('');
       } else {
         if (!addLeadsTag) return;
         const res = await fetchJson<{
-          matched: number; added_to_campaign: number; already_in_campaign: number; error?: string;
+          matched: number;
+          added_to_campaign: number;
+          already_in_campaign: number;
+          assigned_to_accounts?: number;
+          active_accounts?: number;
+          avatar_fetch_queued?: number;
+          error?: string;
         }>(`/api/campaigns/${campaignId}/add-leads`, {
           method: 'POST',
           body: JSON.stringify({ tag: addLeadsTag }),
         });
         if (res.error) throw new Error(res.error);
+        const extras = [
+          res.assigned_to_accounts ? `${res.assigned_to_accounts} assigned to campaign accounts` : null,
+          res.avatar_fetch_queued ? `${res.avatar_fetch_queued} avatar fetches queued` : null,
+          res.active_accounts === 0 && res.added_to_campaign > 0 ? 'no active campaign accounts available yet' : null,
+        ].filter(Boolean);
         setAddLeadsResult({
           ok: true,
-          msg: `${res.matched} leads matched "${addLeadsTag}" — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present.`,
+          msg: `${res.matched} leads matched "${addLeadsTag}" — ${res.added_to_campaign} added to campaign, ${res.already_in_campaign} already present${extras.length ? `, ${extras.join(', ')}` : ''}.`,
         });
       }
       void mutate();
@@ -435,6 +458,33 @@ export default function CampaignDetailPage() {
       setStatusMessage(`Scheduler error: ${err?.message ?? 'Failed'}`);
     } finally {
       setRunningScheduler(false);
+    }
+  };
+
+  const handleRepairIntake = async () => {
+    setRepairingIntake(true);
+    try {
+      const res = await fetchJson<{
+        assigned: number;
+        active_accounts: number;
+        avatar_fetch_queued: number;
+        error?: string;
+      }>(`/api/campaigns/${campaignId}/repair`, { method: 'POST' });
+      if (res.error) throw new Error(res.error);
+
+      const parts = [
+        `${res.assigned} leads assigned`,
+        `${res.avatar_fetch_queued} avatar fetches queued`,
+      ];
+      if (res.active_accounts === 0) {
+        parts.push('no active campaign accounts available yet');
+      }
+      setStatusMessage(`Repair complete: ${parts.join(', ')}.`);
+      await mutate();
+    } catch (err: any) {
+      setStatusMessage(`Repair error: ${err?.message ?? 'Failed'}`);
+    } finally {
+      setRepairingIntake(false);
     }
   };
 
@@ -751,6 +801,22 @@ export default function CampaignDetailPage() {
               </button>
             </div>
             <button
+              onClick={handleRepairIntake}
+              disabled={repairingIntake}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', fontSize: 11, cursor: repairingIntake ? 'not-allowed' : 'pointer',
+                background: 'var(--panel-alt)', border: '1px solid var(--border-soft)',
+                borderRadius: 4, color: repairingIntake ? 'var(--text-dim)' : 'var(--text)',
+                fontFamily: 'inherit', opacity: repairingIntake ? 0.6 : 1, transition: 'opacity 0.15s',
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 11-3.2-6.9"/><path d="M21 3v6h-6"/>
+              </svg>
+              {repairingIntake ? 'Repairing…' : 'Repair Intake'}
+            </button>
+            <button
               onClick={handleRunScheduler}
               disabled={runningScheduler}
               style={{
@@ -972,7 +1038,7 @@ export default function CampaignDetailPage() {
           <div className="card">
             <div className="card-title" style={{ marginBottom: 4 }}>Add More Leads</div>
             <div className="card-subtitle" style={{ marginBottom: 20 }}>
-              Add leads to this campaign from a CSV file or by tag. New leads are queued and picked up by the scheduler on the next run.
+              Add leads to this campaign from a CSV file or by tag. We queue avatar backfill automatically, and if active campaign accounts are attached we also assign the new leads so the scheduler can pick them up.
             </div>
 
             {/* Method toggle */}
