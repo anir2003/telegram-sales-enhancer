@@ -32,6 +32,7 @@ type SequenceDraft = {
   step_name: string;
   delay_days: number;
   message_template: string;
+  message_variants: string[];
 };
 
 const defaultStepName = (index: number): string => {
@@ -44,6 +45,7 @@ const emptyStep = (stepOrder: number): SequenceDraft => ({
   step_name: defaultStepName(stepOrder - 1),
   delay_days: stepOrder === 1 ? 0 : 2,
   message_template: '',
+  message_variants: [''],
 });
 
 const placeholders = [
@@ -96,7 +98,8 @@ export default function CampaignsPage() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>('setup');
   const [activeStepIdx, setActiveStepIdx] = useState(0);
-  const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const [activeVariantIdx, setActiveVariantIdx] = useState(0);
+  const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -170,8 +173,16 @@ export default function CampaignsPage() {
       });
 
       const activeSteps = steps
-        .filter((step) => step.message_template.trim())
-        .map((step, index) => ({ ...step, step_order: index + 1 }));
+        .map((step, index) => {
+          const messageVariants = step.message_variants.map((item) => item.trim()).filter(Boolean);
+          return {
+            ...step,
+            step_order: index + 1,
+            message_variants: messageVariants,
+            message_template: messageVariants[0] ?? '',
+          };
+        })
+        .filter((step) => step.message_variants.length > 0);
 
       await Promise.all([
         ...activeSteps.map((step) =>
@@ -244,6 +255,44 @@ export default function CampaignsPage() {
     setSteps((current) => current.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step)));
   };
 
+  const updateStepVariant = (stepIdx: number, variantIdx: number, value: string) => {
+    setSteps((current) => current.map((step, index) => {
+      if (index !== stepIdx) return step;
+      const nextVariants = [...step.message_variants];
+      nextVariants[variantIdx] = value;
+      return {
+        ...step,
+        message_variants: nextVariants,
+        message_template: nextVariants[0] ?? '',
+      };
+    }));
+  };
+
+  const addStepVariant = (stepIdx: number) => {
+    setSteps((current) => current.map((step, index) => (
+      index === stepIdx
+        ? { ...step, message_variants: [...step.message_variants, ''] }
+        : step
+    )));
+    setActiveStepIdx(stepIdx);
+    setActiveVariantIdx(steps[stepIdx]?.message_variants.length ?? 0);
+  };
+
+  const removeStepVariant = (stepIdx: number, variantIdx: number) => {
+    setSteps((current) => current.map((step, index) => {
+      if (index !== stepIdx) return step;
+      const nextVariants = step.message_variants.filter((_, currentVariantIdx) => currentVariantIdx !== variantIdx);
+      return {
+        ...step,
+        message_variants: nextVariants.length ? nextVariants : [''],
+        message_template: nextVariants[0] ?? '',
+      };
+    }));
+    if (activeStepIdx === stepIdx && activeVariantIdx >= variantIdx) {
+      setActiveVariantIdx(Math.max(0, activeVariantIdx - 1));
+    }
+  };
+
   const addStep = () => {
     setSteps((current) => [...current, emptyStep(current.length + 1)]);
   };
@@ -265,16 +314,18 @@ export default function CampaignsPage() {
   };
 
   const insertPlaceholder = (token: string) => {
-    const ta = textareaRefs.current[activeStepIdx];
+    const step = steps[activeStepIdx];
+    const currentVariant = step?.message_variants[activeVariantIdx] ?? '';
+    const refKey = `${activeStepIdx}:${activeVariantIdx}`;
+    const ta = textareaRefs.current[refKey];
     if (!ta) {
-      updateStep(activeStepIdx, { message_template: steps[activeStepIdx].message_template + token });
+      updateStepVariant(activeStepIdx, activeVariantIdx, currentVariant + token);
       return;
     }
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
-    const current = steps[activeStepIdx].message_template;
-    const next = current.substring(0, start) + token + current.substring(end);
-    updateStep(activeStepIdx, { message_template: next });
+    const next = currentVariant.substring(0, start) + token + currentVariant.substring(end);
+    updateStepVariant(activeStepIdx, activeVariantIdx, next);
     requestAnimationFrame(() => {
       ta.focus();
       ta.setSelectionRange(start + token.length, start + token.length);
@@ -632,51 +683,73 @@ export default function CampaignsPage() {
                         </div>
                         {/* Always show the body - no accordion */}
                         <div className="sequence-step-body">
-                          <div className="editor-wrapper">
-                            <div className="editor-pane">
-                              <textarea
-                                className="message-input"
-                                ref={(el) => { textareaRefs.current[index] = el; }}
-                                placeholder="Write your message here..."
-                                value={step.message_template}
-                                onFocus={() => setActiveStepIdx(index)}
-                                onChange={(e) => updateStep(index, { message_template: e.target.value })}
-                              />
-                            </div>
-                            <div className="preview-pane">
-                              <div className="preview-topbar">
-                                <div className="preview-avatar">
-                                  <svg width="36" height="36" viewBox="0 0 36 36">
-                                    <rect width="36" height="36" rx="18" fill="#0d0928"/>
-                                    <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
-                                    <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
-                                    <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
-                                    <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
-                                    <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
-                                    <rect x="12" y="17" width="2" height="2" fill="white"/>
-                                    <rect x="21" y="17" width="2" height="2" fill="white"/>
-                                    <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
-                                    <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
-                                    <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
-                                    <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
-                                  </svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {step.message_variants.map((variant, variantIdx) => (
+                              <div key={variantIdx} className="editor-wrapper">
+                                <div className="editor-pane">
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Option {variantIdx + 1}</div>
+                                    {step.message_variants.length > 1 && (
+                                      <button
+                                        type="button"
+                                        className="chip"
+                                        onClick={() => removeStepVariant(index, variantIdx)}
+                                      >
+                                        Remove
+                                      </button>
+                                    )}
+                                  </div>
+                                  <textarea
+                                    className="message-input"
+                                    ref={(el) => { textareaRefs.current[`${index}:${variantIdx}`] = el; }}
+                                    placeholder="Write your message here..."
+                                    value={variant}
+                                    onFocus={() => {
+                                      setActiveStepIdx(index);
+                                      setActiveVariantIdx(variantIdx);
+                                    }}
+                                    onChange={(e) => updateStepVariant(index, variantIdx, e.target.value)}
+                                  />
                                 </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
-                                  <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                                <div className="preview-pane">
+                                  <div className="preview-topbar">
+                                    <div className="preview-avatar">
+                                      <svg width="36" height="36" viewBox="0 0 36 36">
+                                        <rect width="36" height="36" rx="18" fill="#0d0928"/>
+                                        <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
+                                        <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
+                                        <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
+                                        <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                        <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                        <rect x="12" y="17" width="2" height="2" fill="white"/>
+                                        <rect x="21" y="17" width="2" height="2" fill="white"/>
+                                        <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
+                                        <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
+                                        <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
+                                        <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
+                                      </svg>
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
+                                      <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                                    </div>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                  </div>
+                                  <div className="preview-chat-area">
+                                    <div className="preview-bubble">
+                                      {variant.trim() ? renderPreview(variant) : 'Preview will appear here...'}
+                                    </div>
+                                    <div className="preview-time">
+                                      {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                    </div>
+                                  </div>
                                 </div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                               </div>
-                              <div className="preview-chat-area">
-                                <div className="preview-bubble">
-                                  {step.message_template.trim() ? renderPreview(step.message_template) : 'Preview will appear here...'}
-                                </div>
-                                <div className="preview-time">
-                                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                </div>
-                              </div>
-                            </div>
+                            ))}
+                            <button className="btn-secondary" type="button" onClick={() => addStepVariant(index)}>
+                              + Add Message Option
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -708,18 +781,20 @@ export default function CampaignsPage() {
 
                     <div style={{ background: 'var(--panel)', borderRadius: 8, padding: 16, gridColumn: '1 / -1' }}>
                       <div style={{ fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-                        Sequence — {steps.filter(s => s.message_template.trim()).length} steps with messages
+                        Sequence — {steps.filter(s => s.message_variants.some(v => v.trim())).length} steps with messages
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {steps.filter(s => s.message_template.trim()).map((s, i) => (
+                        {steps.filter(s => s.message_variants.some(v => v.trim())).map((s, i) => (
                           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
                             <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--panel-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{i + 1}</span>
                             <span style={{ color: 'var(--text)' }}>{s.step_name || defaultStepName(i)}</span>
                             <span style={{ color: 'var(--text-dim)', fontSize: 11 }}>delay {s.delay_days}d</span>
-                            <span style={{ flex: 1, color: 'var(--text-dim)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.message_template.slice(0, 60)}{s.message_template.length > 60 ? '...' : ''}</span>
+                            <span style={{ flex: 1, color: 'var(--text-dim)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.message_variants.filter(v => v.trim()).length} option{s.message_variants.filter(v => v.trim()).length !== 1 ? 's' : ''}
+                            </span>
                           </div>
                         ))}
-                        {steps.filter(s => s.message_template.trim()).length === 0 && (
+                        {steps.filter(s => s.message_variants.some(v => v.trim())).length === 0 && (
                           <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>No messages written yet. Go back to Sequence to add messages.</div>
                         )}
                       </div>

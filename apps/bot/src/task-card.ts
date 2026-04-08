@@ -47,7 +47,10 @@ export function buildTaskKeyboard(task: BotTask) {
   keyboard.text('Sent', `task:sent:${task.taskId}`);
   keyboard.text('Replied', `task:reply:replied:${task.taskId}`);
   keyboard.row();
+  keyboard.text('Change Message', `task:change-message:${task.taskId}`);
   keyboard.text('⏭ Skip', `task:skip:ask:${task.taskId}`);
+  keyboard.row();
+  keyboard.text('⚠ Restricted', 'task:restricted');
 
   return keyboard;
 }

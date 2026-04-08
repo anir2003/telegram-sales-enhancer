@@ -15,15 +15,38 @@ const bot = new Bot(config.token);
 // Tracks users who clicked Skip and are expected to type a reason next.
 // Maps telegramUserId → { taskId, promptMsgId, chatId }
 const pendingSkips = new Map<number, { taskId: string; promptMsgId: number; chatId: number }>();
+const pendingRestrictions = new Map<number, { promptMsgId: number; chatId: number }>();
 
 function commandMenu() {
-  return new Keyboard().text('Next task').resized();
+  return new Keyboard().text('Next task').text('Restricted').resized();
 }
 
 // Intercept plain text messages from users who are mid-skip flow (typed a reason).
 bot.use(async (ctx, next) => {
   const userId = ctx.from?.id;
   const text = ctx.message?.text;
+  if (userId && text && !text.startsWith('/') && pendingRestrictions.has(userId)) {
+    const pending = pendingRestrictions.get(userId)!;
+    pendingRestrictions.delete(userId);
+    try {
+      const { result } = await api.reportRestriction(userId, text.trim());
+      try {
+        await ctx.api.editMessageText(
+          pending.chatId,
+          pending.promptMsgId,
+          `⚠ <b>Restriction saved</b>\n\nRestricted until: <b>${result.restrictedUntil}</b>\nCooldown until: <b>${result.cooldownUntil}</b>\nTransferred leads in the affected send window: <b>${result.transferWindowCount}</b>`,
+          { parse_mode: 'HTML' },
+        );
+      } catch { /* ignore */ }
+      await ctx.reply('Restriction recorded. This account will stop receiving tasks until the cooldown and recovery rules allow it again.', {
+        reply_markup: commandMenu(),
+      });
+    } catch (error: any) {
+      await ctx.reply(error?.message ?? 'Could not parse that SpamBot message. Please paste the full message exactly as Telegram sent it.');
+      pendingRestrictions.set(userId, pending);
+    }
+    return;
+  }
   if (userId && text && !text.startsWith('/') && pendingSkips.has(userId)) {
     const pending = pendingSkips.get(userId)!;
     pendingSkips.delete(userId);
@@ -77,6 +100,27 @@ async function sendNextTask(ctx: Context) {
   }
 }
 
+async function promptRestrictionFlow(ctx: Context) {
+  const userId = ctx.from?.id;
+  if (!userId) {
+    await ctx.reply('Telegram user not found for this session.');
+    return;
+  }
+
+  const prompt = await ctx.reply(
+    [
+      '⚠ <b>Report restriction</b>',
+      '',
+      '1. Open <b>@SpamBot</b> in Telegram.',
+      '2. Send <code>/start</code> there.',
+      '3. Copy the full restriction message you receive.',
+      '4. Paste that full message here.',
+    ].join('\n'),
+    { parse_mode: 'HTML' },
+  );
+  pendingRestrictions.set(userId, { promptMsgId: prompt.message_id, chatId: prompt.chat.id });
+}
+
 bot.command('start', async (ctx) => {
   await ctx.reply(
     [
@@ -84,6 +128,7 @@ bot.command('start', async (ctx) => {
       '',
       '/connect CODE — Register this account as a sender (from Accounts page)',
       '/next — Pull the next due outreach task',
+      '/restricted — Report a Telegram restriction from SpamBot',
       '/replied @username — Mark a lead as replied by their Telegram username',
       '',
       'Each Telegram account you want to use for sending needs its own /connect code.',
@@ -149,7 +194,9 @@ bot.command('replied', async (ctx) => {
 });
 
 bot.command('next', sendNextTask);
+bot.command('restricted', promptRestrictionFlow);
 bot.hears(/^next task$/i, sendNextTask);
+bot.hears(/^restricted$/i, promptRestrictionFlow);
 bot.hears(/^[A-Z0-9]{6}$/i, async (ctx) => {
   const code = ctx.message?.text?.trim()?.toUpperCase();
   if (!code || !ctx.from) {
@@ -195,6 +242,23 @@ bot.callbackQuery(/^task:sent:(.+)$/, async (ctx) => {
   await sendNextTask(ctx);
 });
 
+bot.callbackQuery(/^task:change-message:(.+)$/, async (ctx) => {
+  const taskId = ctx.match[1];
+  const response = await api.changeTaskMessage(taskId, ctx.from.id);
+  await ctx.answerCallbackQuery({ text: 'Message updated' });
+  if (response.task) {
+    try {
+      await ctx.editMessageText(buildTaskMessage(response.task), {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        reply_markup: buildTaskKeyboard(response.task),
+      });
+    } catch (error) {
+      console.warn('Unable to update message text', error);
+    }
+  }
+});
+
 // Step 1 — user clicked ⏭ Skip on the task card: ask for a reason.
 bot.callbackQuery(/^task:skip:ask:(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
@@ -211,6 +275,11 @@ bot.callbackQuery(/^task:skip:ask:(.+)$/, async (ctx) => {
     },
   );
   pendingSkips.set(userId, { taskId, promptMsgId: prompt.message_id, chatId: prompt.chat.id });
+});
+
+bot.callbackQuery('task:restricted', async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await promptRestrictionFlow(ctx);
 });
 
 // Step 2a — user tapped "Skip without reason".

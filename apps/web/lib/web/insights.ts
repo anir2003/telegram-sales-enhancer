@@ -1,3 +1,5 @@
+import { getAccountRestrictionState } from '@telegram-enhancer/shared';
+
 export type Lead = {
   id: string;
   first_name: string;
@@ -16,6 +18,10 @@ export type Account = {
   daily_limit: number;
   is_active: boolean;
   profile_picture_url?: string | null;
+  restricted_until?: string | null;
+  cooldown_until?: string | null;
+  restriction_reported_at?: string | null;
+  restriction_source_text?: string | null;
 };
 
 export type Campaign = {
@@ -51,6 +57,7 @@ export type SequenceStep = {
   step_order: number;
   delay_days: number;
   message_template: string;
+  message_variants: string[];
 };
 
 export type Activity = {
@@ -183,6 +190,11 @@ export function buildHeatmap(activity: Activity[], weeks = 12): { days: HeatmapD
 
 export function buildAccountInsights(accounts: Account[], details: CampaignDetail[]) {
   return accounts.map((account) => {
+    const restriction = getAccountRestrictionState({
+      daily_limit: account.daily_limit,
+      restricted_until: account.restricted_until ?? null,
+      cooldown_until: account.cooldown_until ?? null,
+    });
     const relatedCampaigns = details.filter((detail) => detail.assignedAccountIds.includes(account.id));
     const campaignNames = relatedCampaigns.map((detail) => detail.campaign?.name).filter(Boolean) as string[];
     const assignedLeads = relatedCampaigns.flatMap((detail) =>
@@ -200,7 +212,12 @@ export function buildAccountInsights(accounts: Account[], details: CampaignDetai
       activeLeads,
       sentToday,
       sentYesterday,
-      utilization: Math.min(100, Math.round((sentToday / Math.max(account.daily_limit, 1)) * 100)),
+      effective_daily_limit: restriction.effectiveDailyLimit,
+      restriction_status: restriction.status,
+      restriction_multiplier: restriction.multiplier,
+      restriction_warning_until: restriction.recoveryCompleteAt,
+      has_restriction_warning: restriction.hasWarning,
+      utilization: Math.min(100, Math.round((sentToday / Math.max(restriction.effectiveDailyLimit || account.daily_limit, 1)) * 100)),
     };
   });
 }

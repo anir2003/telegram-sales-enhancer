@@ -93,6 +93,10 @@ export const demoState: {
       is_active: true,
       profile_picture_url: null,
       created_at: now,
+      restricted_until: null,
+      cooldown_until: null,
+      restriction_reported_at: null,
+      restriction_source_text: null,
     },
     {
       id: 'account-2',
@@ -105,6 +109,10 @@ export const demoState: {
       is_active: true,
       profile_picture_url: null,
       created_at: now,
+      restricted_until: null,
+      cooldown_until: null,
+      restriction_reported_at: null,
+      restriction_source_text: null,
     },
   ],
   campaigns: [
@@ -131,6 +139,7 @@ export const demoState: {
       step_name: 'Reachout',
       delay_days: 0,
       message_template: 'Hi {First Name}, reaching out from {Company}. Thought it could make sense to connect.',
+      message_variants: ['Hi {First Name}, reaching out from {Company}. Thought it could make sense to connect.'],
     },
     {
       id: 'step-2',
@@ -140,6 +149,7 @@ export const demoState: {
       step_name: 'Follow Up 1',
       delay_days: 2,
       message_template: 'Quick follow-up, {First Name}. Sharing this in case {Company} is exploring outbound support.',
+      message_variants: ['Quick follow-up, {First Name}. Sharing this in case {Company} is exploring outbound support.'],
     },
   ],
   campaignLeads: [],

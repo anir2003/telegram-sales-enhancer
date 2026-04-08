@@ -191,7 +191,8 @@ export default function CampaignDetailPage() {
   const [leadCompanyFilter, setLeadCompanyFilter] = useState('all');
   const [leadAccountFilter, setLeadAccountFilter] = useState('all');
   const [activeEditorStep, setActiveEditorStep] = useState(0);
-  const editorRefs = useRef<(HTMLTextAreaElement | null)[]>([]);
+  const [activeEditorVariant, setActiveEditorVariant] = useState(0);
+  const editorRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const [savingSteps, setSavingSteps] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -305,8 +306,14 @@ export default function CampaignDetailPage() {
   useEffect(() => {
     if (!detail) return;
     if (!hasUnsavedChanges) {
-      setStepsForm(detail.steps || []);
-      setOriginalSteps(JSON.parse(JSON.stringify(detail.steps || [])));
+      const normalizedSteps = (detail.steps || []).map((step: any) => ({
+        ...step,
+        message_variants: Array.isArray(step.message_variants) && step.message_variants.length
+          ? step.message_variants
+          : [step.message_template || ''],
+      }));
+      setStepsForm(normalizedSteps);
+      setOriginalSteps(JSON.parse(JSON.stringify(normalizedSteps)));
     }
     if (detail.campaign) {
       setEditForm({
@@ -515,7 +522,14 @@ export default function CampaignDetailPage() {
     setSavingSteps(true);
     try {
       for (const step of stepsForm) {
-        await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, { method: 'PATCH', body: JSON.stringify({ message_template: step.message_template }) });
+        const messageVariants = (step.message_variants ?? []).map((item: string) => item.trim()).filter(Boolean);
+        await fetchJson(`/api/campaigns/${campaignId}/steps/${step.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            message_template: messageVariants[0] ?? '',
+            message_variants: messageVariants,
+          }),
+        });
       }
       setOriginalSteps(JSON.parse(JSON.stringify(stepsForm)));
       setHasUnsavedChanges(false);
@@ -614,16 +628,31 @@ export default function CampaignDetailPage() {
   };
 
   const insertPlaceholder = (token: string) => {
-    const ta = editorRefs.current[activeEditorStep];
+    const refKey = `${activeEditorStep}:${activeEditorVariant}`;
+    const ta = editorRefs.current[refKey];
     if (!ta) {
-      setStepsForm(current => { const next = [...current]; if (next[activeEditorStep]) { next[activeEditorStep] = { ...next[activeEditorStep], message_template: next[activeEditorStep].message_template + token }; } return next; });
+      setStepsForm(current => {
+        const next = [...current];
+        if (next[activeEditorStep]) {
+          const variants = [...(next[activeEditorStep].message_variants ?? [next[activeEditorStep].message_template ?? ''])];
+          variants[activeEditorVariant] = `${variants[activeEditorVariant] ?? ''}${token}`;
+          next[activeEditorStep] = { ...next[activeEditorStep], message_template: variants[0] ?? '', message_variants: variants };
+        }
+        return next;
+      });
       return;
     }
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
-    const current = stepsForm[activeEditorStep]?.message_template ?? '';
+    const current = stepsForm[activeEditorStep]?.message_variants?.[activeEditorVariant] ?? stepsForm[activeEditorStep]?.message_template ?? '';
     const updated = current.substring(0, start) + token + current.substring(end);
-    setStepsForm(prev => { const next = [...prev]; next[activeEditorStep] = { ...next[activeEditorStep], message_template: updated }; return next; });
+    setStepsForm(prev => {
+      const next = [...prev];
+      const variants = [...(next[activeEditorStep]?.message_variants ?? [next[activeEditorStep]?.message_template ?? ''])];
+      variants[activeEditorVariant] = updated;
+      next[activeEditorStep] = { ...next[activeEditorStep], message_template: variants[0] ?? '', message_variants: variants };
+      return next;
+    });
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + token.length, start + token.length); });
   };
 
@@ -1180,6 +1209,9 @@ export default function CampaignDetailPage() {
                 const isOpen = activeEditorStep === idx;
                 // Unique ID scope for any SVG <defs> inside this step card
                 const stepUid = `step-${step.id ?? idx}`;
+                const messageVariants = Array.isArray(step.message_variants) && step.message_variants.length
+                  ? step.message_variants
+                  : [step.message_template ?? ''];
                 return (
                   <div key={step.id} className={`sequence-step-card ${isOpen ? 'active' : ''}`}>
                     <div className="sequence-step-header" onClick={() => setActiveEditorStep(isOpen ? -1 : idx)}>
@@ -1187,9 +1219,9 @@ export default function CampaignDetailPage() {
                         <div className="sequence-step-number">{step.step_order}</div>
                         <div>
                           <div style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{step.step_name || `Step ${step.step_order}`}</div>
-                          {!isOpen && step.message_template && (
+                          {!isOpen && (messageVariants[0] ?? '') && (
                             <div className="dim" style={{ fontSize: 11, marginTop: 2, maxWidth: 480, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {step.message_template.slice(0, 80)}{step.message_template.length > 80 ? '…' : ''}
+                              {(messageVariants[0] ?? '').slice(0, 80)}{(messageVariants[0] ?? '').length > 80 ? '…' : ''}
                             </div>
                           )}
                         </div>
@@ -1203,67 +1235,99 @@ export default function CampaignDetailPage() {
                     </div>
                     {isOpen && (
                       <div className="sequence-step-body">
-                        <div className="editor-wrapper">
-                          {/* ── Write pane */}
-                          <div className="editor-pane">
-                            <textarea
-                              className="message-input"
-                              ref={(el) => { editorRefs.current[idx] = el; }}
-                              value={step.message_template}
-                              onFocus={() => setActiveEditorStep(idx)}
-                              onChange={(e) => {
-                                setStepsForm(current => {
-                                  const next = [...current];
-                                  next[idx] = { ...next[idx], message_template: e.target.value };
-                                  return next;
-                                });
-                              }}
-                              placeholder="Type your message here…"
-                            />
-                          </div>
-                          {/* ── Preview pane */}
-                          <div className="preview-pane">
-                            {/* Chat top-bar */}
-                            <div className="preview-topbar">
-                              <div className="preview-avatar" key={stepUid}>
-                                <svg width="36" height="36" viewBox="0 0 36 36">
-                                  <rect width="36" height="36" rx="18" fill="#0d0928"/>
-                                  {/* Purple hair */}
-                                  <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
-                                  <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
-                                  {/* Skin */}
-                                  <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
-                                  {/* Eyes */}
-                                  <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
-                                  <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
-                                  <rect x="12" y="17" width="2" height="2" fill="white"/>
-                                  <rect x="21" y="17" width="2" height="2" fill="white"/>
-                                  {/* Mouth */}
-                                  <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
-                                  <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
-                                  {/* Gold earrings */}
-                                  <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
-                                  <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
-                                </svg>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                          {messageVariants.map((variant: string, variantIdx: number) => (
+                            <div key={`${step.id}-${variantIdx}`} className="editor-wrapper">
+                              <div className="editor-pane">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Option {variantIdx + 1}</div>
+                                  {messageVariants.length > 1 && (
+                                    <button
+                                      className="chip"
+                                      type="button"
+                                      onClick={() => {
+                                        setStepsForm(current => {
+                                          const next = [...current];
+                                          const variants = [...messageVariants].filter((_, currentIdx) => currentIdx !== variantIdx);
+                                          next[idx] = { ...next[idx], message_template: variants[0] ?? '', message_variants: variants.length ? variants : [''] };
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                                <textarea
+                                  className="message-input"
+                                  ref={(el) => { editorRefs.current[`${idx}:${variantIdx}`] = el; }}
+                                  value={variant}
+                                  onFocus={() => {
+                                    setActiveEditorStep(idx);
+                                    setActiveEditorVariant(variantIdx);
+                                  }}
+                                  onChange={(e) => {
+                                    setStepsForm(current => {
+                                      const next = [...current];
+                                      const variants = [...messageVariants];
+                                      variants[variantIdx] = e.target.value;
+                                      next[idx] = { ...next[idx], message_template: variants[0] ?? '', message_variants: variants };
+                                      return next;
+                                    });
+                                  }}
+                                  placeholder="Type your message here…"
+                                />
                               </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
-                                <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                              <div className="preview-pane">
+                                <div className="preview-topbar">
+                                  <div className="preview-avatar" key={`${stepUid}-${variantIdx}`}>
+                                    <svg width="36" height="36" viewBox="0 0 36 36">
+                                      <rect width="36" height="36" rx="18" fill="#0d0928"/>
+                                      <rect x="5" y="7" width="26" height="9" rx="3" fill="#5b21b6"/>
+                                      <rect x="5" y="7" width="26" height="5" rx="3" fill="#7c3aed"/>
+                                      <rect x="8" y="11" width="20" height="19" rx="3" fill="#e8c07a"/>
+                                      <rect x="11" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                      <rect x="20" y="16" width="5" height="5" rx="1" fill="#1c1033"/>
+                                      <rect x="12" y="17" width="2" height="2" fill="white"/>
+                                      <rect x="21" y="17" width="2" height="2" fill="white"/>
+                                      <rect x="13" y="25" width="10" height="2.5" rx="1.25" fill="#1c1033"/>
+                                      <rect x="14" y="25" width="8" height="1.5" rx="0.75" fill="#c0392b" opacity="0.6"/>
+                                      <circle cx="6" cy="20" r="1.8" fill="#fbbf24"/>
+                                      <circle cx="30" cy="20" r="1.8" fill="#fbbf24"/>
+                                    </svg>
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>Light</div>
+                                    <div style={{ fontSize: 10, color: '#4ade80', marginTop: 1 }}>online</div>
+                                  </div>
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                </div>
+                                <div className="preview-chat-area">
+                                  <div className="preview-bubble">
+                                    {renderMessageTemplate(variant, mockLead)}
+                                  </div>
+                                  <div className="preview-time">
+                                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                  </div>
+                                </div>
                               </div>
-                              {/* Telegram-style action icons */}
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-dim)', flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                             </div>
-                            {/* Chat area */}
-                            <div className="preview-chat-area">
-                              <div className="preview-bubble">
-                                {renderMessageTemplate(step.message_template, mockLead)}
-                              </div>
-                              <div className="preview-time">
-                                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 3, color: '#60a5fa', flexShrink: 0 }}><path d="M4 12l4 4L15 7M7 12l4 4 7-9" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                              </div>
-                            </div>
-                          </div>
+                          ))}
+                          <button
+                            className="btn-secondary"
+                            type="button"
+                            onClick={() => {
+                              setStepsForm(current => {
+                                const next = [...current];
+                                const variants = [...messageVariants, ''];
+                                next[idx] = { ...next[idx], message_template: variants[0] ?? '', message_variants: variants };
+                                return next;
+                              });
+                            }}
+                          >
+                            + Add Message Option
+                          </button>
                         </div>
                       </div>
                     )}

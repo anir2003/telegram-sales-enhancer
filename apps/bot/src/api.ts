@@ -60,6 +60,10 @@ export class AppApiClient {
     });
   }
 
+  changeTaskMessage(taskId: string, telegramUserId: number) {
+    return this.post<{ task: BotTask | null }>('/api/bot/task/change-message', { taskId, telegramUserId });
+  }
+
   connectAccount(input: { code: string; telegramUserId: number; telegramUsername: string }) {
     return this.post<{ account: { id: string; label: string; telegram_username: string } | null }>('/api/bot/connect-account', input);
   }
@@ -70,5 +74,15 @@ export class AppApiClient {
 
   markLeadReplied(telegramUsername: string, actorTelegramUserId: number) {
     return this.post<{ ok: boolean }>('/api/bot/mark-replied', { telegramUsername, actorTelegramUserId });
+  }
+
+  reportRestriction(telegramUserId: number, messageText: string) {
+    return this.post<{
+      result: {
+        restrictedUntil: string;
+        cooldownUntil: string;
+        transferWindowCount: number;
+      };
+    }>('/api/bot/restricted', { telegramUserId, messageText });
   }
 }
