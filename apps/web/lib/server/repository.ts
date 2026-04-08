@@ -2,8 +2,13 @@ import {
   buildTelegramProfileUrl,
   campaignInputSchema,
   createOneTimeCode,
+  getAccountRestrictionState,
+  getSequenceStepVariants,
   leadInputSchema,
   normalizeTelegramUsername,
+  normalizeMessageVariants,
+  parseSpamBotRestrictionUntil,
+  pickRandomMessageVariant,
   renderMessageTemplate,
   sequenceStepInputSchema,
   sequenceStepUpdateSchema,
@@ -29,6 +34,69 @@ type WorkspaceContext = {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function addHours(iso: string, hours: number) {
+  return new Date(new Date(iso).getTime() + hours * 3600000).toISOString();
+}
+
+function addDays(iso: string, days: number) {
+  return new Date(new Date(iso).getTime() + days * 86400000).toISOString();
+}
+
+function resolveStepMessagePayload(input: {
+  message_template?: string | null;
+  message_variants?: string[] | null;
+}) {
+  const messageVariants = normalizeMessageVariants(input);
+  if (!messageVariants.length) {
+    throw new Error('Add at least one message option.');
+  }
+  return {
+    message_template: messageVariants[0],
+    message_variants: messageVariants,
+  };
+}
+
+function getEffectiveAccountLimit(account: Pick<TelegramAccountRecord, 'daily_limit' | 'restricted_until' | 'cooldown_until'>, at = new Date()) {
+  return getAccountRestrictionState(account, at).effectiveDailyLimit;
+}
+
+function getEffectiveCampaignLimit(
+  campaignLimit: number | null | undefined,
+  account: Pick<TelegramAccountRecord, 'daily_limit' | 'restricted_until' | 'cooldown_until'>,
+  at = new Date(),
+) {
+  if (campaignLimit === null || campaignLimit === undefined) return null;
+  const multiplier = getAccountRestrictionState(account, at).multiplier;
+  if (multiplier <= 0) return 0;
+  return Math.max(1, Math.floor(campaignLimit * multiplier));
+}
+
+function isAccountSendable(account: Pick<TelegramAccountRecord, 'is_active' | 'daily_limit' | 'restricted_until' | 'cooldown_until'>, at = new Date()) {
+  if (!account.is_active) return false;
+  return getEffectiveAccountLimit(account, at) > 0;
+}
+
+function getRestrictionPauseUntil(account: Pick<TelegramAccountRecord, 'restricted_until' | 'cooldown_until'>) {
+  return account.cooldown_until ?? account.restricted_until ?? null;
+}
+
+function getRecoveryWarningUntil(account: Pick<TelegramAccountRecord, 'cooldown_until'>) {
+  return account.cooldown_until ? addDays(account.cooldown_until, 3) : null;
+}
+
+function pickRenderedMessageForStep(
+  step: Pick<SequenceStepRecord, 'message_template' | 'message_variants'>,
+  lead: Pick<LeadRecord, 'first_name' | 'last_name' | 'company_name' | 'telegram_username'>,
+  options?: { excludeRendered?: string | null },
+) {
+  const renderedVariants = getSequenceStepVariants(step).map((variant) => renderMessageTemplate(variant, lead));
+  const renderedMessage = pickRandomMessageVariant(renderedVariants, { exclude: options?.excludeRendered ?? null });
+  if (!renderedMessage) {
+    throw new Error('Sequence step has no message options.');
+  }
+  return renderedMessage;
 }
 
 const openCampaignLeadStatuses = [
@@ -560,6 +628,10 @@ export async function createAccount(input: unknown, context?: WorkspaceContext) 
       created_at: nowIso(),
       telegram_user_id: null,
       profile_picture_url: null,
+      restricted_until: null,
+      cooldown_until: null,
+      restriction_reported_at: null,
+      restriction_source_text: null,
       ...payload,
     };
     demoState.accounts.unshift(record);
@@ -743,9 +815,11 @@ export async function getCampaignDetail(campaignId: string, context?: WorkspaceC
 export async function addSequenceStep(campaignId: string, input: unknown, context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   const parsed = sequenceStepInputSchema.parse(input);
+  const messagePayload = resolveStepMessagePayload(parsed);
   const payload = {
     ...parsed,
     step_name: parsed.step_name ?? null,
+    ...messagePayload,
     workspace_id: active.workspaceId,
     campaign_id: campaignId,
   };
@@ -880,7 +954,7 @@ export async function assignUnassignedCampaignLeads(
       .filter((item) => item.campaign_id === campaignId)
       .map((item) => item.telegram_account_id);
     const activeAccounts = demoState.accounts
-      .filter((account) => assignmentIds.includes(account.id) && account.is_active)
+      .filter((account) => assignmentIds.includes(account.id) && isAccountSendable(account))
       .sort((a, b) => a.id.localeCompare(b.id));
 
     if (!activeAccounts.length) {
@@ -940,7 +1014,8 @@ export async function assignUnassignedCampaignLeads(
     .in('id', assignedAccountIds);
 
   const activeAccounts = ((activeAccountsData ?? []) as TelegramAccountRecord[]).sort((a, b) => a.id.localeCompare(b.id));
-  if (!activeAccounts.length) {
+  const sendableAccounts = activeAccounts.filter((account) => isAccountSendable(account));
+  if (!sendableAccounts.length) {
     return { assigned: 0, availableAccounts: 0 };
   }
 
@@ -951,7 +1026,7 @@ export async function assignUnassignedCampaignLeads(
     .eq('campaign_id', campaignId);
 
   const loads = new Map<string, number>();
-  activeAccounts.forEach((account) => loads.set(account.id, 0));
+  sendableAccounts.forEach((account) => loads.set(account.id, 0));
 
   (campaignLeads ?? []).forEach((lead) => {
     if (
@@ -968,7 +1043,7 @@ export async function assignUnassignedCampaignLeads(
     .sort((a, b) => compareCampaignLeadOrder(a, b));
 
   for (const campaignLead of unassigned) {
-    const account = [...activeAccounts].sort((a, b) => {
+    const account = [...sendableAccounts].sort((a, b) => {
       const loadDiff = (loads.get(a.id) ?? 0) - (loads.get(b.id) ?? 0);
       if (loadDiff !== 0) return loadDiff;
       return a.id.localeCompare(b.id);
@@ -982,7 +1057,7 @@ export async function assignUnassignedCampaignLeads(
     loads.set(account.id, (loads.get(account.id) ?? 0) + 1);
   }
 
-  return { assigned: unassigned.length, availableAccounts: activeAccounts.length };
+  return { assigned: unassigned.length, availableAccounts: sendableAccounts.length };
 }
 
 export async function launchCampaign(campaignId: string, context?: WorkspaceContext) {
@@ -992,7 +1067,7 @@ export async function launchCampaign(campaignId: string, context?: WorkspaceCont
   if (!detail.steps.length) throw new Error('Add at least one sequence step before launch');
   if (!detail.attachedLeads.length) throw new Error('Attach at least one lead before launch');
 
-  const assignedAccounts = detail.accounts.filter((account) => detail.assignedAccountIds.includes(account.id) && account.is_active);
+  const assignedAccounts = detail.accounts.filter((account) => detail.assignedAccountIds.includes(account.id) && isAccountSendable(account));
   if (!assignedAccounts.length) throw new Error('Assign at least one active account before launch');
   const assignmentResult = await assignUnassignedCampaignLeads(campaignId, active);
   const queuedCount = detail.attachedLeads.filter((lead) => lead.status === 'queued').length;
@@ -1182,6 +1257,10 @@ export async function consumeAccountLinkCode(input: {
       telegram_user_id: input.telegramUserId,
       profile_picture_url: null,
       created_at: nowIso(),
+      restricted_until: null,
+      cooldown_until: null,
+      restriction_reported_at: null,
+      restriction_source_text: null,
     };
     demoState.accounts.unshift(record);
     return record;
@@ -1235,6 +1314,7 @@ export async function getNextBotTask(telegramUserId: number) {
   if (!isSupabaseConfigured()) {
     const account = demoState.accounts.find((a) => a.telegram_user_id === telegramUserId);
     if (!account) throw new Error('NOT_LINKED');
+    if (!isAccountSendable(account)) return null;
     let workspaceId = account.workspace_id;
     let userAccountIds = [account.id];
     let fallbackProfileId = account.owner_id ?? demoProfile.id;
@@ -1267,12 +1347,15 @@ export async function getNextBotTask(telegramUserId: number) {
   const supabase = getAdminSupabaseClient();
   const { data: telegramAccount } = await supabase!
     .from('telegram_accounts')
-    .select('id, workspace_id, owner_id')
+    .select('id, workspace_id, owner_id, is_active, daily_limit, restricted_until, cooldown_until')
     .eq('telegram_user_id', telegramUserId)
     .maybeSingle();
 
   if (!telegramAccount) {
     throw new Error('NOT_LINKED');
+  }
+  if (!isAccountSendable(telegramAccount as TelegramAccountRecord)) {
+    return null;
   }
 
   const workspaceId = telegramAccount.workspace_id;
@@ -1352,6 +1435,403 @@ function buildBotTaskPayload(task: any) {
     companyName: leadSnapshot.company_name ?? task.leads?.company_name ?? 'Company',
     telegramUsername: leadSnapshot.telegram_username ?? task.leads?.telegram_username ?? '',
     profileUrl: leadSnapshot.profile_url ?? buildTelegramProfileUrl(leadSnapshot.telegram_username ?? task.leads?.telegram_username ?? ''),
+  };
+}
+
+function getWaitingStatusForFollowup(lead: Pick<CampaignLeadRecord, 'current_step_order'>) {
+  return (lead.current_step_order ?? 0) <= 1 ? 'sent_waiting_followup' : 'first_followup_done';
+}
+
+function pushOutDueAt(current: string | null | undefined, pauseUntil: string) {
+  if (!current) return pauseUntil;
+  return new Date(current).getTime() > new Date(pauseUntil).getTime() ? current : pauseUntil;
+}
+
+function estimateTransferableUntouchedLeadCount(input: {
+  dailyLimit: number;
+  dueCount: number;
+  cooldownUntil: string;
+  now?: Date;
+}) {
+  const now = input.now ?? new Date();
+  const cooldownUntil = new Date(input.cooldownUntil);
+  if (Number.isNaN(cooldownUntil.getTime()) || cooldownUntil.getTime() <= now.getTime()) {
+    return 0;
+  }
+
+  const endOfToday = new Date(now);
+  endOfToday.setHours(23, 59, 59, 999);
+
+  const remainingToday = Math.max(0, input.dailyLimit - input.dueCount);
+  if (cooldownUntil.getTime() <= endOfToday.getTime()) {
+    return remainingToday;
+  }
+
+  const additionalDays = Math.ceil((cooldownUntil.getTime() - endOfToday.getTime()) / 86400000);
+  return remainingToday + additionalDays * input.dailyLimit;
+}
+
+export async function rerollBotTaskMessage(taskId: string, telegramUserId: number) {
+  if (!isSupabaseConfigured()) {
+    const account = demoState.accounts.find((item) => item.telegram_user_id === telegramUserId);
+    if (!account) return null;
+    const task = demoState.sendTasks.find((item) => item.id === taskId && item.assigned_account_id === account.id);
+    if (!task) return null;
+    const step = demoState.steps.find((item) => item.id === task.sequence_step_id);
+    const lead = demoState.leads.find((item) => item.id === task.lead_id);
+    if (!step || !lead) return buildBotTaskPayload(task);
+    task.rendered_message = pickRenderedMessageForStep(step, lead, { excludeRendered: task.rendered_message });
+    return buildBotTaskPayload(task);
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: telegramAccount } = await supabase!
+    .from('telegram_accounts')
+    .select('id, workspace_id')
+    .eq('telegram_user_id', telegramUserId)
+    .maybeSingle();
+  if (!telegramAccount) return null;
+
+  const { data: task } = await supabase!
+    .from('send_tasks')
+    .select('*')
+    .eq('workspace_id', telegramAccount.workspace_id)
+    .eq('assigned_account_id', telegramAccount.id)
+    .eq('id', taskId)
+    .in('status', ['pending', 'claimed'])
+    .maybeSingle();
+  if (!task) return null;
+
+  const [{ data: step }, { data: lead }] = await Promise.all([
+    supabase!.from('campaign_sequence_steps').select('*').eq('id', task.sequence_step_id).maybeSingle(),
+    supabase!.from('leads').select('*').eq('id', task.lead_id).maybeSingle(),
+  ]);
+  if (!step || !lead) return null;
+
+  const renderedMessage = pickRenderedMessageForStep(step as SequenceStepRecord, lead as LeadRecord, {
+    excludeRendered: task.rendered_message,
+  });
+
+  await supabase!
+    .from('send_tasks')
+    .update({ rendered_message: renderedMessage })
+    .eq('id', task.id);
+
+  const { data: hydratedTask } = await supabase!
+    .from('send_tasks')
+    .select('*, leads(*), campaigns(name), telegram_accounts(label, telegram_username)')
+    .eq('id', task.id)
+    .maybeSingle();
+  return hydratedTask ? buildBotTaskPayload(hydratedTask) : null;
+}
+
+export async function reportAccountRestriction(telegramUserId: number, messageText: string) {
+  const restrictedUntil = parseSpamBotRestrictionUntil(messageText);
+  if (!restrictedUntil) {
+    throw new Error('Could not find the Telegram restriction end time in that message.');
+  }
+  const cooldownUntil = addHours(restrictedUntil, 6);
+
+  if (!isSupabaseConfigured()) {
+    const account = demoState.accounts.find((item) => item.telegram_user_id === telegramUserId);
+    if (!account) throw new Error('NOT_LINKED');
+
+    account.restricted_until = restrictedUntil;
+    account.cooldown_until = cooldownUntil;
+    account.restriction_reported_at = nowIso();
+    account.restriction_source_text = messageText.trim();
+
+    const dueCount = demoState.campaignLeads.filter((item) => item.assigned_account_id === account.id && item.status === 'due').length;
+    const transferableQuota = estimateTransferableUntouchedLeadCount({
+      dailyLimit: account.daily_limit,
+      dueCount,
+      cooldownUntil,
+    });
+
+    const untouchedLeads = demoState.campaignLeads
+      .filter((item) => item.assigned_account_id === account.id && !item.last_sent_at && item.current_step_order === 0 && item.next_step_order === 1 && ['queued', 'due'].includes(item.status))
+      .sort((a, b) => compareCampaignLeadOrder(a, b));
+    const dueUntouchedIds = new Set(
+      untouchedLeads.filter((item) => item.status === 'due').map((item) => item.id),
+    );
+    const transferIds = new Set<string>();
+    untouchedLeads.forEach((lead) => {
+      if (dueUntouchedIds.has(lead.id)) transferIds.add(lead.id);
+    });
+    const remainingQuota = Math.max(0, transferableQuota - transferIds.size);
+    untouchedLeads
+      .filter((item) => item.status === 'queued')
+      .slice(0, remainingQuota)
+      .forEach((item) => transferIds.add(item.id));
+
+    const tasksToExpire = demoState.sendTasks.filter(
+      (task) => task.assigned_account_id === account.id && transferIds.has(task.campaign_lead_id) && ['pending', 'claimed'].includes(task.status),
+    );
+    tasksToExpire.forEach((task) => { task.status = 'expired'; });
+
+    const byCampaign = new Map<string, CampaignLeadRecord[]>();
+    demoState.campaignLeads
+      .filter((item) => transferIds.has(item.id))
+      .forEach((lead) => {
+        const list = byCampaign.get(lead.campaign_id) ?? [];
+        list.push(lead);
+        byCampaign.set(lead.campaign_id, list);
+      });
+
+    let transferredCount = 0;
+    for (const [campaignId, leads] of byCampaign) {
+      const candidateIds = demoState.assignments
+        .filter((item) => item.campaign_id === campaignId && item.telegram_account_id !== account.id)
+        .map((item) => item.telegram_account_id);
+      const candidates = demoState.accounts.filter((item) => candidateIds.includes(item.id) && isAccountSendable(item));
+      const loads = new Map<string, number>();
+      candidates.forEach((candidate) => {
+        loads.set(candidate.id, demoState.campaignLeads.filter((item) =>
+          item.assigned_account_id === candidate.id &&
+          openCampaignLeadStatuses.includes((item.status ?? 'queued') as (typeof openCampaignLeadStatuses)[number])
+        ).length);
+      });
+
+      for (const lead of leads.sort(compareCampaignLeadOrder)) {
+        const replacement = [...candidates].sort((a, b) => {
+          const aDue = demoState.campaignLeads.filter((item) => item.assigned_account_id === a.id && item.status === 'due').length;
+          const bDue = demoState.campaignLeads.filter((item) => item.assigned_account_id === b.id && item.status === 'due').length;
+          const aSlots = getEffectiveAccountLimit(a) - aDue;
+          const bSlots = getEffectiveAccountLimit(b) - bDue;
+          if ((aSlots > 0) !== (bSlots > 0)) return aSlots > 0 ? -1 : 1;
+          const loadDiff = (loads.get(a.id) ?? 0) - (loads.get(b.id) ?? 0);
+          if (loadDiff !== 0) return loadDiff;
+          return a.id.localeCompare(b.id);
+        })[0];
+
+        lead.status = 'queued';
+        lead.next_due_at = null;
+        lead.stop_reason = null;
+        lead.assigned_account_id = replacement?.id ?? null;
+        if (replacement) {
+          loads.set(replacement.id, (loads.get(replacement.id) ?? 0) + 1);
+          transferredCount += 1;
+        }
+      }
+    }
+
+    demoState.sendTasks
+      .filter((task) => task.assigned_account_id === account.id && ['pending', 'claimed'].includes(task.status))
+      .forEach((task) => {
+        const lead = demoState.campaignLeads.find((item) => item.id === task.campaign_lead_id);
+        if (!lead || !lead.last_sent_at || (lead.current_step_order ?? 0) === 0) return;
+        task.status = 'expired';
+        lead.status = getWaitingStatusForFollowup(lead);
+        lead.next_due_at = pushOutDueAt(lead.next_due_at, cooldownUntil);
+      });
+
+    demoState.campaignLeads
+      .filter((item) => item.assigned_account_id === account.id && item.last_sent_at && ['sent_waiting_followup', 'first_followup_done'].includes(item.status))
+      .forEach((lead) => {
+        lead.next_due_at = pushOutDueAt(lead.next_due_at, cooldownUntil);
+      });
+
+    return {
+      account,
+      restrictedUntil,
+      cooldownUntil,
+      transferredCount,
+      transferWindowCount: transferIds.size,
+    };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data: account } = await supabase!
+    .from('telegram_accounts')
+    .select('*')
+    .eq('telegram_user_id', telegramUserId)
+    .maybeSingle();
+  if (!account) {
+    throw new Error('NOT_LINKED');
+  }
+
+  await supabase!
+    .from('telegram_accounts')
+    .update({
+      restricted_until: restrictedUntil,
+      cooldown_until: cooldownUntil,
+      restriction_reported_at: nowIso(),
+      restriction_source_text: messageText.trim(),
+    })
+    .eq('id', account.id);
+
+  const { count: dueCount } = await supabase!
+    .from('campaign_leads')
+    .select('id', { count: 'exact', head: true })
+    .eq('assigned_account_id', account.id)
+    .eq('status', 'due');
+
+  const transferableQuota = estimateTransferableUntouchedLeadCount({
+    dailyLimit: account.daily_limit,
+    dueCount: dueCount ?? 0,
+    cooldownUntil,
+  });
+
+  const { data: untouchedLeads } = await supabase!
+    .from('campaign_leads')
+    .select('*')
+    .eq('assigned_account_id', account.id)
+    .is('last_sent_at', null)
+    .eq('current_step_order', 0)
+    .eq('next_step_order', 1)
+    .in('status', ['queued', 'due'])
+    .order('created_at', { ascending: true });
+
+  const transferIds = new Set<string>();
+  const dueUntouched = (untouchedLeads ?? []).filter((item) => item.status === 'due');
+  dueUntouched.forEach((item) => transferIds.add(item.id));
+  const remainingQuota = Math.max(0, transferableQuota - transferIds.size);
+  (untouchedLeads ?? [])
+    .filter((item) => item.status === 'queued')
+    .slice(0, remainingQuota)
+    .forEach((item) => transferIds.add(item.id));
+
+  const transferLeadIds = [...transferIds];
+  if (transferLeadIds.length) {
+    await supabase!
+      .from('send_tasks')
+      .update({ status: 'expired' })
+      .eq('assigned_account_id', account.id)
+      .in('campaign_lead_id', transferLeadIds)
+      .in('status', ['pending', 'claimed']);
+
+    const { data: leadsToTransfer } = await supabase!
+      .from('campaign_leads')
+      .select('*')
+      .in('id', transferLeadIds);
+
+    const byCampaign = new Map<string, CampaignLeadRecord[]>();
+    (leadsToTransfer as CampaignLeadRecord[] | null ?? []).forEach((lead) => {
+      const list = byCampaign.get(lead.campaign_id) ?? [];
+      list.push(lead);
+      byCampaign.set(lead.campaign_id, list);
+    });
+
+    for (const [campaignId, leads] of byCampaign) {
+      const { data: assignmentRows } = await supabase!
+        .from('campaign_account_assignments')
+        .select('telegram_account_id')
+        .eq('campaign_id', campaignId);
+      const candidateIds = [...new Set((assignmentRows ?? []).map((item) => item.telegram_account_id).filter((id) => id && id !== account.id))];
+      const { data: candidateAccounts } = candidateIds.length
+        ? await supabase!
+            .from('telegram_accounts')
+            .select('*')
+            .in('id', candidateIds)
+        : { data: [] as TelegramAccountRecord[] };
+      const candidates = ((candidateAccounts ?? []) as TelegramAccountRecord[]).filter((item) => isAccountSendable(item));
+
+      const loads = new Map<string, number>();
+      const dueLoads = new Map<string, number>();
+      for (const candidate of candidates) {
+        const [{ count: loadCount }, { count: candidateDueCount }] = await Promise.all([
+          supabase!
+            .from('campaign_leads')
+            .select('id', { count: 'exact', head: true })
+            .eq('assigned_account_id', candidate.id)
+            .in('status', [...openCampaignLeadStatuses]),
+          supabase!
+            .from('campaign_leads')
+            .select('id', { count: 'exact', head: true })
+            .eq('assigned_account_id', candidate.id)
+            .eq('status', 'due'),
+        ]);
+        loads.set(candidate.id, loadCount ?? 0);
+        dueLoads.set(candidate.id, candidateDueCount ?? 0);
+      }
+
+      for (const lead of leads.sort(compareCampaignLeadOrder)) {
+        const replacement = [...candidates].sort((a, b) => {
+          const aSlots = getEffectiveAccountLimit(a) - (dueLoads.get(a.id) ?? 0);
+          const bSlots = getEffectiveAccountLimit(b) - (dueLoads.get(b.id) ?? 0);
+          if ((aSlots > 0) !== (bSlots > 0)) return aSlots > 0 ? -1 : 1;
+          const loadDiff = (loads.get(a.id) ?? 0) - (loads.get(b.id) ?? 0);
+          if (loadDiff !== 0) return loadDiff;
+          return a.id.localeCompare(b.id);
+        })[0];
+
+        await supabase!
+          .from('campaign_leads')
+          .update({
+            status: 'queued',
+            next_due_at: null,
+            stop_reason: null,
+            assigned_account_id: replacement?.id ?? null,
+          })
+          .eq('id', lead.id);
+
+        if (replacement) {
+          loads.set(replacement.id, (loads.get(replacement.id) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  const { data: followupTasks } = await supabase!
+    .from('send_tasks')
+    .select('id, campaign_lead_id')
+    .eq('assigned_account_id', account.id)
+    .in('status', ['pending', 'claimed']);
+
+  const { data: followupLeads } = await supabase!
+    .from('campaign_leads')
+    .select('*')
+    .eq('assigned_account_id', account.id)
+    .not('last_sent_at', 'is', null)
+    .in('status', ['due', 'sent_waiting_followup', 'first_followup_done']);
+
+  const followupLeadIds = new Set((followupLeads ?? []).map((item) => item.id));
+  const followupTaskIds = (followupTasks ?? [])
+    .filter((task) => followupLeadIds.has(task.campaign_lead_id))
+    .map((task) => task.id);
+
+  if (followupTaskIds.length) {
+    await supabase!
+      .from('send_tasks')
+      .update({ status: 'expired' })
+      .in('id', followupTaskIds);
+  }
+
+  for (const lead of (followupLeads as CampaignLeadRecord[] | null ?? [])) {
+    await supabase!
+      .from('campaign_leads')
+      .update({
+        status: lead.status === 'due' ? getWaitingStatusForFollowup(lead) : lead.status,
+        next_due_at: pushOutDueAt(lead.next_due_at, cooldownUntil),
+      })
+      .eq('id', lead.id);
+  }
+
+  await logActivity({
+    workspaceId: account.workspace_id,
+    profileId: account.owner_id ?? null,
+    event_type: 'account.restricted_reported',
+    event_label: `Restriction reported for ${account.label}`,
+    payload: {
+      account_id: account.id,
+      restricted_until: restrictedUntil,
+      cooldown_until: cooldownUntil,
+      transferred_window_leads: transferLeadIds.length,
+    },
+  });
+
+  return {
+    account: {
+      ...account,
+      restricted_until: restrictedUntil,
+      cooldown_until: cooldownUntil,
+      restriction_reported_at: nowIso(),
+      restriction_source_text: messageText.trim(),
+    },
+    restrictedUntil,
+    cooldownUntil,
+    transferredCount: transferLeadIds.length,
+    transferWindowCount: transferLeadIds.length,
   };
 }
 
@@ -1521,12 +2001,12 @@ async function completeBotTask(
             .in('status', ['queued', 'due']),
           supabase!
             .from('telegram_accounts')
-            .select('daily_limit')
+            .select('daily_limit, restricted_until, cooldown_until')
             .eq('id', task.assigned_account_id)
             .maybeSingle(),
         ]);
         const remaining = remainingQueued ?? 0;
-        const dailyLimit = accountRow?.daily_limit ?? 20;
+        const dailyLimit = accountRow ? getEffectiveAccountLimit(accountRow as TelegramAccountRecord) : 20;
         const daysUntilBatchDone = Math.ceil(remaining / dailyLimit);
         const todayMidnight = new Date();
         todayMidnight.setHours(0, 0, 0, 0);
@@ -1595,7 +2075,7 @@ export async function runBotScheduler() {
       const blockedAtLaunch = demoState.campaignLeads.filter(
         cl => cl.status === 'blocked' && cl.stop_reason === 'No account capacity at launch',
       );
-      const activeAccts = demoState.accounts.filter(a => a.is_active);
+      const activeAccts = demoState.accounts.filter(a => isAccountSendable(a));
       if (blockedAtLaunch.length > 0 && activeAccts.length > 0) {
         blockedAtLaunch.forEach((cl, idx) => {
           cl.assigned_account_id = activeAccts[idx % activeAccts.length].id;
@@ -1606,18 +2086,20 @@ export async function runBotScheduler() {
     }
 
     // Phase 1: promote queued step-1 leads to due, respecting daily limits
-    for (const account of demoState.accounts.filter(a => a.is_active)) {
+    for (const account of demoState.accounts.filter(a => isAccountSendable(a))) {
       const dueCount = demoState.campaignLeads.filter(
         cl => cl.assigned_account_id === account.id && cl.status === 'due'
       ).length;
-      let available = Math.max(0, account.daily_limit - dueCount);
+      let available = Math.max(0, getEffectiveAccountLimit(account) - dueCount);
       if (available <= 0) continue;
 
       // Build per-campaign due counts for campaigns that have a message_limit on this account
       const campaignDueCount = new Map<string, number>();
       const campaignLimitMap = new Map<string, number>();
       for (const asgn of demoState.assignments.filter(a => a.telegram_account_id === account.id && a.message_limit !== null)) {
-        campaignLimitMap.set(asgn.campaign_id, asgn.message_limit!);
+        const effectiveCampaignLimit = getEffectiveCampaignLimit(asgn.message_limit, account);
+        if (effectiveCampaignLimit === null) continue;
+        campaignLimitMap.set(asgn.campaign_id, effectiveCampaignLimit);
         const due = demoState.campaignLeads.filter(
           cl => cl.campaign_id === asgn.campaign_id && cl.assigned_account_id === account.id && cl.status === 'due'
         ).length;
@@ -1651,7 +2133,7 @@ export async function runBotScheduler() {
           assigned_account_id: account.id,
           step_order: step.step_order,
           due_at: taskDueAt,
-          rendered_message: renderMessageTemplate(step.message_template, lead),
+          rendered_message: pickRenderedMessageForStep(step, lead),
           lead_snapshot: { first_name: lead.first_name, last_name: lead.last_name, company_name: lead.company_name, telegram_username: lead.telegram_username, profile_url: buildTelegramProfileUrl(lead.telegram_username) },
         }, active);
         campaignLead.status = 'due';
@@ -1687,6 +2169,20 @@ export async function runBotScheduler() {
         blocked += 1;
         continue;
       }
+      if (!assignedAccount || !isAccountSendable(assignedAccount)) {
+        const pauseUntil = getRestrictionPauseUntil(assignedAccount ?? { restricted_until: null, cooldown_until: null });
+        if (pauseUntil) {
+          campaignLead.next_due_at = pushOutDueAt(campaignLead.next_due_at, pauseUntil);
+        }
+        continue;
+      }
+
+      const dueCount = demoState.campaignLeads.filter(
+        item => item.assigned_account_id === assignedAccount.id && item.status === 'due'
+      ).length;
+      if (dueCount >= getEffectiveAccountLimit(assignedAccount)) {
+        continue;
+      }
 
       const lead = demoState.leads.find((item) => item.id === campaignLead.lead_id);
       const step = demoState.steps.find(
@@ -1694,6 +2190,19 @@ export async function runBotScheduler() {
       );
 
       if (!lead || !step || !campaignLead.assigned_account_id || !campaignLead.next_due_at) continue;
+
+      const assignment = demoState.assignments.find(
+        (item) => item.campaign_id === campaignLead.campaign_id && item.telegram_account_id === assignedAccount.id,
+      );
+      const campaignLimit = getEffectiveCampaignLimit(assignment?.message_limit ?? null, assignedAccount);
+      if (campaignLimit !== null) {
+        const campaignDueCount = demoState.campaignLeads.filter(
+          item => item.campaign_id === campaignLead.campaign_id && item.assigned_account_id === assignedAccount.id && item.status === 'due'
+        ).length;
+        if (campaignDueCount >= campaignLimit) {
+          continue;
+        }
+      }
 
       await createSendTask({
         workspace_id: campaignLead.workspace_id,
@@ -1704,7 +2213,7 @@ export async function runBotScheduler() {
         assigned_account_id: campaignLead.assigned_account_id,
         step_order: step.step_order,
         due_at: campaignLead.next_due_at,
-        rendered_message: renderMessageTemplate(step.message_template, lead),
+        rendered_message: pickRenderedMessageForStep(step, lead),
         lead_snapshot: { first_name: lead.first_name, last_name: lead.last_name, company_name: lead.company_name, telegram_username: lead.telegram_username, profile_url: buildTelegramProfileUrl(lead.telegram_username) },
       }, active);
       campaignLead.status = 'due';
@@ -1716,14 +2225,23 @@ export async function runBotScheduler() {
         continue;
       }
       const account = demoState.accounts.find((item) => item.id === task.assigned_account_id);
-      if (account?.is_active) {
+      if (account && isAccountSendable(account)) {
         continue;
       }
       task.status = 'expired';
       const campaignLead = demoState.campaignLeads.find((item) => item.id === task.campaign_lead_id);
       if (campaignLead) {
-        campaignLead.status = 'blocked';
-        campaignLead.stop_reason = 'Assigned account unavailable at follow-up time';
+        if (campaignLead.last_sent_at) {
+          campaignLead.status = getWaitingStatusForFollowup(campaignLead);
+          const pauseUntil = getRestrictionPauseUntil(account ?? { restricted_until: null, cooldown_until: null });
+          if (pauseUntil) {
+            campaignLead.next_due_at = pushOutDueAt(campaignLead.next_due_at, pauseUntil);
+          }
+        } else {
+          campaignLead.status = 'queued';
+          campaignLead.next_due_at = null;
+        }
+        campaignLead.stop_reason = account?.is_active ? null : 'Assigned account unavailable at follow-up time';
       }
       blocked += 1;
     }
@@ -1779,15 +2297,16 @@ export async function runBotScheduler() {
       for (const [workspaceId, leadIds] of byWorkspace) {
         const { data: wsAccounts } = await supabase!
           .from('telegram_accounts')
-          .select('id')
+          .select('*')
           .eq('workspace_id', workspaceId)
           .eq('is_active', true);
 
-        if (!wsAccounts || wsAccounts.length === 0) continue;
+        const sendableAccounts = ((wsAccounts ?? []) as TelegramAccountRecord[]).filter((account) => isAccountSendable(account));
+        if (!sendableAccounts.length) continue;
 
         // Assign accounts round-robin and reset each lead to queued
         for (let i = 0; i < leadIds.length; i++) {
-          const accountId = wsAccounts[i % wsAccounts.length].id;
+          const accountId = sendableAccounts[i % sendableAccounts.length].id;
           await supabase!
             .from('campaign_leads')
             .update({
@@ -1804,10 +2323,10 @@ export async function runBotScheduler() {
   // ── Phase 1: Daily promotion — move queued step-1 leads to due, respecting daily + campaign limits ──
   const { data: activeAccounts } = await supabase!
     .from('telegram_accounts')
-    .select('id, daily_limit, workspace_id')
+    .select('*')
     .eq('is_active', true);
 
-  for (const account of activeAccounts ?? []) {
+  for (const account of ((activeAccounts ?? []) as TelegramAccountRecord[]).filter((item) => isAccountSendable(item))) {
     // Count leads that are already due (tasks exist, not yet sent) — they occupy account capacity
     const { count: dueCount } = await supabase!
       .from('campaign_leads')
@@ -1815,7 +2334,7 @@ export async function runBotScheduler() {
       .eq('assigned_account_id', account.id)
       .eq('status', 'due');
 
-    let available = Math.max(0, account.daily_limit - (dueCount ?? 0));
+    let available = Math.max(0, getEffectiveAccountLimit(account) - (dueCount ?? 0));
     if (available <= 0) continue;
 
     // Fetch campaign-level message limits for this account (only rows with a limit set)
@@ -1825,9 +2344,13 @@ export async function runBotScheduler() {
       .eq('telegram_account_id', account.id)
       .not('message_limit', 'is', null);
 
-    const campaignLimitMap = new Map<string, number>(
-      (accountAssignments ?? []).map((a) => [a.campaign_id, a.message_limit as number]),
-    );
+    const campaignLimitMap = new Map<string, number>();
+    for (const assignment of accountAssignments ?? []) {
+      const effectiveLimit = getEffectiveCampaignLimit(assignment.message_limit as number, account);
+      if (effectiveLimit !== null) {
+        campaignLimitMap.set(assignment.campaign_id, effectiveLimit);
+      }
+    }
 
     // Pre-compute per-campaign due count for campaigns that have a limit
     const campaignDueCount = new Map<string, number>();
@@ -1882,7 +2405,7 @@ export async function runBotScheduler() {
         assigned_account_id: account.id,
         step_order: step.step_order,
         due_at: taskDueAt,
-        rendered_message: renderMessageTemplate(step.message_template, lead),
+        rendered_message: pickRenderedMessageForStep(step, lead),
         lead_snapshot: {
           first_name: lead.first_name,
           last_name: lead.last_name,
@@ -1963,9 +2486,50 @@ export async function runBotScheduler() {
       blocked += 1;
       continue;
     }
+    if (!isAccountSendable(account as TelegramAccountRecord)) {
+      const pauseUntil = getRestrictionPauseUntil(account as TelegramAccountRecord);
+      if (pauseUntil) {
+        await supabase!
+          .from('campaign_leads')
+          .update({ next_due_at: pushOutDueAt(campaignLead.next_due_at, pauseUntil) })
+          .eq('id', campaignLead.id);
+      }
+      continue;
+    }
 
     if (!lead || !step || !campaignLead.assigned_account_id || !campaignLead.next_due_at) {
       continue;
+    }
+
+    const [{ count: dueCount }, { data: accountAssignments }] = await Promise.all([
+      supabase!
+        .from('campaign_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('assigned_account_id', account.id)
+        .eq('status', 'due'),
+      supabase!
+        .from('campaign_account_assignments')
+        .select('message_limit')
+        .eq('campaign_id', campaignLead.campaign_id)
+        .eq('telegram_account_id', account.id)
+        .maybeSingle(),
+    ]);
+
+    if ((dueCount ?? 0) >= getEffectiveAccountLimit(account as TelegramAccountRecord)) {
+      continue;
+    }
+
+    const effectiveCampaignLimit = getEffectiveCampaignLimit((accountAssignments?.message_limit as number | null) ?? null, account as TelegramAccountRecord);
+    if (effectiveCampaignLimit !== null) {
+      const { count: campaignDueCount } = await supabase!
+        .from('campaign_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignLead.campaign_id)
+        .eq('assigned_account_id', account.id)
+        .eq('status', 'due');
+      if ((campaignDueCount ?? 0) >= effectiveCampaignLimit) {
+        continue;
+      }
     }
 
     await createSendTask({
@@ -1977,7 +2541,7 @@ export async function runBotScheduler() {
       assigned_account_id: campaignLead.assigned_account_id,
       step_order: step.step_order,
       due_at: campaignLead.next_due_at,
-      rendered_message: renderMessageTemplate(step.message_template, lead),
+      rendered_message: pickRenderedMessageForStep(step, lead),
       lead_snapshot: {
         first_name: lead.first_name,
         last_name: lead.last_name,
@@ -2010,7 +2574,7 @@ export async function runBotScheduler() {
       .eq('id', task.assigned_account_id)
       .maybeSingle();
 
-    if (account?.is_active) {
+    if (account && isAccountSendable(account as TelegramAccountRecord)) {
       continue;
     }
 
@@ -2022,13 +2586,36 @@ export async function runBotScheduler() {
       })
       .eq('id', task.id);
 
-    await supabase!
+    const { data: campaignLead } = await supabase!
       .from('campaign_leads')
-      .update({
-        status: 'blocked',
-        stop_reason: 'Assigned account unavailable at follow-up time',
-      })
-      .eq('id', task.campaign_lead_id);
+      .select('*')
+      .eq('id', task.campaign_lead_id)
+      .maybeSingle();
+
+    if (campaignLead) {
+      if (campaignLead.last_sent_at) {
+        const pauseUntil = getRestrictionPauseUntil(
+          (account as TelegramAccountRecord | null) ?? { restricted_until: null, cooldown_until: null },
+        ) ?? dueNow;
+        await supabase!
+          .from('campaign_leads')
+          .update({
+            status: getWaitingStatusForFollowup(campaignLead as CampaignLeadRecord),
+            next_due_at: pushOutDueAt(campaignLead.next_due_at, pauseUntil),
+            stop_reason: null,
+          })
+          .eq('id', task.campaign_lead_id);
+      } else {
+        await supabase!
+          .from('campaign_leads')
+          .update({
+            status: 'queued',
+            next_due_at: null,
+            stop_reason: account?.is_active ? null : 'Assigned account unavailable at follow-up time',
+          })
+          .eq('id', task.campaign_lead_id);
+      }
+    }
 
     blocked += 1;
   }
@@ -2121,17 +2708,23 @@ export async function logActivity(input: {
 export async function updateSequenceStep(stepId: string, input: unknown, context?: WorkspaceContext) {
   const active = resolveWorkspaceContext(context);
   const parsed = sequenceStepUpdateSchema.parse(input);
+  const payload = {
+    ...parsed,
+    ...((parsed.message_template !== undefined || parsed.message_variants !== undefined)
+      ? resolveStepMessagePayload(parsed)
+      : {}),
+  };
   if (!isSupabaseConfigured()) {
     const record = demoState.steps.find((s) => s.id === stepId);
     if (record) {
-      Object.assign(record, parsed);
+      Object.assign(record, payload);
     }
     return record;
   }
   const supabase = getAdminSupabaseClient();
   const { data, error } = await supabase!
     .from('campaign_sequence_steps')
-    .update(parsed)
+    .update(payload)
     .eq('workspace_id', active.workspaceId)
     .eq('id', stepId)
     .select('*')

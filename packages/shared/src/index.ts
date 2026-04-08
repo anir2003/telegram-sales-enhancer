@@ -71,6 +71,7 @@ export interface SequenceStepRecord {
   step_name: string | null;
   delay_days: number;
   message_template: string;
+  message_variants: string[];
 }
 
 export interface TelegramAccountRecord {
@@ -84,6 +85,10 @@ export interface TelegramAccountRecord {
   is_active: boolean;
   created_at: string;
   profile_picture_url: string | null;
+  restricted_until: string | null;
+  cooldown_until: string | null;
+  restriction_reported_at: string | null;
+  restriction_source_text: string | null;
 }
 
 export interface CampaignLeadRecord {
@@ -138,11 +143,23 @@ export const leadInputSchema = z.object({
   owner_id: z.string().uuid().nullish(),
 });
 
+const messageVariantsSchema = z.array(z.string().trim()).default([]);
+
 export const sequenceStepInputSchema = z.object({
   step_order: z.number().int().min(1),
   step_name: z.string().trim().nullish(),
   delay_days: z.number().int().min(0),
-  message_template: z.string().trim(),
+  message_template: z.string().trim().optional(),
+  message_variants: messageVariantsSchema.optional(),
+}).superRefine((value, ctx) => {
+  const variants = normalizeMessageVariants(value);
+  if (!variants.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Add at least one message option.',
+      path: ['message_variants'],
+    });
+  }
 });
 
 export const sequenceStepUpdateSchema = z.object({
@@ -150,6 +167,19 @@ export const sequenceStepUpdateSchema = z.object({
   step_name: z.string().trim().nullish(),
   delay_days: z.number().int().min(0).optional(),
   message_template: z.string().trim().optional(),
+  message_variants: messageVariantsSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.message_template === undefined && value.message_variants === undefined) {
+    return;
+  }
+  const variants = normalizeMessageVariants(value);
+  if (!variants.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Add at least one message option.',
+      path: ['message_variants'],
+    });
+  }
 });
 
 export const campaignInputSchema = z.object({
@@ -194,6 +224,107 @@ export function validateTemplate(template: string) {
 
 export function buildTelegramProfileUrl(username: string) {
   return `https://t.me/${normalizeTelegramUsername(username)}`;
+}
+
+export function normalizeMessageVariants(input: {
+  message_template?: string | null;
+  message_variants?: string[] | null;
+}) {
+  const variants = (input.message_variants ?? [])
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (variants.length) return variants;
+  const fallback = input.message_template?.trim();
+  return fallback ? [fallback] : [];
+}
+
+export function getSequenceStepVariants(step: Pick<SequenceStepRecord, 'message_template' | 'message_variants'>) {
+  return normalizeMessageVariants(step);
+}
+
+export function pickRandomMessageVariant(
+  variants: string[],
+  options?: { exclude?: string | null },
+) {
+  const trimmed = variants.map((item) => item.trim()).filter(Boolean);
+  if (!trimmed.length) return '';
+  const exclude = options?.exclude?.trim();
+  const pool = exclude ? trimmed.filter((item) => item !== exclude) : trimmed;
+  const source = pool.length ? pool : trimmed;
+  return source[Math.floor(Math.random() * source.length)];
+}
+
+export type AccountRestrictionStatus = 'normal' | 'restricted' | 'cooldown' | 'recovering';
+
+export function getAccountRestrictionState(
+  account: Pick<TelegramAccountRecord, 'daily_limit' | 'restricted_until' | 'cooldown_until'>,
+  at = new Date(),
+) {
+  const now = at.getTime();
+  const restrictedUntilMs = account.restricted_until ? new Date(account.restricted_until).getTime() : null;
+  const cooldownUntilMs = account.cooldown_until ? new Date(account.cooldown_until).getTime() : null;
+
+  if (restrictedUntilMs && now < restrictedUntilMs) {
+    return {
+      status: 'restricted' as AccountRestrictionStatus,
+      multiplier: 0,
+      effectiveDailyLimit: 0,
+      recoveryCompleteAt: cooldownUntilMs ? new Date(cooldownUntilMs + 3 * 86400000).toISOString() : null,
+      hasWarning: true,
+    };
+  }
+
+  if (cooldownUntilMs && now < cooldownUntilMs) {
+    return {
+      status: 'cooldown' as AccountRestrictionStatus,
+      multiplier: 0,
+      effectiveDailyLimit: 0,
+      recoveryCompleteAt: new Date(cooldownUntilMs + 3 * 86400000).toISOString(),
+      hasWarning: true,
+    };
+  }
+
+  if (cooldownUntilMs) {
+    const daysSinceCooldown = Math.floor((now - cooldownUntilMs) / 86400000);
+    const ramp = [0.5, 0.65, 0.8, 1];
+    const multiplier = ramp[Math.max(0, Math.min(daysSinceCooldown, ramp.length - 1))];
+    const recoveryCompleteAt = new Date(cooldownUntilMs + (ramp.length - 1) * 86400000).toISOString();
+    if (multiplier < 1) {
+      return {
+        status: 'recovering' as AccountRestrictionStatus,
+        multiplier,
+        effectiveDailyLimit: Math.max(1, Math.floor(account.daily_limit * multiplier)),
+        recoveryCompleteAt,
+        hasWarning: true,
+      };
+    }
+  }
+
+  return {
+    status: 'normal' as AccountRestrictionStatus,
+    multiplier: 1,
+    effectiveDailyLimit: account.daily_limit,
+    recoveryCompleteAt: null,
+    hasWarning: false,
+  };
+}
+
+export function parseSpamBotRestrictionUntil(message: string) {
+  const patterns = [
+    /limited until\s+([^.]+?\bUTC)\.?/i,
+    /released on\s+([^.]+?\bUTC)\.?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (!match?.[1]) continue;
+    const parsed = new Date(match[1].trim());
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return null;
 }
 
 export function createOneTimeCode() {

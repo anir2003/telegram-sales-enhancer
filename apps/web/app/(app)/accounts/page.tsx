@@ -16,7 +16,33 @@ type Account = {
   is_active: boolean;
   created_at: string;
   profile_picture_url?: string | null;
+  restricted_until?: string | null;
+  cooldown_until?: string | null;
+  restriction_reported_at?: string | null;
+  restriction_source_text?: string | null;
 };
+
+function formatRestrictionTooltip(account: {
+  restricted_until?: string | null;
+  cooldown_until?: string | null;
+  restriction_status?: string;
+  effective_daily_limit?: number;
+  daily_limit: number;
+}) {
+  if (!account.restricted_until) return '';
+  const restrictedUntil = new Date(account.restricted_until).toLocaleString();
+  const cooldownUntil = account.cooldown_until ? new Date(account.cooldown_until).toLocaleString() : null;
+  if (account.restriction_status === 'restricted') {
+    return `Account has been restricted till ${restrictedUntil}. Follow-ups and new sends stay paused until ${cooldownUntil ?? restrictedUntil}.`;
+  }
+  if (account.restriction_status === 'cooldown') {
+    return `Restriction ended at ${restrictedUntil}. Cooldown runs until ${cooldownUntil ?? restrictedUntil}.`;
+  }
+  if (account.restriction_status === 'recovering') {
+    return `Account was restricted till ${restrictedUntil}. It is currently recovering at ${account.effective_daily_limit}/${account.daily_limit} daily capacity.`;
+  }
+  return `Account was restricted till ${restrictedUntil}.`;
+}
 
 export default function AccountsPage() {
   const { data: accountsData, isLoading: loadingAccounts, mutate: mutateAccounts } = useSWR<{ accounts: Account[] }>('/api/accounts');
@@ -220,7 +246,17 @@ export default function AccountsPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                       <AvatarCircle url={account.profile_picture_url} name={account.label} size={32} style={{ flexShrink: 0 }} />
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{account.label}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{account.label}</div>
+                          {account.has_restriction_warning && (
+                            <span
+                              title={formatRestrictionTooltip(account)}
+                              style={{ fontSize: 12, lineHeight: 1, flexShrink: 0, cursor: 'help' }}
+                            >
+                              ⚠
+                            </span>
+                          )}
+                        </div>
                         <div style={{ fontSize: 10, color: 'var(--text-dim)', marginTop: 1 }}>@{account.telegram_username}</div>
                       </div>
                     </div>
@@ -237,7 +273,7 @@ export default function AccountsPage() {
                   <div className="account-card-stats">
                     <div><span>Campaigns</span><strong>{account.campaignCount}</strong></div>
                     <div><span>Today</span><strong>{account.sentToday}</strong></div>
-                    <div><span>Limit</span><strong>{account.daily_limit}</strong></div>
+                    <div><span>Limit</span><strong>{account.effective_daily_limit !== account.daily_limit ? `${account.effective_daily_limit}/${account.daily_limit}` : account.daily_limit}</strong></div>
                   </div>
 
                   <div>
@@ -261,7 +297,17 @@ export default function AccountsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <AvatarCircle url={selectedAccount.profile_picture_url} name={selectedAccount.label} size={40} />
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{selectedAccount.label}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{selectedAccount.label}</div>
+                      {selectedAccount.has_restriction_warning && (
+                        <span
+                          title={formatRestrictionTooltip(selectedAccount)}
+                          style={{ fontSize: 13, lineHeight: 1, cursor: 'help' }}
+                        >
+                          ⚠
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>@{selectedAccount.telegram_username}</div>
                   </div>
                 </div>
@@ -273,7 +319,7 @@ export default function AccountsPage() {
               {[
                 { label: 'Campaigns', value: selectedAccount.campaignCount },
                 { label: 'Assigned Leads', value: selectedAccount.assignedLeadCount },
-                { label: 'Sent Today', value: `${selectedAccount.sentToday} / ${selectedAccount.daily_limit}` },
+                { label: 'Sent Today', value: `${selectedAccount.sentToday} / ${selectedAccount.effective_daily_limit !== selectedAccount.daily_limit ? `${selectedAccount.effective_daily_limit} (${selectedAccount.daily_limit})` : selectedAccount.daily_limit}` },
                 { label: 'Sent Yesterday', value: selectedAccount.sentYesterday },
               ].map(row => (
                 <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border-soft)' }}>
@@ -281,6 +327,12 @@ export default function AccountsPage() {
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>{row.value}</span>
                 </div>
               ))}
+
+              {selectedAccount.has_restriction_warning && (
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', color: '#fbbf24', fontSize: 11, lineHeight: 1.6 }}>
+                  {formatRestrictionTooltip(selectedAccount)}
+                </div>
+              )}
 
               <div style={{ marginTop: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
