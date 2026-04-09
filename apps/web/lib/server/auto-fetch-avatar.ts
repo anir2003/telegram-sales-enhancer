@@ -5,7 +5,7 @@
  * Each function returns void immediately — the async work runs in the
  * background without blocking the HTTP response.
  */
-import { fetchTelegramAvatar, fetchTelegramPublicProfile, type TelegramPublicProfile } from '@/lib/server/fetch-telegram-avatar';
+import { fetchTelegramPublicProfile, type TelegramPublicProfile } from '@/lib/server/fetch-telegram-avatar';
 import { updateLead } from '@/lib/server/repository';
 import { isSupabaseConfigured } from '@/lib/env';
 import { demoState } from '@/lib/server/demo-store';
@@ -32,6 +32,32 @@ export async function refreshLeadProfile(
   }
 
   await updateLead(leadId, patch, context);
+  return profile;
+}
+
+export async function refreshAccountProfile(
+  accountId: string,
+  telegramUsername: string,
+  workspaceId?: string,
+): Promise<TelegramPublicProfile> {
+  const profile = await fetchTelegramPublicProfile(telegramUsername);
+
+  if (profile.exists !== null) {
+    if (!isSupabaseConfigured()) {
+      const account = demoState.accounts.find((item) => item.id === accountId);
+      if (account) {
+        account.profile_picture_url = profile.exists ? profile.avatarUrl : null;
+      }
+    } else {
+      const supabase = getAdminSupabaseClient();
+      const q = supabase!
+        .from('telegram_accounts')
+        .update({ profile_picture_url: profile.exists ? profile.avatarUrl : null })
+        .eq('id', accountId);
+      await (workspaceId ? q.eq('workspace_id', workspaceId) : q);
+    }
+  }
+
   return profile;
 }
 
@@ -68,20 +94,7 @@ export function autoFetchAccountAvatar(
 
   void (async () => {
     try {
-      const avatarUrl = await fetchTelegramAvatar(telegramUsername);
-      if (!avatarUrl) return;
-
-      if (!isSupabaseConfigured()) {
-        const account = demoState.accounts.find((a) => a.id === accountId);
-        if (account) (account as any).profile_picture_url = avatarUrl;
-      } else {
-        const supabase = getAdminSupabaseClient();
-        const q = supabase!
-          .from('telegram_accounts')
-          .update({ profile_picture_url: avatarUrl })
-          .eq('id', accountId);
-        await (workspaceId ? q.eq('workspace_id', workspaceId) : q);
-      }
+      await refreshAccountProfile(accountId, telegramUsername, workspaceId);
     } catch {
       // silent — best-effort background task
     }
