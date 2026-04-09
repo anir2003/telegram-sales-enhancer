@@ -31,25 +31,39 @@ export default function SettingsPage() {
     try {
       const result = await fetchJson<{
         ok: boolean;
-        processed: number;
-        refreshed: number;
-        invalid: number;
-        noAvatar: number;
-        unavailable: number;
+        leads: {
+          processed: number;
+          refreshed: number;
+          invalid: number;
+          noAvatar: number;
+          unavailable: number;
+        };
+        accounts: {
+          processed: number;
+          refreshed: number;
+          invalid: number;
+          noAvatar: number;
+          unavailable: number;
+        };
       }>('/api/leads/refresh-profiles', { method: 'POST' });
 
       const parts = [
-        `${result.refreshed} pictures updated`,
-        `${result.invalid} invalid usernames`,
-        `${result.noAvatar} without public photos`,
+        `${result.leads.refreshed} lead pictures updated`,
+        `${result.accounts.refreshed} account pictures updated`,
+        `${result.leads.invalid} invalid leads`,
       ];
-      if (result.unavailable) parts.push(`${result.unavailable} could not be checked`);
+      if (result.accounts.invalid) parts.push(`${result.accounts.invalid} invalid accounts`);
+      if (result.leads.noAvatar || result.accounts.noAvatar) {
+        parts.push(`${result.leads.noAvatar + result.accounts.noAvatar} without public photos`);
+      }
+      const unavailable = result.leads.unavailable + result.accounts.unavailable;
+      if (unavailable) parts.push(`${unavailable} could not be checked`);
 
-      setProfileRefreshStatus(`Checked ${result.processed} leads: ${parts.join(' · ')}.`);
-      setProfileRefreshTone(result.invalid ? 'neutral' : 'success');
+      setProfileRefreshStatus(`Checked ${result.leads.processed} leads and ${result.accounts.processed} accounts: ${parts.join(' · ')}.`);
+      setProfileRefreshTone(result.leads.invalid || result.accounts.invalid ? 'neutral' : 'success');
     } catch (err) {
       console.error('Lead profile refresh failed:', err);
-      setProfileRefreshStatus('Could not refresh lead profiles right now.');
+      setProfileRefreshStatus('Could not refresh lead and account profiles right now.');
       setProfileRefreshTone('danger');
     }
     setRefreshingProfiles(false);
@@ -85,9 +99,9 @@ export default function SettingsPage() {
       <div className="section-label">Account</div>
       <div className="grid grid-2">
         <div className="card">
-          <div className="card-title">Lead Profiles</div>
+          <div className="card-title">Telegram Profiles</div>
           <div className="card-subtitle" style={{ marginBottom: 16 }}>
-            Re-check lead profile pictures and mark usernames that no longer exist on Telegram.
+            Re-check lead and connected account profile pictures, and mark lead usernames that no longer exist on Telegram.
           </div>
           <button
             className="btn-secondary"
@@ -99,7 +113,7 @@ export default function SettingsPage() {
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <path d="M21 3v6h-6" />
             </svg>
-            {refreshingProfiles ? 'Refreshing…' : 'Refresh Lead Profiles'}
+            {refreshingProfiles ? 'Refreshing…' : 'Refresh Telegram Profiles'}
           </button>
           {profileRefreshStatus ? (
             <div className={`status-callout ${profileRefreshTone === 'success' ? 'success' : profileRefreshTone === 'danger' ? 'danger' : ''}`} style={{ marginTop: 14 }}>

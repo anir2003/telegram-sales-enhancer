@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getWorkspaceContext } from '@/lib/server/context';
-import { listLeads, logActivity } from '@/lib/server/repository';
-import { refreshLeadProfile } from '@/lib/server/auto-fetch-avatar';
+import { listAccounts, listLeads, logActivity } from '@/lib/server/repository';
+import { refreshAccountProfile, refreshLeadProfile } from '@/lib/server/auto-fetch-avatar';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,9 @@ export async function POST() {
     ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null }
     : undefined;
   const leads = await listLeads(wsCtx);
+  const accounts = await listAccounts(wsCtx);
   const refreshable = leads.filter((lead) => lead.telegram_username?.trim());
+  const refreshableAccounts = accounts.filter((account) => account.telegram_username?.trim());
 
   const results = await runWithConcurrency(refreshable, 4, async (lead) => {
     try {
@@ -60,16 +62,47 @@ export async function POST() {
     noAvatar: results.filter((item) => item.exists === true && !item.avatarUrl).length,
     unavailable: results.filter((item) => item.exists === null).length,
   };
+  const accountResults = await runWithConcurrency(refreshableAccounts, 4, async (account) => {
+    try {
+      const profile = await refreshAccountProfile(account.id, account.telegram_username, wsCtx?.workspaceId);
+      return {
+        id: account.id,
+        exists: profile.exists,
+        avatarUrl: profile.avatarUrl,
+      };
+    } catch {
+      return {
+        id: account.id,
+        exists: null,
+        avatarUrl: null,
+      };
+    }
+  });
+
+  const accountSummary = {
+    processed: accountResults.length,
+    refreshed: accountResults.filter((item) => item.exists === true && item.avatarUrl).length,
+    invalid: accountResults.filter((item) => item.exists === false).length,
+    noAvatar: accountResults.filter((item) => item.exists === true && !item.avatarUrl).length,
+    unavailable: accountResults.filter((item) => item.exists === null).length,
+  };
 
   if (wsCtx) {
     await logActivity({
       workspaceId: wsCtx.workspaceId,
       profileId: wsCtx.profileId,
-      event_type: 'lead.profile_refresh',
-      event_label: `Refreshed ${summary.processed} lead profiles`,
-      payload: summary,
+      event_type: 'profile.refresh',
+      event_label: `Refreshed ${summary.processed} leads and ${accountSummary.processed} accounts`,
+      payload: {
+        leads: summary,
+        accounts: accountSummary,
+      },
     });
   }
 
-  return NextResponse.json({ ok: true, ...summary });
+  return NextResponse.json({
+    ok: true,
+    leads: summary,
+    accounts: accountSummary,
+  });
 }
