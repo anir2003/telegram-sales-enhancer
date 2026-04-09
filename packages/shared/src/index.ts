@@ -39,6 +39,8 @@ export interface LeadRecord {
   owner_id: string | null;
   created_at: string;
   profile_picture_url: string | null;
+  telegram_exists: boolean | null;
+  telegram_checked_at: string | null;
 }
 
 export interface CampaignRecord {

@@ -5,13 +5,35 @@
  * Each function returns void immediately — the async work runs in the
  * background without blocking the HTTP response.
  */
-import { fetchTelegramAvatar } from '@/lib/server/fetch-telegram-avatar';
+import { fetchTelegramAvatar, fetchTelegramPublicProfile, type TelegramPublicProfile } from '@/lib/server/fetch-telegram-avatar';
 import { updateLead } from '@/lib/server/repository';
 import { isSupabaseConfigured } from '@/lib/env';
 import { demoState } from '@/lib/server/demo-store';
 import { getAdminSupabaseClient } from '@/lib/supabase/server';
 
 type WorkspaceContext = { workspaceId: string; profileId: string | null };
+
+export async function refreshLeadProfile(
+  leadId: string,
+  telegramUsername: string,
+  context?: WorkspaceContext,
+): Promise<TelegramPublicProfile> {
+  const profile = await fetchTelegramPublicProfile(telegramUsername);
+  const patch: Record<string, unknown> = {
+    telegram_checked_at: new Date().toISOString(),
+  };
+
+  if (profile.exists === true) {
+    patch.profile_picture_url = profile.avatarUrl;
+    patch.telegram_exists = true;
+  } else if (profile.exists === false) {
+    patch.profile_picture_url = null;
+    patch.telegram_exists = false;
+  }
+
+  await updateLead(leadId, patch, context);
+  return profile;
+}
 
 /**
  * Kicks off a background fetch of the Telegram profile picture for a lead.
@@ -26,10 +48,7 @@ export function autoFetchLeadAvatar(
 
   void (async () => {
     try {
-      const avatarUrl = await fetchTelegramAvatar(telegramUsername);
-      if (avatarUrl) {
-        await updateLead(leadId, { profile_picture_url: avatarUrl }, context);
-      }
+      await refreshLeadProfile(leadId, telegramUsername, context);
     } catch {
       // silent — this is a best-effort background task
     }

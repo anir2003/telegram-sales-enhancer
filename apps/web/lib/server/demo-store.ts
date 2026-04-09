@@ -50,6 +50,8 @@ export const demoState: {
       source: 'CSV import',
       owner_id: null,
       profile_picture_url: null,
+      telegram_exists: null,
+      telegram_checked_at: null,
       created_at: now,
     },
     {
@@ -64,6 +66,8 @@ export const demoState: {
       source: 'CSV import',
       owner_id: null,
       profile_picture_url: null,
+      telegram_exists: null,
+      telegram_checked_at: null,
       created_at: now,
     },
     {
@@ -78,6 +82,8 @@ export const demoState: {
       source: 'Manual',
       owner_id: null,
       profile_picture_url: null,
+      telegram_exists: null,
+      telegram_checked_at: null,
       created_at: now,
     },
   ],

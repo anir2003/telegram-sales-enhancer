@@ -10,6 +10,9 @@ export default function SettingsPage() {
   const router = useRouter();
   const { data: me, isLoading } = useSWR<any>('/api/me');
   const [loggingOut, setLoggingOut] = useState(false);
+  const [refreshingProfiles, setRefreshingProfiles] = useState(false);
+  const [profileRefreshStatus, setProfileRefreshStatus] = useState('');
+  const [profileRefreshTone, setProfileRefreshTone] = useState<'success' | 'danger' | 'neutral'>('neutral');
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -20,6 +23,36 @@ export default function SettingsPage() {
       console.error('Logout failed:', err);
       setLoggingOut(false);
     }
+  };
+
+  const handleRefreshProfiles = async () => {
+    setRefreshingProfiles(true);
+    setProfileRefreshStatus('');
+    try {
+      const result = await fetchJson<{
+        ok: boolean;
+        processed: number;
+        refreshed: number;
+        invalid: number;
+        noAvatar: number;
+        unavailable: number;
+      }>('/api/leads/refresh-profiles', { method: 'POST' });
+
+      const parts = [
+        `${result.refreshed} pictures updated`,
+        `${result.invalid} invalid usernames`,
+        `${result.noAvatar} without public photos`,
+      ];
+      if (result.unavailable) parts.push(`${result.unavailable} could not be checked`);
+
+      setProfileRefreshStatus(`Checked ${result.processed} leads: ${parts.join(' · ')}.`);
+      setProfileRefreshTone(result.invalid ? 'neutral' : 'success');
+    } catch (err) {
+      console.error('Lead profile refresh failed:', err);
+      setProfileRefreshStatus('Could not refresh lead profiles right now.');
+      setProfileRefreshTone('danger');
+    }
+    setRefreshingProfiles(false);
   };
 
   return (
@@ -51,6 +84,30 @@ export default function SettingsPage() {
 
       <div className="section-label">Account</div>
       <div className="grid grid-2">
+        <div className="card">
+          <div className="card-title">Lead Profiles</div>
+          <div className="card-subtitle" style={{ marginBottom: 16 }}>
+            Re-check lead profile pictures and mark usernames that no longer exist on Telegram.
+          </div>
+          <button
+            className="btn-secondary"
+            onClick={handleRefreshProfiles}
+            disabled={refreshingProfiles}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={refreshingProfiles ? { animation: 'spin 1s linear infinite' } : undefined}>
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+            {refreshingProfiles ? 'Refreshing…' : 'Refresh Lead Profiles'}
+          </button>
+          {profileRefreshStatus ? (
+            <div className={`status-callout ${profileRefreshTone === 'success' ? 'success' : profileRefreshTone === 'danger' ? 'danger' : ''}`} style={{ marginTop: 14 }}>
+              {profileRefreshStatus}
+            </div>
+          ) : null}
+        </div>
+
         <div className="card">
           <div className="card-title">Sign Out</div>
           <div className="card-subtitle" style={{ marginBottom: 16 }}>
