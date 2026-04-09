@@ -170,17 +170,24 @@ export default function LeadsPage() {
     setFetchingAvatar(true);
     setAvatarStatus(null);
     try {
-      const res = await fetchJson<{ ok: boolean; avatarUrl: string | null; message?: string }>(
+      const res = await fetchJson<{ ok: boolean; avatarUrl: string | null; exists?: boolean | null; message?: string }>(
         `/api/leads/${editingLead.id}/fetch-avatar`,
         { method: 'POST' },
       );
       if (res.ok && res.avatarUrl) {
-        setEditingLead((prev) => prev ? { ...prev, profile_picture_url: res.avatarUrl } : prev);
-        void mutateLeads();
+        setEditingLead((prev) => prev ? { ...prev, profile_picture_url: res.avatarUrl, telegram_exists: true } : prev);
         setAvatarStatus('✓ Profile picture saved');
+      } else if (res.exists === false) {
+        setEditingLead((prev) => prev ? { ...prev, profile_picture_url: null, telegram_exists: false } : prev);
+        setAvatarStatus(res.message ?? 'This Telegram username does not exist.');
+      } else if (res.exists === true) {
+        setEditingLead((prev) => prev ? { ...prev, profile_picture_url: null, telegram_exists: true } : prev);
+        setAvatarStatus(res.message ?? 'No picture found for this username');
       } else {
+        setEditingLead((prev) => prev ? { ...prev, telegram_exists: prev.telegram_exists ?? null } : prev);
         setAvatarStatus(res.message ?? 'No picture found for this username');
       }
+      void mutateLeads();
     } catch {
       setAvatarStatus('Failed to fetch — check the username');
     }
@@ -515,7 +522,19 @@ export default function LeadsPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <AvatarCircle url={lead.profile_picture_url} name={`${lead.first_name} ${lead.last_name}`} size={30} style={{ flexShrink: 0 }} />
                 <div>
-                  <div>{lead.first_name} {lead.last_name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>{lead.first_name} {lead.last_name}</span>
+                    {lead.telegram_exists === false && (
+                      <span
+                        title="Lead does not exist on Telegram. Please update or delete it."
+                        style={{ display: 'inline-flex', alignItems: 'center', color: '#fbbf24', lineHeight: 0, cursor: 'help' }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M12 3 1.8 20.5c-.3.5.1 1.1.7 1.1h19c.6 0 1-.6.7-1.1L12 3Zm1 13h-2v-2h2v2Zm0-4h-2V8h2v4Z" />
+                        </svg>
+                      </span>
+                    )}
+                  </div>
                   <div className="dim">@{lead.telegram_username}</div>
                 </div>
               </div>

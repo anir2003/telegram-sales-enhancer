@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkspaceContext } from '@/lib/server/context';
-import { fetchTelegramAvatar } from '@/lib/server/fetch-telegram-avatar';
-import { updateLead } from '@/lib/server/repository';
+import { refreshLeadProfile } from '@/lib/server/auto-fetch-avatar';
 import { isSupabaseConfigured } from '@/lib/env';
 import { demoState } from '@/lib/server/demo-store';
 import { getAdminSupabaseClient } from '@/lib/supabase/server';
@@ -40,13 +39,34 @@ export async function POST(
     return NextResponse.json({ error: 'Lead not found or no Telegram username' }, { status: 404 });
   }
 
-  const avatarUrl = await fetchTelegramAvatar(telegramUsername);
+  const profile = await refreshLeadProfile(id, telegramUsername, wsCtx);
 
-  if (!avatarUrl) {
-    return NextResponse.json({ ok: false, avatarUrl: null, message: 'No profile picture found for this username' });
+  if (profile.exists === false) {
+    return NextResponse.json({
+      ok: false,
+      avatarUrl: null,
+      exists: false,
+      message: 'This Telegram username does not exist.',
+    });
   }
 
-  await updateLead(id, { profile_picture_url: avatarUrl }, wsCtx);
+  if (profile.exists === null) {
+    return NextResponse.json({
+      ok: false,
+      avatarUrl: null,
+      exists: null,
+      message: 'Telegram could not be reached right now. Try again in a bit.',
+    });
+  }
 
-  return NextResponse.json({ ok: true, avatarUrl });
+  if (!profile.avatarUrl) {
+    return NextResponse.json({
+      ok: true,
+      avatarUrl: null,
+      exists: true,
+      message: 'Username is valid, but no public profile picture is available.',
+    });
+  }
+
+  return NextResponse.json({ ok: true, avatarUrl: profile.avatarUrl, exists: true });
 }

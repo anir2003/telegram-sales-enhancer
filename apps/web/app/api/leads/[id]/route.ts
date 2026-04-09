@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateLead, deleteLead } from '@/lib/server/repository';
 import { getWorkspaceContext } from '@/lib/server/context';
+import { autoFetchLeadAvatar } from '@/lib/server/auto-fetch-avatar';
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const context = await getWorkspaceContext();
@@ -10,7 +11,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const lead = await updateLead(id, body, context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined);
+  const wsCtx = context?.workspace ? { workspaceId: context.workspace.id, profileId: context.profile?.id ?? null } : undefined;
+  const lead = await updateLead(id, body, wsCtx);
+  if (lead?.telegram_username && body.telegram_username !== undefined) {
+    autoFetchLeadAvatar(lead.id, lead.telegram_username, wsCtx);
+  }
   return NextResponse.json({ lead });
 }
 

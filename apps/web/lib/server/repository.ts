@@ -377,6 +377,8 @@ export async function createLead(input: unknown, context?: WorkspaceContext) {
       notes: payload.notes ?? null,
       source: payload.source ?? null,
       profile_picture_url: null,
+      telegram_exists: null,
+      telegram_checked_at: null,
     };
     demoState.leads.unshift(record);
     await logActivity({
@@ -399,13 +401,24 @@ export async function updateLead(leadId: string, input: Record<string, unknown>,
   const active = resolveWorkspaceContext(context);
   assertWorkspace(active);
   const payload: Record<string, unknown> = {};
+  let usernameChanged = false;
   if (input.first_name !== undefined) payload.first_name = String(input.first_name).trim();
   if (input.last_name !== undefined) payload.last_name = String(input.last_name).trim();
   if (input.company_name !== undefined) payload.company_name = String(input.company_name).trim();
-  if (input.telegram_username !== undefined) payload.telegram_username = normalizeTelegramUsername(String(input.telegram_username));
+  if (input.telegram_username !== undefined) {
+    payload.telegram_username = normalizeTelegramUsername(String(input.telegram_username));
+    usernameChanged = true;
+  }
   if (input.tags !== undefined) payload.tags = Array.isArray(input.tags) ? input.tags : [];
   if (input.source !== undefined) payload.source = String(input.source).trim() || null;
   if (input.profile_picture_url !== undefined) payload.profile_picture_url = input.profile_picture_url || null;
+  if (input.telegram_exists !== undefined) payload.telegram_exists = input.telegram_exists;
+  if (input.telegram_checked_at !== undefined) payload.telegram_checked_at = input.telegram_checked_at || null;
+  if (usernameChanged) {
+    payload.profile_picture_url = null;
+    payload.telegram_exists = null;
+    payload.telegram_checked_at = null;
+  }
 
   if (!isSupabaseConfigured()) {
     const record = demoState.leads.find((l) => l.id === leadId);

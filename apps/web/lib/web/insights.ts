@@ -9,6 +9,8 @@ export type Lead = {
   tags: string[];
   source?: string | null;
   profile_picture_url?: string | null;
+  telegram_exists?: boolean | null;
+  telegram_checked_at?: string | null;
 };
 
 export type Account = {
