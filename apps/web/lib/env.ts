@@ -26,3 +26,32 @@ export function isTeamAccessConfigured() {
 export function getTeamAccessCode() {
   return process.env.TEAM_ACCESS_CODE?.trim() ?? '';
 }
+
+export function getTelegramAppCredentials() {
+  const apiId = process.env.TELEGRAM_API_ID?.trim() ?? '';
+  const apiHash = process.env.TELEGRAM_API_HASH?.trim() ?? '';
+  const credentialKey = process.env.TELEGRAM_CREDENTIAL_KEY?.trim() ?? '';
+
+  return {
+    apiId,
+    apiHash,
+    credentialKey,
+  };
+}
+
+export function isTelegramMockAdapter() {
+  const explicitMock = process.env.TELEGRAM_ADAPTER_MODE === 'mock';
+  const isLocalDev = process.env.NODE_ENV !== 'production';
+  const { apiId, apiHash } = getTelegramAppCredentials();
+
+  return explicitMock || (isLocalDev && (!apiId || !apiHash));
+}
+
+export function isTelegramAppConfigured() {
+  const { apiId, apiHash, credentialKey } = getTelegramAppCredentials();
+  return Boolean(apiId && apiHash && credentialKey && Number.isInteger(Number(apiId)));
+}
+
+export function isTelegramConsoleAvailable() {
+  return isTelegramAppConfigured() || isTelegramMockAdapter();
+}

@@ -14,10 +14,18 @@ export const campaignLeadStatusValues = [
   'completed',
 ] as const;
 export const sendTaskStatusValues = ['pending', 'claimed', 'sent', 'skipped', 'expired'] as const;
+export const tgConsoleAccountStatusValues = ['pending_code', 'authenticated', 'needs_reauth', 'disabled'] as const;
+export const tgConsoleDialogKindValues = ['user', 'group', 'channel', 'bot', 'unknown'] as const;
+export const tgConsoleSendStatusValues = ['draft', 'pending_approval', 'approved', 'sending', 'sent', 'failed', 'cancelled'] as const;
+export const tgConsoleProxySchemeValues = ['socks5', 'http', 'https'] as const;
 
 export type CampaignStatus = (typeof campaignStatusValues)[number];
 export type CampaignLeadStatus = (typeof campaignLeadStatusValues)[number];
 export type SendTaskStatus = (typeof sendTaskStatusValues)[number];
+export type TgConsoleAccountStatus = (typeof tgConsoleAccountStatusValues)[number];
+export type TgConsoleDialogKind = (typeof tgConsoleDialogKindValues)[number];
+export type TgConsoleSendStatus = (typeof tgConsoleSendStatusValues)[number];
+export type TgConsoleProxyScheme = (typeof tgConsoleProxySchemeValues)[number];
 
 export const templatePlaceholders = [
   '{First Name}',
@@ -134,6 +142,95 @@ export interface ActivityLogRecord {
   created_at: string;
 }
 
+export interface TgConsoleProxyConfig {
+  scheme: TgConsoleProxyScheme;
+  ip?: string | null;
+  host: string;
+  port: number;
+  username?: string | null;
+  password?: string | null;
+}
+
+export interface TgConsoleAccountRecord {
+  id: string;
+  workspace_id: string;
+  profile_id: string | null;
+  phone: string;
+  telegram_user_id: string | null;
+  telegram_username: string | null;
+  display_name: string | null;
+  is_authenticated: boolean;
+  status: TgConsoleAccountStatus;
+  proxy_redacted: string | null;
+  proxy_status: string | null;
+  proxy_checked_at: string | null;
+  last_sync_at: string | null;
+  last_inbox_update_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TgConsoleDialogRecord {
+  id: string;
+  workspace_id: string;
+  account_id: string;
+  telegram_dialog_id: string;
+  kind: TgConsoleDialogKind;
+  title: string;
+  username: string | null;
+  folder_id: number | null;
+  folder_name: string | null;
+  crm_folder: string;
+  unread_count: number;
+  is_unread: boolean;
+  is_replied: boolean;
+  last_message_at: string | null;
+  last_message_preview: string | null;
+  tags: string[];
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TgConsoleMessageRecord {
+  id: string;
+  workspace_id: string;
+  account_id: string;
+  dialog_id: string;
+  telegram_message_id: string;
+  sender_name: string | null;
+  is_outbound: boolean;
+  text: string;
+  sent_at: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TgWarmedUsernameRecord {
+  id: string;
+  workspace_id: string;
+  username: string;
+  label: string | null;
+  notes: string | null;
+  tags: string[];
+  created_at: string;
+}
+
+export interface TgSendApprovalRecord {
+  id: string;
+  workspace_id: string;
+  account_id: string;
+  dialog_id: string | null;
+  target_username: string | null;
+  message_text: string;
+  status: TgConsoleSendStatus;
+  approved_by_profile_id: string | null;
+  approved_at: string | null;
+  delivery_result: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const leadInputSchema = z.object({
   first_name: z.string().trim().min(1),
   last_name: z.string().trim().default(''),
@@ -202,8 +299,59 @@ export const telegramAccountInputSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
+export const tgConsolePhoneSchema = z.object({
+  phone: z.string().trim().min(6).max(32),
+});
+
+export const tgConsoleProxySchema = z.object({
+  scheme: z.enum(tgConsoleProxySchemeValues).default('socks5'),
+  ip: z.string().trim().max(255).optional().nullable(),
+  host: z.string().trim().min(1).max(255),
+  port: z.coerce.number().int().min(1).max(65535),
+  username: z.string().trim().max(255).optional().nullable(),
+  password: z.string().max(1024).optional().nullable(),
+});
+
+export const tgConsoleDialogUpdateSchema = z.object({
+  crm_folder: z.string().trim().min(1).max(64).optional(),
+  tags: z.array(z.string().trim().min(1).max(48)).optional(),
+  notes: z.string().trim().max(5000).nullable().optional(),
+  is_replied: z.boolean().optional(),
+  is_unread: z.boolean().optional(),
+});
+
+export const tgWarmedUsernameInputSchema = z.object({
+  username: z.string().trim().min(1).max(64),
+  label: z.string().trim().max(80).optional().nullable(),
+  notes: z.string().trim().max(5000).optional().nullable(),
+  tags: z.array(z.string().trim().min(1).max(48)).default([]),
+});
+
+export const tgSendApprovalInputSchema = z.object({
+  account_id: z.string().trim().min(1),
+  dialog_ids: z.array(z.string().trim().min(1)).default([]),
+  target_usernames: z.array(z.string().trim().min(1).max(64)).default([]),
+  message_text: z.string().trim().min(1).max(4000),
+  approve_now: z.boolean().default(false),
+}).superRefine((value, ctx) => {
+  if (!value.dialog_ids.length && !value.target_usernames.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Choose at least one dialog or warmed username.',
+      path: ['dialog_ids'],
+    });
+  }
+});
+
 export function normalizeTelegramUsername(value: string) {
   return value.replace(/^@/, '').trim();
+}
+
+export function redactTgProxyConfig(proxy: TgConsoleProxyConfig | null | undefined) {
+  if (!proxy) return null;
+  const auth = proxy.username ? `${proxy.username}:***@` : '';
+  const ipNote = proxy.ip && proxy.ip !== proxy.host ? ` (${proxy.ip})` : '';
+  return `${proxy.scheme}://${auth}${proxy.host}:${proxy.port}${ipNote}`;
 }
 
 export function renderMessageTemplate(template: string, lead: Pick<LeadRecord, 'first_name' | 'last_name' | 'company_name' | 'telegram_username'>) {

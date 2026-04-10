@@ -98,7 +98,11 @@
       "Bash(/opt/homebrew/bin/pnpm install:*)",
       "Bash(PATH=/usr/local/bin:/opt/homebrew/bin:$PATH /opt/homebrew/bin/pnpm install)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
-      "Bash(curl -s http://localhost:3000/api/leads)"
+      "Bash(curl -s http://localhost:3000/api/leads)",
+      "Bash(PATH=/usr/local/bin:/opt/homebrew/bin:$PATH pnpm --filter web build)",
+      "Bash(PATH=/usr/local/bin:/opt/homebrew/bin:$PATH pnpm --filter web add swr)",
+      "Bash(sed -i '' 's/{loading ? '\\\\''...'\\\\'' : s\\\\.value}/{isLoading ? '\\\\''...'\\\\'' : s.value}/g' /Users/anir/Desktop/salessystem/apps/web/app/\\\\\\(app\\\\\\)/business-tracker/page.tsx)",
+      "Bash(sed -i '' 's/{loading ? \\(/{isLoading ? \\(/g' /Users/anir/Desktop/salessystem/apps/web/app/\\\\\\(app\\\\\\)/business-tracker/page.tsx)"
     ]
   }
 }
