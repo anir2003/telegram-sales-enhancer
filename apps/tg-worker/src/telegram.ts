@@ -29,13 +29,12 @@ function toGramJsProxy(proxy?: TgConsoleProxyConfig | null) {
   };
 }
 
-export function createTelegramClient(sessionString: string, proxy?: TgConsoleProxyConfig | null) {
-  const apiId = Number(process.env.TELEGRAM_API_ID);
-  const apiHash = process.env.TELEGRAM_API_HASH?.trim() ?? '';
-  if (!apiId || !apiHash) {
-    throw new Error('TELEGRAM_API_ID and TELEGRAM_API_HASH are required.');
-  }
-
+export function createTelegramClient(
+  sessionString: string,
+  apiId: number,
+  apiHash: string,
+  proxy?: TgConsoleProxyConfig | null,
+) {
   const options: Record<string, unknown> = {
     connectionRetries: 3,
     useIPV6: false,

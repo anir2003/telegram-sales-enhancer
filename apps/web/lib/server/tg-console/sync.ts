@@ -1,10 +1,10 @@
-import { getTelegramAppCredentials } from '@/lib/env';
 import {
   getTgConsoleAccountPrivate,
   markTgConsoleAccountSynced,
   upsertTgConsoleDialog,
   upsertTgConsoleMessages,
 } from '@/lib/server/repository';
+import { resolveWorkspaceTgCredentials } from '@/lib/server/tg-console/credentials';
 import { buildTelegramClient } from '@/lib/server/tg-console/client';
 import { decryptJson, decryptSecret } from '@/lib/server/tg-console/crypto';
 import type { TgConsoleProxyConfig } from '@telegram-enhancer/shared';
@@ -53,15 +53,15 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
     throw new Error('Encrypted Telegram session is missing.');
   }
 
-  const { apiId, apiHash } = getTelegramAppCredentials();
-  if (!apiId || !apiHash) {
-    throw new Error('TELEGRAM_API_ID and TELEGRAM_API_HASH are required.');
+  const tgCreds = await resolveWorkspaceTgCredentials(context);
+  if (!tgCreds) {
+    throw new Error('Telegram app credentials are not configured for this workspace.');
   }
 
   const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
   const { client } = await buildTelegramClient({
-    apiId: Number(apiId),
-    apiHash,
+    apiId: Number(tgCreds.apiId),
+    apiHash: tgCreds.apiHash,
     session,
     proxy,
   });

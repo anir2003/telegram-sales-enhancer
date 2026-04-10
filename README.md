@@ -62,6 +62,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_SECRET=
+APP_SECRET=
 TELEGRAM_API_ID=
 TELEGRAM_API_HASH=
 TELEGRAM_CREDENTIAL_KEY=
@@ -72,6 +73,7 @@ BOT_PUBLIC_URL=http://localhost:4000
 ```
 
 `PORT` is optional for the bot and defaults to `4000`.
+`APP_SECRET` encrypts organization-level secrets stored in Settings.
 `TELEGRAM_CREDENTIAL_KEY` should be a long random server-side secret. It encrypts experimental Telegram console sessions and proxy credentials.
 The experimental Telegram UI never asks end users for Telegram app credentials. Local development falls back to a mocked phone-login connector when the server-side Telegram credentials are absent, so the interface can be tested with phone + OTP only.
 
@@ -109,9 +111,12 @@ If Supabase is not configured, the web app falls back to an in-memory demo mode 
 
 ### 4. Experimental Telegram console worker
 
-1. Configure `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and `TELEGRAM_CREDENTIAL_KEY` on the server.
-2. Start the worker with `pnpm dev:tg-worker`.
-3. The worker syncs authenticated Telegram console inboxes and delivers only send records that were explicitly approved in the web app.
+1. Configure `TELEGRAM_CREDENTIAL_KEY` on the server.
+2. Choose one Telegram credential source:
+   - set `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` as server env vars, or
+   - set `APP_SECRET` as a server env var and store `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` in Settings → Organization Secrets.
+3. Start the worker with `pnpm dev:tg-worker`.
+4. The worker syncs authenticated Telegram console inboxes and delivers only send records that were explicitly approved in the web app.
 
 ## Railway deployment
 
@@ -127,6 +132,8 @@ Create two Railway services from this same repository:
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - `SUPABASE_SERVICE_ROLE_KEY`
   - `TELEGRAM_WEBHOOK_SECRET`
+  - `TELEGRAM_CREDENTIAL_KEY` (if using the Telegram console)
+  - `APP_SECRET` (if storing Telegram app credentials in Settings)
   - `APP_URL`
 
 ### Bot service
@@ -148,9 +155,9 @@ Create two Railway services from this same repository:
 - Required env vars:
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `SUPABASE_SERVICE_ROLE_KEY`
-  - `TELEGRAM_API_ID`
-  - `TELEGRAM_API_HASH`
   - `TELEGRAM_CREDENTIAL_KEY`
+  - `APP_SECRET` (if reading Telegram app credentials from Settings)
+  - `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` only if you are not using Settings secrets
 
 After the bot service has a public URL, the bot process will register its Telegram webhook automatically at:
 

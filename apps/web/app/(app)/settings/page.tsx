@@ -15,7 +15,7 @@ type OrgSecretRecord = {
 };
 
 function ApiKeysPanel() {
-  const { data, mutate } = useSWR<{ keys: OrgSecretRecord[] }>('/api/organization/api-keys');
+  const { data, error, mutate } = useSWR<{ keys: OrgSecretRecord[] }>('/api/organization/api-keys');
   const [label, setLabel] = useState('');
   const [value, setValue] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -84,6 +84,12 @@ function ApiKeysPanel() {
       <div className="card-subtitle" style={{ marginBottom: 16 }}>
         Store API keys and credentials shared across the organization — e.g. Telegram api_id, OpenAI keys, webhook secrets. Values are encrypted at rest.
       </div>
+
+      {error && (
+        <div className="status-callout danger" style={{ marginBottom: 12 }}>
+          {error instanceof Error ? error.message : 'Could not load organization secrets.'}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8 }}>

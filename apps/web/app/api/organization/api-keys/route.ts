@@ -6,6 +6,10 @@ import { isSupabaseConfigured } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
+function isAppSecretConfigured() {
+  return Boolean(process.env.APP_SECRET?.trim());
+}
+
 // AES-256-GCM encryption for stored secret values.
 // Key is derived from APP_SECRET (or a fallback for demo mode).
 const ENCRYPTION_KEY_HEX = process.env.APP_SECRET
@@ -42,6 +46,9 @@ export async function GET() {
   if (!isSupabaseConfigured()) {
     return NextResponse.json({ keys: [] });
   }
+  if (!isAppSecretConfigured()) {
+    return NextResponse.json({ error: 'APP_SECRET is required before using Organization Secrets.' }, { status: 503 });
+  }
   const supabase = getAdminSupabaseClient()!;
   const { data, error } = await supabase
     .from('workspace_api_keys')
@@ -70,6 +77,9 @@ export async function POST(req: NextRequest) {
   const value = String(body.value ?? '').trim();
   if (!label) return NextResponse.json({ error: 'Label is required.' }, { status: 400 });
   if (!value) return NextResponse.json({ error: 'Value is required.' }, { status: 400 });
+  if (isSupabaseConfigured() && !isAppSecretConfigured()) {
+    return NextResponse.json({ error: 'APP_SECRET is required before saving Organization Secrets.' }, { status: 503 });
+  }
 
   // Store a visible prefix (first 6 chars) so the user can identify which key is which
   const prefix = value.length > 6 ? value.slice(0, 6) : value;
@@ -105,6 +115,9 @@ export async function PATCH(req: NextRequest) {
   const value = String(body.value ?? '').trim();
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
   if (!value) return NextResponse.json({ error: 'Value is required.' }, { status: 400 });
+  if (isSupabaseConfigured() && !isAppSecretConfigured()) {
+    return NextResponse.json({ error: 'APP_SECRET is required before updating Organization Secrets.' }, { status: 503 });
+  }
 
   const prefix = value.length > 6 ? value.slice(0, 6) : value;
   const encrypted = encryptValue(value);
@@ -128,6 +141,9 @@ export async function DELETE(req: NextRequest) {
   const body = await req.json();
   const id = String(body.id ?? '').trim();
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
+  if (isSupabaseConfigured() && !isAppSecretConfigured()) {
+    return NextResponse.json({ error: 'APP_SECRET is required before deleting Organization Secrets.' }, { status: 503 });
+  }
 
   if (!isSupabaseConfigured()) return NextResponse.json({ ok: true });
   const supabase = getAdminSupabaseClient()!;
