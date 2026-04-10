@@ -56,6 +56,8 @@ const messageTemplates = [
   'That sounds aligned. Should I send a two-line overview or a more detailed breakdown?',
 ];
 
+const quickBroadcastEmoji = ['🙂', '👍', '🔥', '🚀', '✅', '👀'];
+
 function formatDate(value: string | null | undefined) {
   if (!value) return 'Never';
   const date = new Date(value);
@@ -97,7 +99,10 @@ export default function TelegramConsolePage() {
   const key = `/api/experimental/tg-console?${new URLSearchParams({
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
   }).toString()}`;
-  const { data, isLoading, mutate } = useSWR<ConsoleData>(key);
+  const { data, isLoading, mutate } = useSWR<ConsoleData>(key, fetchJson, {
+    refreshInterval: 4000,
+    revalidateOnFocus: true,
+  });
 
   const accounts = data?.accounts ?? [];
   const dialogs = data?.dialogs ?? [];
@@ -107,8 +112,8 @@ export default function TelegramConsolePage() {
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? null;
   const unreadCount = dialogs.filter((dialog) => dialog.is_unread).length;
   const repliedCount = dialogs.filter((dialog) => dialog.is_replied).length;
-  const pendingApprovalCount = sendApprovals.filter((item) => item.status === 'pending_approval').length;
-  const approvedCount = sendApprovals.filter((item) => item.status === 'approved').length;
+  const failedCount = sendApprovals.filter((item) => item.status === 'failed').length;
+  const activeDeliveryCount = sendApprovals.filter((item) => ['sending', 'sent', 'failed'].includes(item.status)).length;
 
   return (
     <div className="page-content tg-console-page tg-setup-page">
@@ -118,7 +123,7 @@ export default function TelegramConsolePage() {
             <span className="exp-badge-label">Beta Experimental</span>
             Telegram Setup
           </div>
-          <div className="tgc-page-subtitle">Connect phone sessions, attach sticky proxies, maintain reply accounts, and approve outbound sends.</div>
+          <div className="tgc-page-subtitle">Connect phone sessions, attach sticky proxies, manage warmed accounts, and send live outreach directly.</div>
         </div>
         <div className="btn-row">
           <a className="btn-secondary" href="/experimental/telegram-inbox">Open inbox</a>
@@ -145,7 +150,7 @@ export default function TelegramConsolePage() {
         <div className="card"><div className="card-title">Connected</div><div className="card-value">{accounts.length}</div><div className="card-subtitle">Phone sessions</div></div>
         <div className="card"><div className="card-title">Unread</div><div className="card-value">{unreadCount}</div><div className="card-subtitle">Dialogs needing review</div></div>
         <div className="card"><div className="card-title">Replied</div><div className="card-value">{repliedCount}</div><div className="card-subtitle">Threads with outbound reply</div></div>
-        <div className="card"><div className="card-title">Send Queue</div><div className="card-value">{pendingApprovalCount + approvedCount}</div><div className="card-subtitle">{pendingApprovalCount} pending approval</div></div>
+        <div className="card"><div className="card-title">Delivery Log</div><div className="card-value">{activeDeliveryCount}</div><div className="card-subtitle">{failedCount} failed</div></div>
       </div>
 
       <div className="tg-console-top-grid">
@@ -177,7 +182,7 @@ export default function TelegramConsolePage() {
           <div className="tg-console-manual-list">
             <div>All phone sessions share one combined inbox on the Telegram Inbox page.</div>
             <div>Each account keeps its own sticky proxy. Saved proxy secrets are encrypted before storage.</div>
-            <div>The worker only delivers messages that have an explicit approval record.</div>
+            <div>Broadcast sends now dispatch immediately and land in the delivery log with success or failure details.</div>
             {isLoading && <div>Loading setup data...</div>}
           </div>
         </section>
@@ -545,7 +550,6 @@ function BroadcastPanel({
   const [selectedWarmed, setSelectedWarmed] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [template, setTemplate] = useState('');
-  const [approveNow, setApproveNow] = useState(false);
   const [status, setStatus] = useState('');
 
   useEffect(() => {
@@ -562,16 +566,17 @@ function BroadcastPanel({
           dialog_ids: [...selectedDialogs],
           target_usernames: [...selectedWarmed],
           message_text: message,
-          approve_now: approveNow,
+          approve_now: true,
         }),
       });
       setMessage('');
       setSelectedDialogs(new Set());
       setSelectedWarmed(new Set());
-      setStatus(`${res.sendApprovals.length} send records created.`);
+      const failed = res.sendApprovals.filter((item) => item.status === 'failed').length;
+      setStatus(failed ? `${res.sendApprovals.length - failed} sent, ${failed} failed.` : `${res.sendApprovals.length} sent.`);
       onMutate();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not create sends.');
+      setStatus(error instanceof Error ? error.message : 'Could not send messages.');
     }
   };
 
@@ -590,6 +595,18 @@ function BroadcastPanel({
           options={[{ value: '', label: 'Message drafts' }, ...messageTemplates.map((item, index) => ({ value: String(index), label: item }))]}
         />
         <textarea className="input" style={{ minHeight: 92, resize: 'vertical' }} placeholder="Message text" value={message} onChange={(event) => setMessage(event.target.value)} />
+        <div className="tg-console-checkbox-list tg-console-emoji-row">
+          {quickBroadcastEmoji.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="btn-secondary"
+              onClick={() => setMessage((value) => `${value}${value ? ' ' : ''}${emoji}`)}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
         <div className="tg-console-checkbox-list">
           {dialogs.slice(0, 8).map((dialog) => (
             <label key={dialog.id}>
@@ -616,12 +633,8 @@ function BroadcastPanel({
             </label>
           ))}
         </div>
-        <label className="tg-console-check-row">
-          <input type="checkbox" checked={approveNow} onChange={(event) => setApproveNow(event.target.checked)} />
-          Approve these sends now
-        </label>
         <button className="btn" disabled={!accountId || !message.trim() || (!selectedDialogs.size && !selectedWarmed.size)} onClick={create}>
-          {approveNow ? 'Approve for worker' : 'Queue for approval'}
+          Send now
         </button>
         {status && <div className="card-subtitle">{status}</div>}
       </div>
@@ -640,13 +653,13 @@ function SendApprovalsPanel({ sendApprovals, onMutate }: { sendApprovals: TgSend
 
   return (
     <section className="tg-console-panel">
-      <div className="card-title">Send Queue</div>
+      <div className="card-title">Delivery Log</div>
       <div className="tg-console-queue">
         {sendApprovals.slice(0, 8).map((item) => (
           <div key={item.id} className="tg-console-queue-row">
             <span>{item.message_text}</span>
             <strong style={{ color: statusTone(item.status) }}>{item.status.replace('_', ' ')}</strong>
-            {item.status === 'pending_approval' && <button className="btn-secondary" onClick={() => void approve(item.id)}>Approve</button>}
+            {item.status === 'pending_approval' && <button className="btn-secondary" onClick={() => void approve(item.id)}>Send now</button>}
           </div>
         ))}
         {sendApprovals.length === 0 && <div className="empty-state" style={{ minHeight: 80 }}>No send records yet.</div>}
@@ -665,7 +678,7 @@ function ManualActionsPanel({
   const items = [
     selectedDialog?.username ? `Review @${selectedDialog.username} and reply from the native client.` : 'Pick a dialog to review a live thread.',
     warmedUsernames.length ? `Check the warmed-account replies for @${warmedUsernames[0].username}.` : 'Add warmed usernames for reply checks.',
-    'Review unread Telegram folders before approving outbound sends.',
+    'Review unread Telegram folders before sending the next batch.',
   ];
 
   return (

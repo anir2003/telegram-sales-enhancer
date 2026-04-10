@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
     "@telegram-enhancer/shared": "workspace:*",
+    "big-integer": "^1.6.52",
     "dotenv": "^16.4.7",
     "telegram": "^2.26.22"
   },

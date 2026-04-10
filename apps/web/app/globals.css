@@ -3845,6 +3845,13 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   color: var(--text-muted);
 }
 
+.tg-console-emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: none;
+}
+
 .tg-console-queue-row {
   display: grid;
   gap: 6px;
@@ -4454,12 +4461,21 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .tg-inbox-message {
+  display: block;
   max-width: 58%;
   border-radius: 6px;
   padding: 9px 12px;
+  text-align: left;
   font-size: 11px;
   line-height: 1.55;
   word-break: break-word;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.tg-inbox-message.active {
+  border-color: rgba(245, 158, 11, 0.55) !important;
+  transform: translateY(-1px);
 }
 
 .tg-inbox-message small {
@@ -4493,6 +4509,26 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-radius: 6px;
   background: #171818;
   overflow: hidden;
+}
+
+.tg-inbox-reaction-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.tg-inbox-emoji-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tg-inbox-emoji-row span {
+  margin-right: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 .tg-inbox-composer textarea {

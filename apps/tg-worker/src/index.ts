@@ -2,6 +2,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import bigInt from 'big-integer';
+import { Api } from 'telegram';
 import type { TgConsoleProxyConfig } from '@telegram-enhancer/shared';
 import { decryptJson, decryptSecret } from './crypto.js';
 import { resolveWorkspaceTgCredentials } from './credentials.js';
@@ -83,6 +85,40 @@ function getEntityTitle(entity: any) {
 function getPreview(message: any) {
   const text = typeof message?.message === 'string' ? message.message : '';
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+}
+
+function parseDialogPeer(dialog: Pick<DialogRow, 'telegram_dialog_id'>) {
+  const [kind, rawId] = dialog.telegram_dialog_id.split(':');
+  if (!kind || !rawId) return null;
+
+  try {
+    const id = bigInt(rawId);
+    if (kind === 'user' || kind === 'bot') {
+      return new Api.PeerUser({ userId: id });
+    }
+    if (kind === 'group') {
+      return new Api.PeerChat({ chatId: id });
+    }
+    if (kind === 'channel') {
+      return new Api.PeerChannel({ channelId: id });
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function resolveDialogEntity(client: any, dialog: DialogRow) {
+  if (dialog.username) {
+    return client.getEntity(dialog.username.replace(/^@/, ''));
+  }
+
+  const peer = parseDialogPeer(dialog);
+  if (!peer) {
+    throw new Error(`Approved send has no resolvable peer for dialog ${dialog.id}.`);
+  }
+  return client.getInputEntity(peer);
 }
 
 async function logActivity(input: {
@@ -241,7 +277,9 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
   const dialog = approval.dialog_id ? await getDialog(approval.dialog_id) : null;
   const target = approval.target_username || dialog?.username;
   if (!target) {
-    throw new Error('Approved send has no resolvable username target.');
+    if (!dialog) {
+      throw new Error('Approved send has no resolvable target.');
+    }
   }
 
   const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
@@ -249,16 +287,45 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
   const client = createTelegramClient(session, Number(apiId), apiHash, proxy);
   try {
     await client.connect();
-    const entity = await client.getEntity(target.replace(/^@/, ''));
+    const entity = dialog
+      ? await resolveDialogEntity(client, dialog)
+      : await client.getEntity(target!.replace(/^@/, ''));
     const sent = await client.sendMessage(entity, { message: approval.message_text });
+    const sentAt = toIsoFromTelegramDate((sent as any)?.date);
     await supabase
       .from('telegram_send_approvals')
       .update({
         status: 'sent',
-        delivery_result: { telegram_message_id: String((sent as any)?.id ?? ''), delivered_at: nowIso() },
+        delivery_result: { telegram_message_id: String((sent as any)?.id ?? ''), delivered_at: sentAt },
         updated_at: nowIso(),
       })
       .eq('id', approval.id);
+    if (dialog) {
+      await supabase
+        .from('telegram_dialogs')
+        .update({
+          last_message_at: sentAt,
+          last_message_preview: getPreview({ message: approval.message_text }),
+          unread_count: 0,
+          is_unread: false,
+          is_replied: true,
+          updated_at: nowIso(),
+        })
+        .eq('id', dialog.id);
+      await supabase
+        .from('telegram_messages')
+        .upsert({
+          workspace_id: approval.workspace_id,
+          account_id: approval.account_id,
+          dialog_id: dialog.id,
+          telegram_message_id: String((sent as any)?.id ?? ''),
+          sender_name: account.display_name,
+          is_outbound: true,
+          text: approval.message_text,
+          sent_at: sentAt,
+          metadata: { delivery: 'worker' },
+        }, { onConflict: 'dialog_id,telegram_message_id' });
+    }
     await logActivity({
       workspaceId: approval.workspace_id,
       eventType: 'telegram.send.delivered',
@@ -302,7 +369,10 @@ async function tick() {
   }
 }
 
-const intervalMs = Number(process.env.TELEGRAM_WORKER_INTERVAL_MS ?? 60000);
+const configuredInterval = Number(process.env.TELEGRAM_WORKER_INTERVAL_MS ?? 15000);
+const intervalMs = Number.isFinite(configuredInterval)
+  ? Math.min(Math.max(configuredInterval, 5000), 15000)
+  : 15000;
 
 await tick();
 

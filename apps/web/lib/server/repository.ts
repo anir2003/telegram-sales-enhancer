@@ -3161,6 +3161,26 @@ export async function listTgConsoleMessages(context: WorkspaceContext, dialogId?
   return (data ?? []) as TgConsoleMessageRecord[];
 }
 
+export async function getTgConsoleDialog(
+  context: WorkspaceContext,
+  dialogId: string,
+): Promise<TgConsoleDialogRecord | null> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.tgConsoleDialogs.find((dialog) => dialog.workspace_id === active.workspaceId && dialog.id === dialogId) ?? null;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_dialogs')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', dialogId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as TgConsoleDialogRecord | null) ?? null;
+}
+
 export async function updateTgConsoleDialog(
   context: WorkspaceContext,
   dialogId: string,
@@ -3369,7 +3389,7 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
   const active = resolveWorkspaceContext(context);
   const parsed = tgSendApprovalInputSchema.parse(input);
   const timestamp = nowIso();
-  const status = parsed.approve_now ? 'approved' : 'pending_approval';
+  const status = parsed.approve_now ? 'sending' : 'pending_approval';
   const approvedBy = parsed.approve_now ? active.profileId : null;
   const approvedAt = parsed.approve_now ? timestamp : null;
   const targetUsernames = parsed.target_usernames.map(normalizeTgConsoleUsername);
@@ -3408,8 +3428,8 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
     await logActivity({
       workspaceId: active.workspaceId,
       profileId: active.profileId,
-      event_type: parsed.approve_now ? 'telegram.send.approved' : 'telegram.send.pending_approval',
-      event_label: parsed.approve_now ? 'Telegram send approved' : 'Telegram send queued for approval',
+      event_type: parsed.approve_now ? 'telegram.send.dispatch_requested' : 'telegram.send.pending_approval',
+      event_label: parsed.approve_now ? 'Telegram send dispatch requested' : 'Telegram send queued for approval',
       payload: { account_id: parsed.account_id, count: records.length },
     });
     return records;
@@ -3425,8 +3445,8 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
   await logActivity({
     workspaceId: active.workspaceId,
     profileId: active.profileId,
-    event_type: parsed.approve_now ? 'telegram.send.approved' : 'telegram.send.pending_approval',
-    event_label: parsed.approve_now ? 'Telegram send approved' : 'Telegram send queued for approval',
+    event_type: parsed.approve_now ? 'telegram.send.dispatch_requested' : 'telegram.send.pending_approval',
+    event_label: parsed.approve_now ? 'Telegram send dispatch requested' : 'Telegram send queued for approval',
     payload: { account_id: parsed.account_id, count: data?.length ?? rows.length },
   });
 
@@ -3440,7 +3460,7 @@ export async function approveTgSendApproval(context: WorkspaceContext, approvalI
     const approval = demoState.tgSendApprovals.find((item) => item.id === approvalId && item.workspace_id === active.workspaceId);
     if (!approval) throw new Error('Send approval not found.');
     Object.assign(approval, {
-      status: 'approved',
+      status: 'sending',
       approved_by_profile_id: active.profileId,
       approved_at: timestamp,
       updated_at: timestamp,
@@ -3451,7 +3471,7 @@ export async function approveTgSendApproval(context: WorkspaceContext, approvalI
   const { data, error } = await supabase!
     .from('telegram_send_approvals')
     .update({
-      status: 'approved',
+      status: 'sending',
       approved_by_profile_id: active.profileId,
       approved_at: timestamp,
       updated_at: timestamp,
@@ -3466,8 +3486,8 @@ export async function approveTgSendApproval(context: WorkspaceContext, approvalI
   await logActivity({
     workspaceId: active.workspaceId,
     profileId: active.profileId,
-    event_type: 'telegram.send.approved',
-    event_label: 'Telegram send approved',
+    event_type: 'telegram.send.dispatch_requested',
+    event_label: 'Telegram send dispatch requested',
     payload: { approval_id: approvalId, account_id: data.account_id },
   });
 
