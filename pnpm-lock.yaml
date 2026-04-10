@@ -45,6 +45,9 @@ importers:
       '@telegram-enhancer/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      big-integer:
+        specifier: ^1.6.52
+        version: 1.6.52
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -76,6 +79,9 @@ importers:
       '@telegram-enhancer/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      big-integer:
+        specifier: ^1.6.52
+        version: 1.6.52
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

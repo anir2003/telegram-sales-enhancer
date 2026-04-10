@@ -34,6 +34,9 @@ type RailMode =
   | `crm:${string}`
   | `tag:${string}`;
 
+const quickComposerEmoji = ['🙂', '👍', '🔥', '🚀', '✅', '👀'];
+const quickReactionEmoji = ['👍', '❤️', '🔥', '😂', '👀', '✅'];
+
 function cleanTags(value: string) {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
 }
@@ -139,19 +142,25 @@ export default function TelegramInboxPage() {
   const [tags, setTags] = useState('');
   const [notes, setNotes] = useState('');
   const [replyDraft, setReplyDraft] = useState('');
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const key = `/api/experimental/tg-console?${new URLSearchParams({
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
     ...(selectedDialogId ? { dialogId: selectedDialogId } : {}),
   }).toString()}`;
-  const { data, isLoading, mutate } = useSWR<ConsoleData>(key);
+  const { data, isLoading, mutate } = useSWR<ConsoleData>(key, fetchJson, {
+    refreshInterval: 4000,
+    revalidateOnFocus: true,
+  });
 
   const accounts = data?.accounts ?? [];
   const dialogs = data?.dialogs ?? [];
   const messages = data?.messages ?? [];
   const selectedDialog = dialogs.find((dialog) => dialog.id === selectedDialogId) ?? null;
+  const selectedMessage = messages.find((message) => message.id === activeMessageId) ?? null;
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? null;
   const accountById = useMemo(() => new Map(accounts.map((account) => [account.id, account])), [accounts]);
 
@@ -193,10 +202,24 @@ export default function TelegramInboxPage() {
     setTags(selectedDialog?.tags.join(', ') ?? '');
     setNotes(selectedDialog?.notes ?? '');
     setReplyDraft('');
+    setActiveMessageId(null);
     setStatus('');
   }, [selectedDialog]);
 
+  useEffect(() => {
+    if (!messages.length) {
+      setActiveMessageId(null);
+      return;
+    }
+    if (activeMessageId && messages.some((message) => message.id === activeMessageId)) {
+      return;
+    }
+    const preferred = [...messages].reverse().find((message) => !message.is_outbound) ?? messages[messages.length - 1];
+    setActiveMessageId(preferred?.id ?? null);
+  }, [messages, activeMessageId]);
+
   const countWhere = (mode: RailMode) => dialogs.filter((dialog) => railMatches(dialog, mode)).length;
+  const activeSyncAccountId = selectedDialog?.account_id ?? selectedAccountId ?? accounts[0]?.id ?? null;
 
   const saveDialog = async (extra?: Partial<TgConsoleDialogRecord>) => {
     if (!selectedDialog) return;
@@ -220,8 +243,44 @@ export default function TelegramInboxPage() {
     setBusy(false);
   };
 
-  const queueReply = async () => {
-    if (!selectedDialog || !replyDraft.trim()) return;
+  const syncActiveAccount = async () => {
+    if (!activeSyncAccountId) return;
+    setSyncing(true);
+    try {
+      await fetchJson('/api/experimental/tg-console/sync', {
+        method: 'POST',
+        body: JSON.stringify({ accountId: activeSyncAccountId }),
+      });
+      await mutate();
+    } catch {
+      // keep passive; page refresh polling and worker will continue
+    }
+    setSyncing(false);
+  };
+
+  useEffect(() => {
+    if (!activeSyncAccountId || typeof window === 'undefined') return undefined;
+
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled || document.visibilityState === 'hidden') return;
+      await syncActiveAccount();
+    };
+
+    void run();
+    const timer = window.setInterval(() => {
+      void run();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeSyncAccountId]);
+
+  const sendReply = async (messageOverride?: string) => {
+    const outgoing = (messageOverride ?? replyDraft).trim();
+    if (!selectedDialog || !outgoing) return;
     setBusy(true);
     setStatus('');
     try {
@@ -231,15 +290,34 @@ export default function TelegramInboxPage() {
           account_id: selectedDialog.account_id,
           dialog_ids: [selectedDialog.id],
           target_usernames: [],
-          message_text: replyDraft,
-          approve_now: false,
+          message_text: outgoing,
+          approve_now: true,
         }),
       });
       setReplyDraft('');
-      setStatus('Reply queued for approval.');
+      setStatus('Sent.');
       await mutate();
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not queue reply.');
+      setStatus(error instanceof Error ? error.message : 'Could not send reply.');
+    }
+    setBusy(false);
+  };
+
+  const sendReaction = async (emoji: string) => {
+    if (!selectedDialog || !selectedMessage) return;
+    setBusy(true);
+    setStatus('');
+    try {
+      await fetchJson(`/api/experimental/tg-console/dialogs/${selectedDialog.id}/reaction`, {
+        method: 'POST',
+        body: JSON.stringify({
+          emoji,
+          telegram_message_id: selectedMessage.telegram_message_id,
+        }),
+      });
+      setStatus(`Reaction sent ${emoji}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not send reaction.');
     }
     setBusy(false);
   };
@@ -379,6 +457,9 @@ export default function TelegramInboxPage() {
                 <button className="btn-secondary" onClick={() => setDetailsCollapsed((value) => !value)}>
                   {detailsCollapsed ? 'Show details' : 'Hide details'}
                 </button>
+                <button className="btn-secondary" disabled={busy || syncing} onClick={() => void syncActiveAccount()}>
+                  {syncing ? 'Syncing...' : 'Sync now'}
+                </button>
                 <button className="btn-secondary" disabled={busy} onClick={() => void saveDialog({ is_unread: !selectedDialog.is_unread })}>
                   {selectedDialog.is_unread ? 'Mark read' : 'Mark unread'}
                 </button>
@@ -423,25 +504,59 @@ export default function TelegramInboxPage() {
 
             <div className="tg-inbox-message-flow">
               {messages.length ? messages.map((message) => (
-                <div key={message.id} className={`tg-inbox-message ${message.is_outbound ? 'outbound' : 'inbound'}`}>
+                <button
+                  key={message.id}
+                  type="button"
+                  className={`tg-inbox-message ${message.is_outbound ? 'outbound' : 'inbound'} ${activeMessageId === message.id ? 'active' : ''}`}
+                  onClick={() => setActiveMessageId(message.id)}
+                >
                   <div>{message.text || '[non-text message]'}</div>
                   <small>{message.sender_name || (message.is_outbound ? 'You' : selectedDialog.title)} · {formatInboxTime(message.sent_at)}</small>
-                </div>
+                </button>
               )) : (
                 <div className="tg-inbox-empty">Sync this account to mirror recent messages.</div>
               )}
             </div>
 
             <footer className="tg-inbox-composer">
+              <div className="tg-inbox-reaction-bar">
+                <div className="tg-inbox-emoji-row">
+                  {quickComposerEmoji.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className="btn-secondary"
+                      disabled={busy}
+                      onClick={() => setReplyDraft((value) => `${value}${value ? ' ' : ''}${emoji}`)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                <div className="tg-inbox-emoji-row">
+                  <span>{selectedMessage ? 'React to selected message' : 'Select a message to react'}</span>
+                  {quickReactionEmoji.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className="btn-secondary"
+                      disabled={busy || !selectedMessage}
+                      onClick={() => void sendReaction(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <textarea
                 value={replyDraft}
                 onChange={(event) => setReplyDraft(event.target.value)}
                 placeholder={`Write to chat ${selectedDialog.title}...`}
               />
               <div className="tg-inbox-composer-foot">
-                <span>{status || 'Replies are queued first, then approved from setup.'}</span>
-                <button className="btn" disabled={busy || !replyDraft.trim()} onClick={() => void queueReply()}>
-                  Queue reply
+                <span>{status || (syncing ? 'Refreshing this account...' : 'Replies go out immediately. Tap a message above to react.')}</span>
+                <button className="btn" disabled={busy || !replyDraft.trim()} onClick={() => void sendReply()}>
+                  Send reply
                 </button>
               </div>
             </footer>
