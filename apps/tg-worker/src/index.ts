@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import type { TgConsoleProxyConfig } from '@telegram-enhancer/shared';
 import { decryptJson, decryptSecret } from './crypto.js';
+import { resolveWorkspaceTgCredentials } from './credentials.js';
 import { createTelegramClient } from './telegram.js';
 
 const workerDir = path.dirname(fileURLToPath(import.meta.url));
@@ -114,7 +115,8 @@ async function syncAccount(account: ConnectedAccountRow) {
   const session = decryptSecret(account.session_ciphertext);
   if (!session) return;
   const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
-  const client = createTelegramClient(session, proxy);
+  const { apiId, apiHash } = await resolveWorkspaceTgCredentials(supabase, account.workspace_id);
+  const client = createTelegramClient(session, Number(apiId), apiHash, proxy);
 
   try {
     await client.connect();
@@ -243,7 +245,8 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
   }
 
   const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
-  const client = createTelegramClient(session, proxy);
+  const { apiId, apiHash } = await resolveWorkspaceTgCredentials(supabase, account.workspace_id);
+  const client = createTelegramClient(session, Number(apiId), apiHash, proxy);
   try {
     await client.connect();
     const entity = await client.getEntity(target.replace(/^@/, ''));

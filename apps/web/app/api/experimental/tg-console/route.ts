@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isTelegramConsoleAvailable, isTelegramMockAdapter } from '@/lib/env';
+import { getTelegramAppCredentials, isTelegramMockAdapter } from '@/lib/env';
 import { getWorkspaceContext } from '@/lib/server/context';
+import { resolveWorkspaceTgCredentials } from '@/lib/server/tg-console/credentials';
 import {
   listTgConsoleAccounts,
   listTgConsoleDialogs,
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const accountId = url.searchParams.get('accountId');
   const dialogId = url.searchParams.get('dialogId');
+  const credentialKeyConfigured = Boolean(getTelegramAppCredentials().credentialKey);
+  const workspaceCreds = isTelegramMockAdapter() ? null : await resolveWorkspaceTgCredentials(ctx);
 
   const [accounts, dialogs, messages, warmedUsernames, sendApprovals] = await Promise.all([
     listTgConsoleAccounts(ctx),
@@ -31,7 +34,7 @@ export async function GET(req: NextRequest) {
   ]);
 
   return NextResponse.json({
-    serverConfigured: isTelegramConsoleAvailable(),
+    serverConfigured: isTelegramMockAdapter() || Boolean(credentialKeyConfigured && workspaceCreds),
     connectorMode: isTelegramMockAdapter() ? 'mock' : 'live',
     accounts,
     dialogs,

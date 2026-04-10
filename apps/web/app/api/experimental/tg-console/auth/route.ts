@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Api } from 'telegram';
 import { computeCheck } from 'telegram/Password.js';
-import { getTelegramAppCredentials, isTelegramAppConfigured, isTelegramMockAdapter } from '@/lib/env';
+import { isTelegramMockAdapter } from '@/lib/env';
+import { resolveWorkspaceTgCredentials } from '@/lib/server/tg-console/credentials';
 import { getWorkspaceContext } from '@/lib/server/context';
 import {
   getTgConsoleAccountPrivate,
@@ -28,7 +29,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const action = String(body.action ?? '');
 
-  if (!isTelegramAppConfigured() && !isTelegramMockAdapter()) {
+  const tgCreds = isTelegramMockAdapter() ? null : await resolveWorkspaceTgCredentials(ctx);
+  if (!isTelegramMockAdapter() && !tgCreds) {
     return NextResponse.json({
       error: 'Telegram phone sign-in is not configured on this server yet.',
     }, { status: 503 });
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, step: 'verify', account });
     }
 
-    const { apiId, apiHash } = getTelegramAppCredentials();
+    const { apiId, apiHash } = tgCreds!;
     const { client, session } = await buildTelegramClient({
       apiId: Number(apiId),
       apiHash,
@@ -116,7 +118,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, step: 'done', account: connected });
     }
 
-    const { apiId, apiHash } = getTelegramAppCredentials();
+    const { apiId, apiHash } = tgCreds!;
     const sessionString = decryptSecret(account.pending_session_ciphertext || account.session_ciphertext) ?? '';
     const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
     const { client, session } = await buildTelegramClient({
