@@ -4192,7 +4192,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   padding: 0 6px;
 }
 
-.tg-inbox-page.list-collapsed .tg-inbox-list-head > div,
+.tg-inbox-page.list-collapsed .tg-inbox-list-head > div:not(.tg-inbox-list-head-actions),
 .tg-inbox-page.list-collapsed .tg-inbox-head-link,
 .tg-inbox-page.list-collapsed .tg-inbox-filter-row {
   display: none;
