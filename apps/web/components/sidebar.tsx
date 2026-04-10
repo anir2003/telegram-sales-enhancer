@@ -26,12 +26,29 @@ function IconFlask({ size = 13 }: { size?: number }) {
   );
 }
 
-function IconTgSearch({ size = 16 }: { size?: number }) {
+function IconTgInbox({ size = 16 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-      <circle cx="11" cy="10" r="3"/>
-      <path d="M13.5 12.5L16 15"/>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 5h16l-2 10H6L4 5z" />
+      <path d="M6 15l2.3 4h7.4L18 15" />
+      <path d="M9 11h6" />
+      <path d="M12 8v6" />
+    </svg>
+  );
+}
+
+function IconTgSetup({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h10" />
+      <path d="M18 7h2" />
+      <path d="M16 5v4" />
+      <path d="M4 17h2" />
+      <path d="M10 17h10" />
+      <path d="M8 15v4" />
+      <path d="M4 12h5" />
+      <path d="M13 12h7" />
+      <path d="M11 10v4" />
     </svg>
   );
 }
@@ -67,10 +84,10 @@ function ExperimentalWarningModal({ onConfirm, onCancel }: { onConfirm: () => vo
           </div>
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 12 }}>
-          These features are experimental and may not work as expected. They use your personal Telegram credentials to interact with Telegram&apos;s API directly.
+          These features are experimental and may not work as expected. They use phone-session login to mirror Telegram data through the server connector.
         </p>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 20 }}>
-          <strong style={{ color: '#f59e0b' }}>Important:</strong> Always use a backup Telegram account — not your primary one. Experimental API usage may trigger rate limits or account restrictions.
+          <strong style={{ color: '#f59e0b' }}>Important:</strong> Always use a backup Telegram account, not your primary one. Experimental usage may trigger rate limits or account restrictions.
         </p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onConfirm} style={{
@@ -119,7 +136,10 @@ export function Sidebar() {
 
   const handleCancel = () => setShowModal(false);
 
-  const isExpActive = pathname.startsWith('/experimental');
+  const experimentalItems = [
+    { href: '/experimental/telegram-inbox', label: 'TG Inbox', icon: IconTgInbox },
+    { href: '/experimental/telegram-console', label: 'TG Setup', icon: IconTgSetup },
+  ];
 
   return (
     <>
@@ -146,17 +166,21 @@ export function Sidebar() {
             );
           })}
 
-          {/* TG Checker — visible only when experimental is on */}
-          {expEnabled && (
-            <Link
-              href="/experimental/telegram-checker"
-              className={`sidebar-item ${isExpActive ? 'active' : ''}`}
-            >
-              <IconTgSearch size={16} />
-              <span>TG Checker</span>
-              <span className="sidebar-exp-beta">β</span>
-            </Link>
-          )}
+          {expEnabled && experimentalItems.map((item) => {
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`sidebar-item ${active ? 'active' : ''}`}
+              >
+                <Icon size={16} />
+                <span>{item.label}</span>
+                <span className="sidebar-exp-beta">β</span>
+              </Link>
+            );
+          })}
         </nav>
 
         {/* Spacer */}

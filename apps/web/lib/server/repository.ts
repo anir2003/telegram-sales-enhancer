@@ -13,6 +13,12 @@ import {
   sequenceStepInputSchema,
   sequenceStepUpdateSchema,
   telegramAccountInputSchema,
+  redactTgProxyConfig,
+  tgConsoleDialogUpdateSchema,
+  tgConsolePhoneSchema,
+  tgConsoleProxySchema,
+  tgSendApprovalInputSchema,
+  tgWarmedUsernameInputSchema,
   type ActivityLogRecord,
   type CampaignLeadRecord,
   type CampaignRecord,
@@ -20,6 +26,12 @@ import {
   type SendTaskRecord,
   type SequenceStepRecord,
   type TelegramAccountRecord,
+  type TgConsoleAccountRecord,
+  type TgConsoleDialogRecord,
+  type TgConsoleMessageRecord,
+  type TgConsoleProxyConfig,
+  type TgSendApprovalRecord,
+  type TgWarmedUsernameRecord,
 } from '@telegram-enhancer/shared';
 import Papa from 'papaparse';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -2839,4 +2851,625 @@ export async function deleteTelegramCredential(context: WorkspaceContext): Promi
     .delete()
     .eq('workspace_id', context.workspaceId)
     .eq('profile_id', context.profileId);
+}
+
+// ─── Experimental: Telegram Account Console ─────────────────────────────────
+
+export type TgConsoleAccountPrivateRow = TgConsoleAccountRecord & {
+  session_ciphertext: string | null;
+  pending_session_ciphertext: string | null;
+  phone_code_hash: string | null;
+  proxy_config_ciphertext: string | null;
+};
+
+function toTgConsoleAccountRecord(row: any): TgConsoleAccountRecord {
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    profile_id: row.profile_id ?? null,
+    phone: row.phone,
+    telegram_user_id: row.telegram_user_id === null || row.telegram_user_id === undefined ? null : String(row.telegram_user_id),
+    telegram_username: row.telegram_username ?? null,
+    display_name: row.display_name ?? null,
+    is_authenticated: Boolean(row.is_authenticated),
+    status: row.status,
+    proxy_redacted: row.proxy_redacted ?? null,
+    proxy_status: row.proxy_status ?? null,
+    proxy_checked_at: row.proxy_checked_at ?? null,
+    last_sync_at: row.last_sync_at ?? null,
+    last_inbox_update_at: row.last_inbox_update_at ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function toTgConsoleAccountPrivate(row: any): TgConsoleAccountPrivateRow {
+  return {
+    ...toTgConsoleAccountRecord(row),
+    session_ciphertext: row.session_ciphertext ?? null,
+    pending_session_ciphertext: row.pending_session_ciphertext ?? null,
+    phone_code_hash: row.phone_code_hash ?? null,
+    proxy_config_ciphertext: row.proxy_config_ciphertext ?? null,
+  };
+}
+
+function normalizeTgConsoleUsername(input: string) {
+  return normalizeTelegramUsername(input).toLowerCase();
+}
+
+export async function listTgConsoleAccounts(context?: WorkspaceContext): Promise<TgConsoleAccountRecord[]> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.tgConsoleAccounts.filter((account) => account.workspace_id === active.workspaceId);
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_connected_accounts')
+    .select('id, workspace_id, profile_id, phone, telegram_user_id, telegram_username, display_name, is_authenticated, status, proxy_redacted, proxy_status, proxy_checked_at, last_sync_at, last_inbox_update_at, created_at, updated_at')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(toTgConsoleAccountRecord);
+}
+
+export async function getTgConsoleAccountPrivate(context: WorkspaceContext, accountId: string): Promise<TgConsoleAccountPrivateRow | null> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    const account = demoState.tgConsoleAccounts.find((item) => item.id === accountId && item.workspace_id === active.workspaceId);
+    if (!account) return null;
+    return { ...account, session_ciphertext: null, pending_session_ciphertext: null, phone_code_hash: null, proxy_config_ciphertext: null };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_connected_accounts')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? toTgConsoleAccountPrivate(data) : null;
+}
+
+export async function upsertTgConsolePendingAccount(
+  context: WorkspaceContext,
+  input: {
+    phone: string;
+    pendingSessionCiphertext: string;
+    phoneCodeHash: string;
+    proxyConfigCiphertext?: string | null;
+    proxyRedacted?: string | null;
+  },
+): Promise<TgConsoleAccountRecord> {
+  const active = resolveWorkspaceContext(context);
+  const parsed = tgConsolePhoneSchema.parse({ phone: input.phone });
+  const payload = {
+    workspace_id: active.workspaceId,
+    profile_id: active.profileId,
+    phone: parsed.phone,
+    pending_session_ciphertext: input.pendingSessionCiphertext,
+    phone_code_hash: input.phoneCodeHash,
+    is_authenticated: false,
+    status: 'pending_code',
+    updated_at: nowIso(),
+    ...(input.proxyConfigCiphertext !== undefined ? { proxy_config_ciphertext: input.proxyConfigCiphertext } : {}),
+    ...(input.proxyRedacted !== undefined ? { proxy_redacted: input.proxyRedacted } : {}),
+  };
+
+  if (!isSupabaseConfigured()) {
+    const existing = demoState.tgConsoleAccounts.find((item) => item.workspace_id === active.workspaceId && item.phone === parsed.phone);
+    if (existing) {
+      Object.assign(existing, {
+        is_authenticated: false,
+        status: 'pending_code',
+        updated_at: nowIso(),
+        ...(input.proxyRedacted !== undefined ? { proxy_redacted: input.proxyRedacted } : {}),
+      });
+      return existing;
+    }
+    const record: TgConsoleAccountRecord = {
+      id: demoId('tg-console-account'),
+      workspace_id: active.workspaceId,
+      profile_id: active.profileId,
+      phone: parsed.phone,
+      telegram_user_id: null,
+      telegram_username: null,
+      display_name: null,
+      is_authenticated: false,
+      status: 'pending_code',
+      proxy_redacted: input.proxyRedacted ?? null,
+      proxy_status: null,
+      proxy_checked_at: null,
+      last_sync_at: null,
+      last_inbox_update_at: null,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+    demoState.tgConsoleAccounts.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_connected_accounts')
+    .upsert(payload, { onConflict: 'workspace_id,phone' })
+    .select('id, workspace_id, profile_id, phone, telegram_user_id, telegram_username, display_name, is_authenticated, status, proxy_redacted, proxy_status, proxy_checked_at, last_sync_at, last_inbox_update_at, created_at, updated_at')
+    .single();
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'telegram.login.code_sent',
+    event_label: `Telegram code sent to ${parsed.phone}`,
+    payload: { account_id: data.id, phone: parsed.phone },
+  });
+
+  return toTgConsoleAccountRecord(data);
+}
+
+export async function saveTgConsoleAuthenticatedSession(
+  context: WorkspaceContext,
+  accountId: string,
+  input: {
+    sessionCiphertext: string;
+    telegramUserId?: string | number | null;
+    telegramUsername?: string | null;
+    displayName?: string | null;
+  },
+): Promise<TgConsoleAccountRecord> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    const account = demoState.tgConsoleAccounts.find((item) => item.id === accountId && item.workspace_id === active.workspaceId);
+    if (!account) throw new Error('Telegram account not found.');
+    Object.assign(account, {
+      telegram_user_id: input.telegramUserId === null || input.telegramUserId === undefined ? account.telegram_user_id : String(input.telegramUserId),
+      telegram_username: input.telegramUsername ?? account.telegram_username,
+      display_name: input.displayName ?? account.display_name,
+      is_authenticated: true,
+      status: 'authenticated',
+      updated_at: nowIso(),
+    });
+    return account;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_connected_accounts')
+    .update({
+      session_ciphertext: input.sessionCiphertext,
+      pending_session_ciphertext: null,
+      phone_code_hash: null,
+      telegram_user_id: input.telegramUserId === null || input.telegramUserId === undefined ? null : String(input.telegramUserId),
+      telegram_username: input.telegramUsername,
+      display_name: input.displayName,
+      is_authenticated: true,
+      status: 'authenticated',
+      updated_at: nowIso(),
+    })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId)
+    .select('id, workspace_id, profile_id, phone, telegram_user_id, telegram_username, display_name, is_authenticated, status, proxy_redacted, proxy_status, proxy_checked_at, last_sync_at, last_inbox_update_at, created_at, updated_at')
+    .single();
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'telegram.login.verified',
+    event_label: `Telegram account connected: ${data.phone}`,
+    payload: { account_id: accountId, telegram_user_id: data.telegram_user_id, telegram_username: data.telegram_username },
+  });
+
+  return toTgConsoleAccountRecord(data);
+}
+
+export async function saveTgConsoleProxy(
+  context: WorkspaceContext,
+  accountId: string,
+  input: { proxy: TgConsoleProxyConfig; proxyConfigCiphertext: string; proxyStatus: string },
+): Promise<TgConsoleAccountRecord> {
+  const active = resolveWorkspaceContext(context);
+  const proxy = tgConsoleProxySchema.parse(input.proxy);
+  const proxyRedacted = redactTgProxyConfig(proxy);
+
+  if (!isSupabaseConfigured()) {
+    const account = demoState.tgConsoleAccounts.find((item) => item.id === accountId && item.workspace_id === active.workspaceId);
+    if (!account) throw new Error('Telegram account not found.');
+    Object.assign(account, {
+      proxy_redacted: proxyRedacted,
+      proxy_status: input.proxyStatus,
+      proxy_checked_at: nowIso(),
+      updated_at: nowIso(),
+    });
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'telegram.proxy.changed',
+      event_label: `Proxy changed for ${account.phone}`,
+      payload: { account_id: accountId, proxy: proxyRedacted, proxy_status: input.proxyStatus },
+    });
+    return account;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_connected_accounts')
+    .update({
+      proxy_config_ciphertext: input.proxyConfigCiphertext,
+      proxy_redacted: proxyRedacted,
+      proxy_status: input.proxyStatus,
+      proxy_checked_at: nowIso(),
+      updated_at: nowIso(),
+    })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId)
+    .select('id, workspace_id, profile_id, phone, telegram_user_id, telegram_username, display_name, is_authenticated, status, proxy_redacted, proxy_status, proxy_checked_at, last_sync_at, last_inbox_update_at, created_at, updated_at')
+    .single();
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'telegram.proxy.changed',
+    event_label: `Proxy changed for ${data.phone}`,
+    payload: { account_id: accountId, proxy: proxyRedacted, proxy_status: input.proxyStatus },
+  });
+
+  return toTgConsoleAccountRecord(data);
+}
+
+export async function listTgConsoleDialogs(context: WorkspaceContext, accountId?: string | null): Promise<TgConsoleDialogRecord[]> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.tgConsoleDialogs
+      .filter((dialog) => dialog.workspace_id === active.workspaceId && (!accountId || dialog.account_id === accountId))
+      .sort((a, b) => (a.last_message_at ?? '').localeCompare(b.last_message_at ?? '') * -1);
+  }
+
+  const supabase = getAdminSupabaseClient();
+  let query = supabase!
+    .from('telegram_dialogs')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('last_message_at', { ascending: false, nullsFirst: false });
+  if (accountId) query = query.eq('account_id', accountId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as TgConsoleDialogRecord[];
+}
+
+export async function listTgConsoleMessages(context: WorkspaceContext, dialogId?: string | null): Promise<TgConsoleMessageRecord[]> {
+  const active = resolveWorkspaceContext(context);
+  if (!dialogId) return [];
+  if (!isSupabaseConfigured()) {
+    return demoState.tgConsoleMessages
+      .filter((message) => message.workspace_id === active.workspaceId && message.dialog_id === dialogId)
+      .sort((a, b) => a.sent_at.localeCompare(b.sent_at));
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_messages')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .eq('dialog_id', dialogId)
+    .order('sent_at', { ascending: true })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []) as TgConsoleMessageRecord[];
+}
+
+export async function updateTgConsoleDialog(
+  context: WorkspaceContext,
+  dialogId: string,
+  input: unknown,
+): Promise<TgConsoleDialogRecord> {
+  const active = resolveWorkspaceContext(context);
+  const parsed = tgConsoleDialogUpdateSchema.parse(input);
+
+  if (!isSupabaseConfigured()) {
+    const dialog = demoState.tgConsoleDialogs.find((item) => item.id === dialogId && item.workspace_id === active.workspaceId);
+    if (!dialog) throw new Error('Dialog not found.');
+    Object.assign(dialog, { ...parsed, updated_at: nowIso() });
+    return dialog;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_dialogs')
+    .update({ ...parsed, updated_at: nowIso() })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', dialogId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as TgConsoleDialogRecord;
+}
+
+export async function upsertTgConsoleDialog(
+  context: WorkspaceContext,
+  input: Omit<TgConsoleDialogRecord, 'id' | 'workspace_id' | 'created_at' | 'updated_at'> & { id?: string },
+): Promise<TgConsoleDialogRecord> {
+  const active = resolveWorkspaceContext(context);
+  const payload = {
+    ...input,
+    workspace_id: active.workspaceId,
+    updated_at: nowIso(),
+  };
+
+  if (!isSupabaseConfigured()) {
+    const existing = demoState.tgConsoleDialogs.find((dialog) => dialog.account_id === input.account_id && dialog.telegram_dialog_id === input.telegram_dialog_id);
+    if (existing) {
+      Object.assign(existing, payload);
+      return existing;
+    }
+    const record: TgConsoleDialogRecord = {
+      id: input.id ?? demoId('tg-dialog'),
+      created_at: nowIso(),
+      ...payload,
+    };
+    demoState.tgConsoleDialogs.unshift(record);
+    return record;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_dialogs')
+    .upsert(payload, { onConflict: 'account_id,telegram_dialog_id' })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as TgConsoleDialogRecord;
+}
+
+export async function upsertTgConsoleMessages(
+  context: WorkspaceContext,
+  messages: Array<Omit<TgConsoleMessageRecord, 'id' | 'workspace_id' | 'created_at'> & { id?: string }>,
+): Promise<void> {
+  const active = resolveWorkspaceContext(context);
+  if (!messages.length) return;
+
+  if (!isSupabaseConfigured()) {
+    for (const message of messages) {
+      const existing = demoState.tgConsoleMessages.find((item) => item.dialog_id === message.dialog_id && item.telegram_message_id === message.telegram_message_id);
+      if (existing) Object.assign(existing, message);
+      else demoState.tgConsoleMessages.push({
+        id: message.id ?? demoId('tg-message'),
+        workspace_id: active.workspaceId,
+        created_at: nowIso(),
+        ...message,
+      });
+    }
+    return;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { error } = await supabase!
+    .from('telegram_messages')
+    .upsert(messages.map((message) => ({ ...message, workspace_id: active.workspaceId })), { onConflict: 'dialog_id,telegram_message_id' });
+  if (error) throw error;
+}
+
+export async function markTgConsoleAccountSynced(context: WorkspaceContext, accountId: string): Promise<void> {
+  const active = resolveWorkspaceContext(context);
+  const timestamp = nowIso();
+  if (!isSupabaseConfigured()) {
+    const account = demoState.tgConsoleAccounts.find((item) => item.id === accountId && item.workspace_id === active.workspaceId);
+    if (account) {
+      account.last_sync_at = timestamp;
+      account.last_inbox_update_at = timestamp;
+      account.updated_at = timestamp;
+    }
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: 'telegram.sync.completed',
+      event_label: 'Telegram inbox sync completed',
+      payload: { account_id: accountId },
+    });
+    return;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { error } = await supabase!
+    .from('telegram_connected_accounts')
+    .update({ last_sync_at: timestamp, last_inbox_update_at: timestamp, updated_at: timestamp })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId);
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'telegram.sync.completed',
+    event_label: 'Telegram inbox sync completed',
+    payload: { account_id: accountId },
+  });
+}
+
+export async function listTgWarmedUsernames(context: WorkspaceContext): Promise<TgWarmedUsernameRecord[]> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.tgWarmedUsernames.filter((item) => item.workspace_id === active.workspaceId);
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_warmed_usernames')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as TgWarmedUsernameRecord[];
+}
+
+export async function addTgWarmedUsername(context: WorkspaceContext, input: unknown): Promise<TgWarmedUsernameRecord> {
+  const active = resolveWorkspaceContext(context);
+  const parsed = tgWarmedUsernameInputSchema.parse(input);
+  const username = normalizeTgConsoleUsername(parsed.username);
+  if (!username) throw new Error('Username is required.');
+  const payload = {
+    workspace_id: active.workspaceId,
+    username,
+    label: parsed.label ?? null,
+    notes: parsed.notes ?? null,
+    tags: parsed.tags,
+  };
+
+  if (!isSupabaseConfigured()) {
+    const existing = demoState.tgWarmedUsernames.find((item) => item.workspace_id === active.workspaceId && item.username === username);
+    if (existing) Object.assign(existing, payload);
+    else demoState.tgWarmedUsernames.unshift({ id: demoId('tg-warmed'), created_at: nowIso(), ...payload });
+    return demoState.tgWarmedUsernames.find((item) => item.workspace_id === active.workspaceId && item.username === username)!;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_warmed_usernames')
+    .upsert(payload, { onConflict: 'workspace_id,username' })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as TgWarmedUsernameRecord;
+}
+
+export async function deleteTgWarmedUsername(context: WorkspaceContext, id: string): Promise<void> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    demoState.tgWarmedUsernames = demoState.tgWarmedUsernames.filter((item) => !(item.workspace_id === active.workspaceId && item.id === id));
+    return;
+  }
+  const supabase = getAdminSupabaseClient();
+  const { error } = await supabase!
+    .from('telegram_warmed_usernames')
+    .delete()
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function listTgSendApprovals(context: WorkspaceContext): Promise<TgSendApprovalRecord[]> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.tgSendApprovals.filter((item) => item.workspace_id === active.workspaceId);
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_send_approvals')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []) as TgSendApprovalRecord[];
+}
+
+export async function createTgSendApprovals(context: WorkspaceContext, input: unknown): Promise<TgSendApprovalRecord[]> {
+  const active = resolveWorkspaceContext(context);
+  const parsed = tgSendApprovalInputSchema.parse(input);
+  const timestamp = nowIso();
+  const status = parsed.approve_now ? 'approved' : 'pending_approval';
+  const approvedBy = parsed.approve_now ? active.profileId : null;
+  const approvedAt = parsed.approve_now ? timestamp : null;
+  const targetUsernames = parsed.target_usernames.map(normalizeTgConsoleUsername);
+  const rows = [
+    ...parsed.dialog_ids.map((dialogId) => ({
+      workspace_id: active.workspaceId,
+      account_id: parsed.account_id,
+      dialog_id: dialogId,
+      target_username: null,
+      message_text: parsed.message_text,
+      status,
+      approved_by_profile_id: approvedBy,
+      approved_at: approvedAt,
+      delivery_result: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    })),
+    ...targetUsernames.map((username) => ({
+      workspace_id: active.workspaceId,
+      account_id: parsed.account_id,
+      dialog_id: null,
+      target_username: username,
+      message_text: parsed.message_text,
+      status,
+      approved_by_profile_id: approvedBy,
+      approved_at: approvedAt,
+      delivery_result: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    })),
+  ];
+
+  if (!isSupabaseConfigured()) {
+    const records = rows.map((row) => ({ id: demoId('tg-send'), ...row })) as TgSendApprovalRecord[];
+    demoState.tgSendApprovals.unshift(...records);
+    await logActivity({
+      workspaceId: active.workspaceId,
+      profileId: active.profileId,
+      event_type: parsed.approve_now ? 'telegram.send.approved' : 'telegram.send.pending_approval',
+      event_label: parsed.approve_now ? 'Telegram send approved' : 'Telegram send queued for approval',
+      payload: { account_id: parsed.account_id, count: records.length },
+    });
+    return records;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_send_approvals')
+    .insert(rows)
+    .select('*');
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: parsed.approve_now ? 'telegram.send.approved' : 'telegram.send.pending_approval',
+    event_label: parsed.approve_now ? 'Telegram send approved' : 'Telegram send queued for approval',
+    payload: { account_id: parsed.account_id, count: data?.length ?? rows.length },
+  });
+
+  return (data ?? []) as TgSendApprovalRecord[];
+}
+
+export async function approveTgSendApproval(context: WorkspaceContext, approvalId: string): Promise<TgSendApprovalRecord> {
+  const active = resolveWorkspaceContext(context);
+  const timestamp = nowIso();
+  if (!isSupabaseConfigured()) {
+    const approval = demoState.tgSendApprovals.find((item) => item.id === approvalId && item.workspace_id === active.workspaceId);
+    if (!approval) throw new Error('Send approval not found.');
+    Object.assign(approval, {
+      status: 'approved',
+      approved_by_profile_id: active.profileId,
+      approved_at: timestamp,
+      updated_at: timestamp,
+    });
+    return approval;
+  }
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_send_approvals')
+    .update({
+      status: 'approved',
+      approved_by_profile_id: active.profileId,
+      approved_at: timestamp,
+      updated_at: timestamp,
+    })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', approvalId)
+    .eq('status', 'pending_approval')
+    .select('*')
+    .single();
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'telegram.send.approved',
+    event_label: 'Telegram send approved',
+    payload: { approval_id: approvalId, account_id: data.account_id },
+  });
+
+  return data as TgSendApprovalRecord;
 }
