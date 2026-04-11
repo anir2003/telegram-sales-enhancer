@@ -146,9 +146,6 @@ export default function TelegramConsolePage() {
         <RegistryPanel warmedUsernames={warmedUsernames} onMutate={mutate} />
       </div>
 
-      <div style={{ display: 'none' }}>{/* legacy panels removed */}
-        </section>
-      </div>
     </div>
   );
 }

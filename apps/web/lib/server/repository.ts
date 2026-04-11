@@ -2871,6 +2871,7 @@ function toTgConsoleAccountRecord(row: any): TgConsoleAccountRecord {
     telegram_user_id: row.telegram_user_id === null || row.telegram_user_id === undefined ? null : String(row.telegram_user_id),
     telegram_username: row.telegram_username ?? null,
     display_name: row.display_name ?? null,
+    avatar_url: row.avatar_url ?? null,
     is_authenticated: Boolean(row.is_authenticated),
     status: row.status,
     proxy_redacted: row.proxy_redacted ?? null,
@@ -3307,6 +3308,21 @@ export async function markTgConsoleAccountSynced(context: WorkspaceContext, acco
     event_label: 'Telegram inbox sync completed',
     payload: { account_id: accountId },
   });
+}
+
+export async function updateTgConsoleAccountAvatar(context: WorkspaceContext, accountId: string, avatarUrl: string): Promise<void> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    const account = demoState.tgConsoleAccounts.find((item) => item.id === accountId && item.workspace_id === active.workspaceId);
+    if (account) (account as any).avatar_url = avatarUrl;
+    return;
+  }
+  const supabase = getAdminSupabaseClient();
+  await supabase!
+    .from('telegram_connected_accounts')
+    .update({ avatar_url: avatarUrl, updated_at: nowIso() })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId);
 }
 
 export async function listTgWarmedUsernames(context: WorkspaceContext): Promise<TgWarmedUsernameRecord[]> {

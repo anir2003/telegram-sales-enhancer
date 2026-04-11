@@ -297,7 +297,7 @@ export default function TelegramInboxPage() {
         {accounts.length > 0 && !navCollapsed && <div className="tgi-nav-divider" />}
         {accounts.map((a) => (
           <button key={a.id} className={`tgi-nav-account ${selectedAccountId === a.id ? 'active' : ''}`} title={a.display_name || a.phone} onClick={() => { setSelectedAccountId(a.id); setSelectedDialogId(null); }}>
-            <AvatarCircle name={a.display_name || a.phone} size={18} />
+            <AvatarCircle name={a.display_name || a.phone} url={a.avatar_url} size={18} />
             {!navCollapsed && <span>{a.display_name || a.phone}</span>}
             {!navCollapsed && <strong>{dialogs.filter((d) => d.account_id === a.id).length}</strong>}
           </button>
@@ -333,7 +333,7 @@ export default function TelegramInboxPage() {
             return (
               <button key={dialog.id} className={`tgi-conv ${selectedDialogId === dialog.id ? 'active' : ''}`} onClick={() => setSelectedDialogId(dialog.id)}>
                 <div className="tgi-conv-avatar">
-                  <AvatarCircle name={dialog.title} size={36} />
+                  <AvatarCircle name={dialog.title} url={dialog.avatar_url} size={36} />
                   {dialog.is_unread && <span className="tgi-unread-dot" />}
                 </div>
                 <div className="tgi-conv-body">
@@ -359,7 +359,7 @@ export default function TelegramInboxPage() {
             {/* Header */}
             <header className="tgi-chat-head">
               <div className="tgi-chat-head-left">
-                <AvatarCircle name={selectedDialog.title} size={34} />
+                <AvatarCircle name={selectedDialog.title} url={selectedDialog.avatar_url} size={34} />
                 <div className="tgi-chat-head-info">
                   <strong>{selectedDialog.title}</strong>
                   <span>{selectedDialog.username ? `@${selectedDialog.username}` : selectedDialog.kind}</span>
@@ -415,7 +415,7 @@ export default function TelegramInboxPage() {
                 >
                   {!msg.is_outbound && (
                     <div className="tgi-msg-avatar">
-                      <AvatarCircle name={selectedDialog.title} size={26} />
+                      <AvatarCircle name={selectedDialog.title} url={selectedDialog.avatar_url} size={26} />
                     </div>
                   )}
                   <div className="tgi-msg-wrap">
@@ -440,7 +440,11 @@ export default function TelegramInboxPage() {
                   </div>
                   {msg.is_outbound && (
                     <div className="tgi-msg-avatar out">
-                      <AvatarCircle name={accountById.get(selectedDialog.account_id)?.display_name || 'Me'} size={26} />
+                      <AvatarCircle
+                        name={accountById.get(selectedDialog.account_id)?.display_name || 'Me'}
+                        url={accountById.get(selectedDialog.account_id)?.avatar_url}
+                        size={26}
+                      />
                     </div>
                   )}
                 </div>

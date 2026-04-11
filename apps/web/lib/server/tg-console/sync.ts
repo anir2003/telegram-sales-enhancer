@@ -3,6 +3,7 @@ import {
   markTgConsoleAccountSynced,
   upsertTgConsoleDialog,
   upsertTgConsoleMessages,
+  updateTgConsoleAccountAvatar,
 } from '@/lib/server/repository';
 import { resolveWorkspaceTgCredentials } from '@/lib/server/tg-console/credentials';
 import { buildTelegramClient } from '@/lib/server/tg-console/client';
@@ -42,6 +43,17 @@ function getPreview(message: any) {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
+async function downloadPhotoAsDataUrl(client: any, entity: any): Promise<string | null> {
+  try {
+    const buffer = await client.downloadProfilePhoto(entity, { isBig: false });
+    if (!buffer || !buffer.length) return null;
+    const b64 = Buffer.from(buffer).toString('base64');
+    return `data:image/jpeg;base64,${b64}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: string) {
   const account = await getTgConsoleAccountPrivate(context, accountId);
   if (!account?.is_authenticated) {
@@ -68,6 +80,16 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
 
   try {
     await client.connect();
+
+    // Fetch and store the connected account's own profile photo
+    try {
+      const me = await client.getMe();
+      if (me) {
+        const avatarUrl = await downloadPhotoAsDataUrl(client, me);
+        if (avatarUrl) await updateTgConsoleAccountAvatar(context, accountId, avatarUrl);
+      }
+    } catch { /* non-fatal */ }
+
     const dialogs = await client.getDialogs({ limit: 50 });
 
     for (const dialog of dialogs as any[]) {
@@ -75,6 +97,10 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
       if (!entity) continue;
       const lastMessage = dialog.message;
       const telegramDialogId = `${getEntityKind(entity)}:${getEntityId(entity)}`;
+
+      // Download avatar (non-fatal — store null if unavailable)
+      const avatarUrl = await downloadPhotoAsDataUrl(client, entity);
+
       const storedDialog = await upsertTgConsoleDialog(context, {
         account_id: accountId,
         telegram_dialog_id: telegramDialogId,
@@ -91,6 +117,7 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
         last_message_preview: lastMessage ? getPreview(lastMessage) : null,
         tags: [],
         notes: null,
+        avatar_url: avatarUrl,
       });
 
       const messages = await client.getMessages(entity, { limit: 30 });
