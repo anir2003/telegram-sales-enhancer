@@ -2977,6 +2977,7 @@ export async function upsertTgConsolePendingAccount(
       telegram_user_id: null,
       telegram_username: null,
       display_name: null,
+      avatar_url: null,
       is_authenticated: false,
       status: 'pending_code',
       proxy_redacted: input.proxyRedacted ?? null,

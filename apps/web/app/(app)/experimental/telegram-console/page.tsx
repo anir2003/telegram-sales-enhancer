@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
+import { swrFetcher } from '@/lib/web/swr-fetcher';
 import { CustomSelect } from '@/components/ui/select';
 import { AvatarCircle } from '@/components/ui/avatar';
 import type {
   TgConsoleAccountRecord,
+  TgConsoleDialogRecord,
   TgSendApprovalRecord,
   TgWarmedUsernameRecord,
 } from '@telegram-enhancer/shared';
@@ -95,7 +97,7 @@ export default function TelegramConsolePage() {
   const key = `/api/experimental/tg-console?${new URLSearchParams({
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
   }).toString()}`;
-  const { data, mutate } = useSWR<ConsoleData>(key, fetchJson, {
+  const { data, mutate } = useSWR<ConsoleData>(key, swrFetcher, {
     refreshInterval: 5000,
     revalidateOnFocus: true,
   });
