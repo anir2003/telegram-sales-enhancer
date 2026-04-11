@@ -116,6 +116,8 @@ button, input, textarea, select {
   flex-direction: column;
   flex-shrink: 0;
   overflow-y: auto;
+  position: relative;
+  z-index: 10;
 }
 
 .sidebar-logo {
@@ -2933,6 +2935,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   display: flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
   padding: 7px 8px;
   border-radius: 5px;
   cursor: pointer;
