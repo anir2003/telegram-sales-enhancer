@@ -2871,6 +2871,7 @@ function toTgConsoleAccountRecord(row: any): TgConsoleAccountRecord {
     telegram_user_id: row.telegram_user_id === null || row.telegram_user_id === undefined ? null : String(row.telegram_user_id),
     telegram_username: row.telegram_username ?? null,
     display_name: row.display_name ?? null,
+    avatar_url: row.avatar_url ?? null,
     is_authenticated: Boolean(row.is_authenticated),
     status: row.status,
     proxy_redacted: row.proxy_redacted ?? null,
@@ -2906,7 +2907,7 @@ export async function listTgConsoleAccounts(context?: WorkspaceContext): Promise
   const supabase = getAdminSupabaseClient();
   const { data, error } = await supabase!
     .from('telegram_connected_accounts')
-    .select('id, workspace_id, profile_id, phone, telegram_user_id, telegram_username, display_name, is_authenticated, status, proxy_redacted, proxy_status, proxy_checked_at, last_sync_at, last_inbox_update_at, created_at, updated_at')
+    .select('id, workspace_id, profile_id, phone, telegram_user_id, telegram_username, display_name, avatar_url, is_authenticated, status, proxy_redacted, proxy_status, proxy_checked_at, last_sync_at, last_inbox_update_at, created_at, updated_at')
     .eq('workspace_id', active.workspaceId)
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -3120,6 +3121,15 @@ export async function saveTgConsoleProxy(
   return toTgConsoleAccountRecord(data);
 }
 
+/** Normalize a raw DB/demo row into a safe TgConsoleDialogRecord */
+function normalizeDialogRow(row: any): TgConsoleDialogRecord {
+  return {
+    ...row,
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    avatar_url: row.avatar_url ?? null,
+  } as TgConsoleDialogRecord;
+}
+
 export async function listTgConsoleDialogs(context: WorkspaceContext, accountId?: string | null): Promise<TgConsoleDialogRecord[]> {
   const active = resolveWorkspaceContext(context);
   if (!isSupabaseConfigured()) {
@@ -3137,7 +3147,7 @@ export async function listTgConsoleDialogs(context: WorkspaceContext, accountId?
   if (accountId) query = query.eq('account_id', accountId);
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as TgConsoleDialogRecord[];
+  return (data ?? []).map(normalizeDialogRow);
 }
 
 export async function listTgConsoleMessages(context: WorkspaceContext, dialogId?: string | null): Promise<TgConsoleMessageRecord[]> {
@@ -3178,7 +3188,7 @@ export async function getTgConsoleDialog(
     .eq('id', dialogId)
     .maybeSingle();
   if (error) throw error;
-  return (data as TgConsoleDialogRecord | null) ?? null;
+  return data ? normalizeDialogRow(data) : null;
 }
 
 export async function updateTgConsoleDialog(
@@ -3205,7 +3215,7 @@ export async function updateTgConsoleDialog(
     .select('*')
     .single();
   if (error) throw error;
-  return data as TgConsoleDialogRecord;
+  return normalizeDialogRow(data);
 }
 
 export async function upsertTgConsoleDialog(
@@ -3241,7 +3251,7 @@ export async function upsertTgConsoleDialog(
     .select('*')
     .single();
   if (error) throw error;
-  return data as TgConsoleDialogRecord;
+  return normalizeDialogRow(data);
 }
 
 export async function upsertTgConsoleMessages(
@@ -3307,6 +3317,21 @@ export async function markTgConsoleAccountSynced(context: WorkspaceContext, acco
     event_label: 'Telegram inbox sync completed',
     payload: { account_id: accountId },
   });
+}
+
+export async function updateTgConsoleAccountAvatar(context: WorkspaceContext, accountId: string, avatarUrl: string): Promise<void> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    const account = demoState.tgConsoleAccounts.find((item) => item.id === accountId && item.workspace_id === active.workspaceId);
+    if (account) (account as any).avatar_url = avatarUrl;
+    return;
+  }
+  const supabase = getAdminSupabaseClient();
+  await supabase!
+    .from('telegram_connected_accounts')
+    .update({ avatar_url: avatarUrl, updated_at: nowIso() })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', accountId);
 }
 
 export async function listTgWarmedUsernames(context: WorkspaceContext): Promise<TgWarmedUsernameRecord[]> {

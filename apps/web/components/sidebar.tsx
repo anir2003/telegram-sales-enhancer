@@ -188,7 +188,7 @@ export function Sidebar() {
 
         {/* Experimental toggle — always at the bottom */}
         <div className="sidebar-exp-section">
-          <div className="sidebar-exp-toggle-row" onClick={handleToggle}>
+          <button type="button" className="sidebar-exp-toggle-row" onClick={handleToggle}>
             <span style={{ display: 'inline-flex', color: expEnabled ? '#f59e0b' : 'var(--text-dim)' }}>
               <IconFlask size={12} />
             </span>
@@ -196,7 +196,7 @@ export function Sidebar() {
             <div className={`sidebar-exp-switch ${expEnabled ? 'on' : ''}`}>
               <div className="sidebar-exp-switch-knob" />
             </div>
-          </div>
+          </button>
         </div>
       </aside>
 

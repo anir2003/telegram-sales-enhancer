@@ -102,7 +102,12 @@
       "Bash(PATH=/usr/local/bin:/opt/homebrew/bin:$PATH pnpm --filter web build)",
       "Bash(PATH=/usr/local/bin:/opt/homebrew/bin:$PATH pnpm --filter web add swr)",
       "Bash(sed -i '' 's/{loading ? '\\\\''...'\\\\'' : s\\\\.value}/{isLoading ? '\\\\''...'\\\\'' : s.value}/g' /Users/anir/Desktop/salessystem/apps/web/app/\\\\\\(app\\\\\\)/business-tracker/page.tsx)",
-      "Bash(sed -i '' 's/{loading ? \\(/{isLoading ? \\(/g' /Users/anir/Desktop/salessystem/apps/web/app/\\\\\\(app\\\\\\)/business-tracker/page.tsx)"
+      "Bash(sed -i '' 's/{loading ? \\(/{isLoading ? \\(/g' /Users/anir/Desktop/salessystem/apps/web/app/\\\\\\(app\\\\\\)/business-tracker/page.tsx)",
+      "Bash(grep -E \"\\\\.\\(js|jsx|tsx|ts\\)$\")",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(openssl rand:*)",
+      "Bash(echo \"TELEGRAM_CREDENTIAL_KEY=$\\(openssl rand -hex 32\\)\")",
+      "Bash(echo \"APP_SECRET=$\\(openssl rand -hex 32\\)\")"
     ]
   }
 }

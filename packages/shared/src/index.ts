@@ -159,6 +159,7 @@ export interface TgConsoleAccountRecord {
   telegram_user_id: string | null;
   telegram_username: string | null;
   display_name: string | null;
+  avatar_url: string | null;
   is_authenticated: boolean;
   status: TgConsoleAccountStatus;
   proxy_redacted: string | null;
@@ -188,6 +189,7 @@ export interface TgConsoleDialogRecord {
   last_message_preview: string | null;
   tags: string[];
   notes: string | null;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }
