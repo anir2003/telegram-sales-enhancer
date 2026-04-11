@@ -1,14 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { CustomSelect } from '@/components/ui/select';
 import { AvatarCircle } from '@/components/ui/avatar';
 import type {
   TgConsoleAccountRecord,
-  TgConsoleDialogRecord,
-  TgConsoleMessageRecord,
   TgSendApprovalRecord,
   TgWarmedUsernameRecord,
 } from '@telegram-enhancer/shared';
@@ -17,8 +15,6 @@ type ConsoleData = {
   serverConfigured: boolean;
   connectorMode?: 'live' | 'mock';
   accounts: TgConsoleAccountRecord[];
-  dialogs: TgConsoleDialogRecord[];
-  messages: TgConsoleMessageRecord[];
   warmedUsernames: TgWarmedUsernameRecord[];
   sendApprovals: TgSendApprovalRecord[];
 };
@@ -99,21 +95,14 @@ export default function TelegramConsolePage() {
   const key = `/api/experimental/tg-console?${new URLSearchParams({
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
   }).toString()}`;
-  const { data, isLoading, mutate } = useSWR<ConsoleData>(key, fetchJson, {
-    refreshInterval: 4000,
+  const { data, mutate } = useSWR<ConsoleData>(key, fetchJson, {
+    refreshInterval: 5000,
     revalidateOnFocus: true,
   });
 
   const accounts = data?.accounts ?? [];
-  const dialogs = data?.dialogs ?? [];
   const warmedUsernames = data?.warmedUsernames ?? [];
-  const sendApprovals = data?.sendApprovals ?? [];
-
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? null;
-  const unreadCount = dialogs.filter((dialog) => dialog.is_unread).length;
-  const repliedCount = dialogs.filter((dialog) => dialog.is_replied).length;
-  const failedCount = sendApprovals.filter((item) => item.status === 'failed').length;
-  const activeDeliveryCount = sendApprovals.filter((item) => ['sending', 'sent', 'failed'].includes(item.status)).length;
 
   return (
     <div className="page-content tg-console-page tg-setup-page">
@@ -123,7 +112,7 @@ export default function TelegramConsolePage() {
             <span className="exp-badge-label">Beta Experimental</span>
             Telegram Setup
           </div>
-          <div className="tgc-page-subtitle">Connect phone sessions, attach sticky proxies, manage warmed accounts, and send live outreach directly.</div>
+          <div className="tgc-page-subtitle">Connect phone sessions, attach sticky proxies, and manage reply accounts.</div>
         </div>
         <div className="btn-row">
           <a className="btn-secondary" href="/experimental/telegram-inbox">Open inbox</a>
@@ -146,13 +135,6 @@ export default function TelegramConsolePage() {
         </div>
       )}
 
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <div className="card"><div className="card-title">Connected</div><div className="card-value">{accounts.length}</div><div className="card-subtitle">Phone sessions</div></div>
-        <div className="card"><div className="card-title">Unread</div><div className="card-value">{unreadCount}</div><div className="card-subtitle">Dialogs needing review</div></div>
-        <div className="card"><div className="card-title">Replied</div><div className="card-value">{repliedCount}</div><div className="card-subtitle">Threads with outbound reply</div></div>
-        <div className="card"><div className="card-title">Delivery Log</div><div className="card-value">{activeDeliveryCount}</div><div className="card-subtitle">{failedCount} failed</div></div>
-      </div>
-
       <div className="tg-console-top-grid">
         <ConnectAccountPanel serverConfigured={Boolean(data?.serverConfigured)} onDone={mutate} />
         <AccountsPanel
@@ -164,27 +146,7 @@ export default function TelegramConsolePage() {
         <RegistryPanel warmedUsernames={warmedUsernames} onMutate={mutate} />
       </div>
 
-      <div className="tg-setup-actions-grid">
-        <div>
-          <BroadcastPanel
-            accounts={accounts}
-            selectedAccountId={selectedAccountId}
-            dialogs={dialogs}
-            warmedUsernames={warmedUsernames}
-            onMutate={mutate}
-          />
-        </div>
-        <div>
-          <SendApprovalsPanel sendApprovals={sendApprovals} onMutate={mutate} />
-        </div>
-        <section className="tg-console-panel">
-          <div className="card-title">Operational Notes</div>
-          <div className="tg-console-manual-list">
-            <div>All phone sessions share one combined inbox on the Telegram Inbox page.</div>
-            <div>Each account keeps its own sticky proxy. Saved proxy secrets are encrypted before storage.</div>
-            <div>Broadcast sends now dispatch immediately and land in the delivery log with success or failure details.</div>
-            {isLoading && <div>Loading setup data...</div>}
-          </div>
+      <div style={{ display: 'none' }}>{/* legacy panels removed */}
         </section>
       </div>
     </div>
