@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { AvatarCircle } from '@/components/ui/avatar';
 import { fetchJson } from '@/lib/web/fetch-json';
+import { swrFetcher } from '@/lib/web/swr-fetcher';
 import type {
   TgConsoleAccountRecord,
   TgConsoleDialogRecord,
@@ -58,25 +59,48 @@ function titleForMode(mode: RailMode) {
 }
 
 /* ── Icons ─────────────────────────────────────────────── */
+const ico = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+
 function IcoSend() {
-  return <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>;
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
 }
 function IcoSync({ spin }: { spin: boolean }) {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={spin ? { animation: 'spin 0.8s linear infinite' } : undefined}><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>;
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico} style={spin ? { animation: 'spin 0.8s linear infinite' } : undefined}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>;
 }
 function IcoChevRight() {
-  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>;
+  return <svg width="13" height="13" viewBox="0 0 24 24" {...ico}><polyline points="9 18 15 12 9 6"/></svg>;
 }
 function IcoChevLeft() {
-  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>;
+  return <svg width="13" height="13" viewBox="0 0 24 24" {...ico}><polyline points="15 18 9 12 15 6"/></svg>;
 }
 function IcoSmile() {
-  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9" strokeWidth="3" strokeLinecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" strokeWidth="3" strokeLinecap="round"/></svg>;
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9" strokeWidth="2.5" strokeLinecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" strokeWidth="2.5" strokeLinecap="round"/></svg>;
+}
+function IcoAllInboxes() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>;
+}
+function IcoMyInbox() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+}
+function IcoUnread() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth="2.5"/></svg>;
+}
+function IcoResolved() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><polyline points="20 6 9 17 4 12"/></svg>;
+}
+function IcoFolder() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>;
+}
+function IcoSetup() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
+}
+function IcoMore() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>;
 }
 
 /* ── Nav item ───────────────────────────────────────────── */
 function NavItem({ icon, label, count, active, collapsed, onClick }: {
-  icon: string; label: string; count: number; active: boolean; collapsed: boolean; onClick: () => void;
+  icon: React.ReactNode; label: string; count: number; active: boolean; collapsed: boolean; onClick: () => void;
 }) {
   return (
     <button className={`tgi-nav-item ${active ? 'active' : ''}`} title={label} onClick={onClick}>
@@ -113,7 +137,7 @@ export default function TelegramInboxPage() {
     ...(selectedDialogId ? { dialogId: selectedDialogId } : {}),
   })}`;
 
-  const { data, isLoading, mutate } = useSWR<ConsoleData>(key, fetchJson, {
+  const { data, isLoading, mutate } = useSWR<ConsoleData>(key, swrFetcher, {
     refreshInterval: 2500,
     revalidateOnFocus: true,
   });
@@ -278,20 +302,20 @@ export default function TelegramInboxPage() {
           </div>
         )}
 
-        <NavItem icon="📥" label="All Inboxes" count={dialogs.length} active={railMode === 'all'} collapsed={navCollapsed} onClick={() => setRailMode('all')} />
-        <NavItem icon="📌" label="My Inbox" count={countOf('my')} active={railMode === 'my'} collapsed={navCollapsed} onClick={() => setRailMode('my')} />
-        <NavItem icon="🔵" label="Unread" count={countOf('unread')} active={railMode === 'unread'} collapsed={navCollapsed} onClick={() => setRailMode('unread')} />
-        <NavItem icon="✅" label="Resolved" count={countOf('replied')} active={railMode === 'replied'} collapsed={navCollapsed} onClick={() => setRailMode('replied')} />
+        <NavItem icon={<IcoAllInboxes />} label="All Inboxes" count={dialogs.length} active={railMode === 'all'} collapsed={navCollapsed} onClick={() => setRailMode('all')} />
+        <NavItem icon={<IcoMyInbox />} label="My Inbox" count={countOf('my')} active={railMode === 'my'} collapsed={navCollapsed} onClick={() => setRailMode('my')} />
+        <NavItem icon={<IcoUnread />} label="Unread" count={countOf('unread')} active={railMode === 'unread'} collapsed={navCollapsed} onClick={() => setRailMode('unread')} />
+        <NavItem icon={<IcoResolved />} label="Resolved" count={countOf('replied')} active={railMode === 'replied'} collapsed={navCollapsed} onClick={() => setRailMode('replied')} />
 
         {(telegramFolders.length > 0 || crmFolders.length > 0) && !navCollapsed && (
           <div className="tgi-nav-divider" />
         )}
 
         {telegramFolders.map((f) => (
-          <NavItem key={f} icon="📁" label={f} count={countOf(`folder:${f}`)} active={railMode === `folder:${f}`} collapsed={navCollapsed} onClick={() => setRailMode(`folder:${f}`)} />
+          <NavItem key={f} icon={<IcoFolder />} label={f} count={countOf(`folder:${f}`)} active={railMode === `folder:${f}`} collapsed={navCollapsed} onClick={() => setRailMode(`folder:${f}`)} />
         ))}
         {crmFolders.map((f) => (
-          <NavItem key={f} icon="🗂️" label={f} count={countOf(`crm:${f}`)} active={railMode === `crm:${f}`} collapsed={navCollapsed} onClick={() => setRailMode(`crm:${f}`)} />
+          <NavItem key={f} icon={<IcoFolder />} label={f} count={countOf(`crm:${f}`)} active={railMode === `crm:${f}`} collapsed={navCollapsed} onClick={() => setRailMode(`crm:${f}`)} />
         ))}
 
         {accounts.length > 0 && !navCollapsed && <div className="tgi-nav-divider" />}
@@ -305,7 +329,7 @@ export default function TelegramInboxPage() {
 
         <div className="tgi-nav-bottom">
           <a href="/experimental/telegram-console" className="tgi-setup-link" title="Setup">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+            <IcoSetup />
             {!navCollapsed && <span>Setup</span>}
           </a>
         </div>
@@ -376,7 +400,7 @@ export default function TelegramInboxPage() {
                   <IcoSync spin={syncing} />
                 </button>
                 <button className="tgi-icon-btn" title="Details" onClick={() => setDetailsOpen((v) => !v)}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                  <IcoMore />
                 </button>
                 <button
                   className={`tgi-status-pill ${selectedDialog.is_replied ? 'resolved' : 'open'}`}
