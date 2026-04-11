@@ -32,6 +32,12 @@ type DialogRow = {
   telegram_dialog_id: string;
   title: string;
   username: string | null;
+  folder_id?: number | null;
+  folder_name?: string | null;
+  crm_folder?: string;
+  tags?: string[];
+  notes?: string | null;
+  avatar_url?: string | null;
 };
 
 type SendApprovalRow = {
@@ -157,6 +163,15 @@ async function syncAccount(account: ConnectedAccountRow) {
   try {
     await client.connect();
     const dialogs = await client.getDialogs({ limit: 50 });
+    const { data: existingDialogs, error: existingDialogsError } = await supabase
+      .from('telegram_dialogs')
+      .select('telegram_dialog_id, crm_folder, tags, notes, avatar_url')
+      .eq('workspace_id', account.workspace_id)
+      .eq('account_id', account.id);
+    if (existingDialogsError) throw existingDialogsError;
+    const existingByTelegramId = new Map(
+      ((existingDialogs ?? []) as DialogRow[]).map((dialog) => [dialog.telegram_dialog_id, dialog]),
+    );
 
     for (const dialog of dialogs as any[]) {
       const entity = dialog.entity;
@@ -164,6 +179,7 @@ async function syncAccount(account: ConnectedAccountRow) {
       const lastMessage = dialog.message;
       const kind = getEntityKind(entity);
       const telegramDialogId = `${kind}:${getEntityId(entity)}`;
+      const existing = existingByTelegramId.get(telegramDialogId);
       const { data: storedDialog, error: dialogError } = await supabase
         .from('telegram_dialogs')
         .upsert({
@@ -175,12 +191,15 @@ async function syncAccount(account: ConnectedAccountRow) {
           username: entity.username ?? null,
           folder_id: typeof dialog.folderId === 'number' ? dialog.folderId : null,
           folder_name: typeof dialog.folderId === 'number' ? `Telegram Folder ${dialog.folderId}` : 'All Inboxes',
-          crm_folder: Number(dialog.unreadCount ?? 0) > 0 ? 'My Inbox' : 'All Inboxes',
+          crm_folder: existing?.crm_folder ?? (Number(dialog.unreadCount ?? 0) > 0 ? 'My Inbox' : 'All Inboxes'),
           unread_count: Number(dialog.unreadCount ?? 0),
           is_unread: Number(dialog.unreadCount ?? 0) > 0,
           is_replied: Boolean(lastMessage?.out),
           last_message_at: lastMessage?.date ? toIsoFromTelegramDate(lastMessage.date) : null,
           last_message_preview: lastMessage ? getPreview(lastMessage) : null,
+          tags: existing?.tags ?? [],
+          notes: existing?.notes ?? null,
+          avatar_url: existing?.avatar_url ?? null,
           updated_at: nowIso(),
         }, { onConflict: 'account_id,telegram_dialog_id' })
         .select('*')

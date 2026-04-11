@@ -57,7 +57,7 @@ function parseDialogPeer(dialog: Pick<TgConsoleDialogRecord, 'telegram_dialog_id
 
 async function resolveDialogEntity(client: any, dialog: TgConsoleDialogRecord) {
   if (dialog.username) {
-    return client.getEntity(dialog.username.replace(/^@/, ''));
+    return client.getInputEntity(dialog.username.replace(/^@/, ''));
   }
 
   const peer = parseDialogPeer(dialog);
@@ -104,6 +104,7 @@ async function mirrorOutboundMessage(input: {
   messageId: string;
   messageText: string;
   sentAt: string;
+  metadata?: Record<string, unknown>;
 }) {
   if (!input.dialog) return;
 
@@ -137,6 +138,7 @@ async function mirrorOutboundMessage(input: {
     sent_at: input.sentAt,
     metadata: {
       delivery: 'direct',
+      ...(input.metadata ?? {}),
     },
   }]);
 }
@@ -380,4 +382,137 @@ export async function sendTgDialogReaction(input: {
   });
 
   return { ok: true };
+}
+
+export async function sendTgDialogMessage(input: {
+  context: WorkspaceContext;
+  dialogId: string;
+  text?: string | null;
+  file?: {
+    name: string;
+    type: string | null;
+    buffer: Buffer;
+    size: number;
+  } | null;
+}) {
+  const dialog = await getTgConsoleDialog(input.context, input.dialogId);
+  if (!dialog) {
+    throw new Error('Dialog not found.');
+  }
+
+  const text = (input.text ?? '').trim();
+  const file = input.file ?? null;
+  if (!text && !file) {
+    throw new Error('Add a message or attach media before sending.');
+  }
+
+  const account = await getTgConsoleAccountPrivate(input.context, dialog.account_id);
+  if (!account?.is_authenticated) {
+    throw new Error('Telegram account is not authenticated.');
+  }
+
+  const session = decryptSecret(account.session_ciphertext);
+  if (!session) {
+    throw new Error('Encrypted Telegram session is missing.');
+  }
+
+  const mediaPreview = file ? `[media] ${file.name}` : text;
+  const messagePreview = text || mediaPreview;
+
+  if (isTelegramMockAdapter() || session.startsWith('mock-session:')) {
+    const sentAt = nowIso();
+    await mirrorOutboundMessage({
+      context: input.context,
+      dialog,
+      accountId: dialog.account_id,
+      accountLabel: account.display_name,
+      messageId: `mock-${Date.now()}`,
+      messageText: messagePreview,
+      sentAt,
+      metadata: file
+        ? {
+          media: true,
+          file_name: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+          mock: true,
+        }
+        : { mock: true },
+    });
+    return { ok: true, direct: true, mock: true };
+  }
+
+  const tgCreds = await resolveWorkspaceTgCredentials(input.context);
+  if (!tgCreds) {
+    throw new Error('Telegram app credentials are not configured for this workspace.');
+  }
+
+  const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
+  const { client } = await buildTelegramClient({
+    apiId: Number(tgCreds.apiId),
+    apiHash: tgCreds.apiHash,
+    session,
+    proxy,
+  });
+
+  try {
+    await client.connect();
+    const entity = await resolveDialogEntity(client, dialog);
+
+    let sent: any;
+    if (file) {
+      const { CustomFile } = await import('telegram/client/uploads');
+      const telegramFile = new CustomFile(file.name, file.size, '', file.buffer);
+      sent = await client.sendFile(entity, {
+        file: telegramFile,
+        caption: text || undefined,
+        forceDocument: !(file.type?.startsWith('image/') || file.type?.startsWith('video/')),
+        workers: 2,
+      });
+    } else {
+      sent = await client.sendMessage(entity, { message: text });
+    }
+
+    const sentAt = toIsoFromTelegramDate(sent?.date);
+    await mirrorOutboundMessage({
+      context: input.context,
+      dialog,
+      accountId: dialog.account_id,
+      accountLabel: account.display_name,
+      messageId: String(sent?.id ?? `local-${Date.now()}`),
+      messageText: messagePreview,
+      sentAt,
+      metadata: file
+        ? {
+          media: true,
+          file_name: file.name,
+          mime_type: file.type,
+          file_size: file.size,
+        }
+        : undefined,
+    });
+
+    await logActivity({
+      workspaceId: input.context.workspaceId,
+      profileId: input.context.profileId,
+      event_type: 'telegram.message.sent',
+      event_label: 'Telegram direct message sent',
+      payload: {
+        account_id: dialog.account_id,
+        dialog_id: dialog.id,
+        telegram_message_id: String(sent?.id ?? ''),
+        media: Boolean(file),
+        file_name: file?.name ?? null,
+      },
+    });
+
+    return {
+      ok: true,
+      direct: true,
+      telegramMessageId: String(sent?.id ?? ''),
+      sentAt,
+    };
+  } finally {
+    await client.disconnect();
+  }
 }

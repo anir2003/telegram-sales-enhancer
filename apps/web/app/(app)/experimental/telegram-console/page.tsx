@@ -415,8 +415,8 @@ function DialogHeader({ dialog, onMutate }: { dialog: TgConsoleDialogRecord; onM
     await fetchJson(`/api/experimental/tg-console/dialogs/${dialog.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        crm_folder: folder,
-        tags: cleanTags(tags),
+        crm_folder: folder.trim() || 'My Inbox',
+        tags: [...new Set(cleanTags(tags))],
         notes: notes.trim() || null,
         ...extra,
       }),

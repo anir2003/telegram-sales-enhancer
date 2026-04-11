@@ -1,5 +1,6 @@
 import {
   getTgConsoleAccountPrivate,
+  listTgConsoleDialogs,
   markTgConsoleAccountSynced,
   upsertTgConsoleDialog,
   upsertTgConsoleMessages,
@@ -80,6 +81,9 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
 
   try {
     await client.connect();
+    const existingDialogs = new Map(
+      (await listTgConsoleDialogs(context, accountId)).map((dialog) => [dialog.telegram_dialog_id, dialog]),
+    );
 
     // Fetch and store the connected account's own profile photo
     try {
@@ -97,6 +101,7 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
       if (!entity) continue;
       const lastMessage = dialog.message;
       const telegramDialogId = `${getEntityKind(entity)}:${getEntityId(entity)}`;
+      const existing = existingDialogs.get(telegramDialogId);
 
       // Download avatar (non-fatal — store null if unavailable)
       const avatarUrl = await downloadPhotoAsDataUrl(client, entity);
@@ -109,15 +114,15 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
         username: entity.username ?? null,
         folder_id: typeof dialog.folderId === 'number' ? dialog.folderId : null,
         folder_name: typeof dialog.folderId === 'number' ? `Telegram Folder ${dialog.folderId}` : 'All Inboxes',
-        crm_folder: dialog.unreadCount > 0 ? 'My Inbox' : 'All Inboxes',
+        crm_folder: existing?.crm_folder ?? (dialog.unreadCount > 0 ? 'My Inbox' : 'All Inboxes'),
         unread_count: Number(dialog.unreadCount ?? 0),
         is_unread: Number(dialog.unreadCount ?? 0) > 0,
         is_replied: Boolean(lastMessage?.out),
         last_message_at: lastMessage?.date ? toIsoFromTelegramDate(lastMessage.date) : null,
         last_message_preview: lastMessage ? getPreview(lastMessage) : null,
-        tags: [],
-        notes: null,
-        avatar_url: avatarUrl,
+        tags: existing?.tags ?? [],
+        notes: existing?.notes ?? null,
+        avatar_url: avatarUrl ?? existing?.avatar_url ?? null,
       });
 
       const messages = await client.getMessages(entity, { limit: 30 });
