@@ -33,6 +33,28 @@ function previewText(text: string) {
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
+function buildMediaMetadata(file: {
+  name: string;
+  type: string | null;
+  buffer: Buffer;
+  size: number;
+} | null) {
+  if (!file) return {};
+  const mimeType = file.type || null;
+  const metadata: Record<string, unknown> = {
+    media: true,
+    file_name: file.name,
+    mime_type: mimeType,
+    file_size: file.size,
+  };
+
+  if (mimeType && /^(image|video)\//.test(mimeType) && file.size <= 4 * 1024 * 1024) {
+    metadata.preview_data_url = `data:${mimeType};base64,${file.buffer.toString('base64')}`;
+  }
+
+  return metadata;
+}
+
 function parseDialogPeer(dialog: Pick<TgConsoleDialogRecord, 'telegram_dialog_id'>) {
   const [kind, rawId] = dialog.telegram_dialog_id.split(':');
   if (!kind || !rawId) return null;
@@ -431,13 +453,12 @@ export async function sendTgDialogMessage(input: {
       sentAt,
       metadata: file
         ? {
-          media: true,
-          file_name: file.name,
-          mime_type: file.type,
-          file_size: file.size,
+          ...buildMediaMetadata(file),
+          delivery_status: 'sent',
+          unread: true,
           mock: true,
         }
-        : { mock: true },
+        : { delivery_status: 'sent', unread: true, mock: true },
     });
     return { ok: true, direct: true, mock: true };
   }
@@ -483,13 +504,8 @@ export async function sendTgDialogMessage(input: {
       messageText: messagePreview,
       sentAt,
       metadata: file
-        ? {
-          media: true,
-          file_name: file.name,
-          mime_type: file.type,
-          file_size: file.size,
-        }
-        : undefined,
+        ? { ...buildMediaMetadata(file), delivery_status: 'sent', unread: true }
+        : { delivery_status: 'sent', unread: true },
     });
 
     await logActivity({

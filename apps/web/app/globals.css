@@ -4227,12 +4227,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .tgi-msg.in .tgi-msg-wrap { align-items: flex-start; }
 .tgi-msg.out .tgi-msg-wrap { align-items: flex-end; }
 .tgi-msg-bubble {
-  position: relative;
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 8px 36px 8px 12px;
+  padding: 10px 12px;
   border-radius: 12px;
   font-size: 13px;
   line-height: 1.45;
@@ -4253,7 +4252,35 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .tgi-msg-time {
   font-size: 10px;
   color: var(--text-dim);
+}
+.tgi-msg-meta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
   padding: 0 4px;
+}
+.tgi-msg-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+}
+.tgi-ticks {
+  font-size: 10px;
+  letter-spacing: -0.08em;
+  color: #6b7280;
+}
+.tgi-ticks.sent {
+  color: #a3a3a3;
+}
+.tgi-ticks.read {
+  color: #60a5fa;
+}
+.tgi-ticks.pending {
+  color: #6b7280;
+  letter-spacing: 0;
 }
 .tgi-msg-media-chip {
   display: inline-flex;
@@ -4270,6 +4297,14 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tgi-msg-media-preview {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 260px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  object-fit: cover;
+}
 .tgi-msg-reaction-chip {
   display: inline-flex;
   align-items: center;
@@ -4282,25 +4317,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border: 1px solid #232626;
   font-size: 13px;
 }
-/* Reaction button — visible on bubble hover */
-.tgi-react-btn {
-  position: absolute;
-  top: 50%; right: 8px;
-  transform: translateY(-50%);
-  width: 20px; height: 20px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 0;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-radius: 50%;
-  padding: 0;
-}
-.tgi-msg-bubble:hover .tgi-react-btn { display: inline-flex; }
-.tgi-react-btn:hover { color: var(--text); }
-.tgi-react-btn:disabled { opacity: 0.35; cursor: default; }
 /* Reaction picker popover */
 .tgi-reaction-picker {
   position: absolute;
@@ -4346,32 +4362,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 .tgi-composer-status.success { color: #4ade80; }
 .tgi-composer-status.error { color: #f87171; }
-.tgi-composer-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.tgi-composer-emoji-strip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.tgi-emoji-btn {
-  border: 1px solid #1f2121;
-  background: #141515;
-  color: var(--text);
-  border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-.tgi-emoji-btn:hover {
-  border-color: var(--border-strong);
-  background: #171919;
-}
 .tgi-attachment-chip {
   display: inline-flex;
   align-items: center;
@@ -4383,7 +4373,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 11px;
-  cursor: pointer;
 }
 .tgi-attachment-chip span {
   color: var(--text-dim);
@@ -4391,12 +4380,62 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 .tgi-composer-inner {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   background: #131414;
   border: 1px solid #1e2020;
   border-radius: 10px;
   padding: 8px 10px;
+}
+.tgi-composer-attachment-preview {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+.tgi-composer-preview-media {
+  display: block;
+  max-width: 180px;
+  max-height: 120px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.tgi-attachment-remove {
+  border: 1px solid #242727;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.tgi-attachment-remove:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.tgi-composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+.tgi-attach-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid #242727;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.tgi-attach-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: #171919;
 }
 .tgi-composer-inner textarea {
   flex: 1;
@@ -4431,7 +4470,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .tgi-composer-hint {
   font-size: 10px;
   color: #3a3e3e;
-  padding: 0 2px;
+  padding: 0 2px 2px;
 }
 
 /* Empty / loading */
