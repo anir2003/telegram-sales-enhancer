@@ -124,6 +124,7 @@ async function mirrorOutboundMessage(input: {
     last_message_preview: previewText(input.messageText),
     tags: input.dialog.tags,
     notes: input.dialog.notes,
+    avatar_url: input.dialog.avatar_url,
   });
 
   await upsertTgConsoleMessages(input.context, [{
