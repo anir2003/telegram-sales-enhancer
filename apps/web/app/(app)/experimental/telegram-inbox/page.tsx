@@ -24,6 +24,7 @@ type RailMode =
   | `folder:${string}` | `crm:${string}`;
 
 const REACTIONS = ['👍', '❤️', '🔥', '😂', '✅', '👀'];
+const COMPOSER_EMOJI = ['🙂', '👍', '🔥', '🚀', '✅', '👀'];
 
 function fmt(value: string | null | undefined) {
   if (!value) return '';
@@ -58,6 +59,25 @@ function titleForMode(mode: RailMode) {
   return 'Inbox';
 }
 
+function getMessageMetadata(message: TgConsoleMessageRecord) {
+  return (message.metadata && typeof message.metadata === 'object')
+    ? message.metadata as Record<string, unknown>
+    : {};
+}
+
+function getMessageMediaName(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  return typeof metadata.file_name === 'string' && metadata.file_name.trim()
+    ? metadata.file_name
+    : (Boolean(metadata.media) ? 'Media attachment' : null);
+}
+
+function getMessageCaption(message: TgConsoleMessageRecord) {
+  const text = (message.text ?? '').trim();
+  if (!text || text.startsWith('[media]')) return '';
+  return text;
+}
+
 /* ── Icons ─────────────────────────────────────────────── */
 const ico = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
@@ -75,6 +95,9 @@ function IcoChevLeft() {
 }
 function IcoSmile() {
   return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9" strokeWidth="2.5" strokeLinecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" strokeWidth="2.5" strokeLinecap="round"/></svg>;
+}
+function IcoPaperclip() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><path d="M21.44 11.05l-8.49 8.49a6 6 0 01-8.49-8.49l8.49-8.48a4 4 0 015.66 5.65l-8.48 8.49a2 2 0 01-2.83-2.83l7.78-7.78"/></svg>;
 }
 function IcoAllInboxes() {
   return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>;
@@ -120,17 +143,21 @@ export default function TelegramInboxPage() {
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [search, setSearch] = useState('');
   const [replyDraft, setReplyDraft] = useState('');
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [reactionFor, setReactionFor] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<TgConsoleMessageRecord[]>([]);
+  const [localReactions, setLocalReactions] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState('');
+  const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [folder, setFolder] = useState('');
   const [tags, setTags] = useState('');
   const [notes, setNotes] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const key = `/api/experimental/tg-console?${new URLSearchParams({
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
@@ -185,7 +212,9 @@ export default function TelegramInboxPage() {
     setTags((selectedDialog?.tags ?? []).join(', '));
     setNotes(selectedDialog?.notes ?? '');
     setReplyDraft('');
+    setAttachedFile(null);
     setStatus('');
+    setLocalReactions({});
     setOptimistic([]);
   }, [selectedDialog?.id]);
 
@@ -217,8 +246,10 @@ export default function TelegramInboxPage() {
 
   const sendReply = async () => {
     const text = replyDraft.trim();
-    if (!selectedDialog || !text) return;
+    const file = attachedFile;
+    if (!selectedDialog || (!text && !file)) return;
     const tempId = `opt-${Date.now()}`;
+    const previewText = text || `[media] ${file?.name ?? 'Media attachment'}`;
     const tempMsg: TgConsoleMessageRecord = {
       id: tempId,
       dialog_id: selectedDialog.id,
@@ -226,29 +257,54 @@ export default function TelegramInboxPage() {
       telegram_message_id: null,
       sender_name: 'You',
       sender_telegram_id: null,
-      text,
+      text: previewText,
       is_outbound: true,
       sent_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
+      metadata: file
+        ? {
+          media: true,
+          file_name: file.name,
+          mime_type: file.type || null,
+          file_size: file.size,
+          pending: true,
+        }
+        : {},
     } as any;
     setOptimistic((prev) => [...prev, tempMsg]);
     setReplyDraft('');
+    setAttachedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     setBusy(true);
+    setStatus('');
     try {
-      await fetchJson('/api/experimental/tg-console/send-approvals', {
-        method: 'POST',
-        body: JSON.stringify({
-          account_id: selectedDialog.account_id,
-          dialog_ids: [selectedDialog.id],
-          target_usernames: [],
-          message_text: text,
-          approve_now: true,
-        }),
-      });
+      if (file) {
+        const formData = new FormData();
+        if (text) formData.append('text', text);
+        formData.append('file', file);
+        const response = await fetch(`/api/experimental/tg-console/dialogs/${selectedDialog.id}/messages`, {
+          method: 'POST',
+          body: formData,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error ?? 'Send failed.');
+        }
+      } else {
+        await fetchJson(`/api/experimental/tg-console/dialogs/${selectedDialog.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ text }),
+        });
+      }
+      setStatusTone('success');
+      setStatus(file ? 'Media sent.' : 'Message sent.');
       await mutate();
     } catch (err) {
+      setStatusTone('error');
       setStatus(err instanceof Error ? err.message : 'Send failed.');
       setOptimistic((prev) => prev.filter((m) => m.id !== tempId));
+      setReplyDraft(text);
+      setAttachedFile(file);
     }
     setBusy(false);
   };
@@ -257,13 +313,25 @@ export default function TelegramInboxPage() {
     if (!selectedDialog) return;
     const msg = messages.find((m) => m.id === msgId);
     if (!msg) return;
+    if (!msg.telegram_message_id) {
+      setStatusTone('error');
+      setStatus('That message is not ready for reactions yet.');
+      setReactionFor(null);
+      return;
+    }
     setReactionFor(null);
     try {
       await fetchJson(`/api/experimental/tg-console/dialogs/${selectedDialog.id}/reaction`, {
         method: 'POST',
         body: JSON.stringify({ emoji, telegram_message_id: msg.telegram_message_id }),
       });
-    } catch { /* silent */ }
+      setLocalReactions((prev) => ({ ...prev, [msgId]: emoji }));
+      setStatusTone('success');
+      setStatus(`Reaction sent: ${emoji}`);
+    } catch (error) {
+      setStatusTone('error');
+      setStatus(error instanceof Error ? error.message : 'Reaction failed.');
+    }
   };
 
   const saveDialog = async (extra?: Partial<TgConsoleDialogRecord>) => {
@@ -271,10 +339,20 @@ export default function TelegramInboxPage() {
     try {
       await fetchJson(`/api/experimental/tg-console/dialogs/${selectedDialog.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ crm_folder: folder || 'My Inbox', tags: tags.split(',').map((t) => t.trim()).filter(Boolean), notes: notes || null, ...extra }),
+        body: JSON.stringify({
+          crm_folder: folder.trim() || 'My Inbox',
+          tags: [...new Set(tags.split(',').map((t) => t.trim()).filter(Boolean))],
+          notes: notes.trim() || null,
+          ...extra,
+        }),
       });
+      setStatusTone('success');
+      setStatus(extra ? 'Conversation updated.' : 'Tags, folder, and notes saved.');
       await mutate();
-    } catch { /* silent */ }
+    } catch (error) {
+      setStatusTone('error');
+      setStatus(error instanceof Error ? error.message : 'Save failed.');
+    }
   };
 
   const handleTextareaKey = (e: React.KeyboardEvent) => {
@@ -432,11 +510,7 @@ export default function TelegramInboxPage() {
             {/* Messages */}
             <div className="tgi-messages" onClick={() => setReactionFor(null)}>
               {messages.length ? messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`tgi-msg ${msg.is_outbound ? 'out' : 'in'}`}
-                  onMouseEnter={() => {}}
-                >
+                <div key={msg.id} className={`tgi-msg ${msg.is_outbound ? 'out' : 'in'}`}>
                   {!msg.is_outbound && (
                     <div className="tgi-msg-avatar">
                       <AvatarCircle name={selectedDialog.title} url={selectedDialog.avatar_url} size={26} />
@@ -444,10 +518,18 @@ export default function TelegramInboxPage() {
                   )}
                   <div className="tgi-msg-wrap">
                     <div className="tgi-msg-bubble">
-                      <span>{msg.text || '[media]'}</span>
+                      {getMessageMediaName(msg) && (
+                        <div className="tgi-msg-media-chip">{getMessageMediaName(msg)}</div>
+                      )}
+                      {getMessageCaption(msg) ? (
+                        <span>{getMessageCaption(msg)}</span>
+                      ) : !getMessageMediaName(msg) ? (
+                        <span>{msg.text || '[media]'}</span>
+                      ) : null}
                       <button
                         className="tgi-react-btn"
                         title="React"
+                        disabled={!msg.telegram_message_id}
                         onClick={(e) => { e.stopPropagation(); setReactionFor((v) => v === msg.id ? null : msg.id); }}
                       >
                         <IcoSmile />
@@ -460,6 +542,9 @@ export default function TelegramInboxPage() {
                         </div>
                       )}
                     </div>
+                    {localReactions[msg.id] && (
+                      <div className="tgi-msg-reaction-chip">{localReactions[msg.id]}</div>
+                    )}
                     <small className="tgi-msg-time">{fmt(msg.sent_at)}</small>
                   </div>
                   {msg.is_outbound && (
@@ -480,7 +565,45 @@ export default function TelegramInboxPage() {
 
             {/* Composer */}
             <footer className="tgi-composer" onClick={(e) => e.stopPropagation()}>
-              {status && <div className="tgi-composer-status">{status}</div>}
+              {status && <div className={`tgi-composer-status ${statusTone}`}>{status}</div>}
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={(event) => setAttachedFile(event.target.files?.[0] ?? null)}
+              />
+              {(attachedFile || COMPOSER_EMOJI.length > 0) && (
+                <div className="tgi-composer-toolbar">
+                  <button className="tgi-icon-btn" type="button" title="Attach media" onClick={() => fileInputRef.current?.click()}>
+                    <IcoPaperclip />
+                  </button>
+                  <div className="tgi-composer-emoji-strip">
+                    {COMPOSER_EMOJI.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className="tgi-emoji-btn"
+                        onClick={() => setReplyDraft((value) => `${value}${value ? ' ' : ''}${emoji}`)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                  {attachedFile && (
+                    <button
+                      type="button"
+                      className="tgi-attachment-chip"
+                      onClick={() => {
+                        setAttachedFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                    >
+                      {attachedFile.name}
+                      <span>Remove</span>
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="tgi-composer-inner">
                 <textarea
                   ref={textareaRef}
@@ -492,14 +615,14 @@ export default function TelegramInboxPage() {
                 />
                 <button
                   className="tgi-send-btn"
-                  disabled={busy || !replyDraft.trim()}
+                  disabled={busy || (!replyDraft.trim() && !attachedFile)}
                   onClick={() => void sendReply()}
                   title="Send (Enter)"
                 >
                   <IcoSend />
                 </button>
               </div>
-              <div className="tgi-composer-hint">Enter to send · Shift+Enter for new line</div>
+              <div className="tgi-composer-hint">Enter to send · Shift+Enter for new line · Attach images, video, or files</div>
             </footer>
           </>
         ) : (
