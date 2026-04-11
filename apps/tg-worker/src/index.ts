@@ -206,6 +206,16 @@ async function syncAccount(account: ConnectedAccountRow) {
         .single();
       if (dialogError) throw dialogError;
 
+      const { data: existingMessages, error: existingMessagesError } = await supabase
+        .from('telegram_messages')
+        .select('telegram_message_id, metadata')
+        .eq('workspace_id', account.workspace_id)
+        .eq('dialog_id', storedDialog.id);
+      if (existingMessagesError) throw existingMessagesError;
+      const existingMessageMetadata = new Map(
+        ((existingMessages ?? []) as Array<{ telegram_message_id: string; metadata: Record<string, unknown> | null }>).map((message) => [message.telegram_message_id, message.metadata ?? {}]),
+      );
+
       const messages = await client.getMessages(entity, { limit: 30 });
       const rows = (messages as any[]).reverse().map((message) => ({
         workspace_id: account.workspace_id,
@@ -217,8 +227,11 @@ async function syncAccount(account: ConnectedAccountRow) {
         text: typeof message.message === 'string' ? message.message : '',
         sent_at: toIsoFromTelegramDate(message.date),
         metadata: {
+          ...(existingMessageMetadata.get(String(message.id)) ?? {}),
           grouped_id: message.groupedId ? String(message.groupedId) : null,
           media: Boolean(message.media),
+          unread: Boolean(message.unread),
+          delivery_status: message.out ? 'sent' : null,
         },
       }));
       if (rows.length) {

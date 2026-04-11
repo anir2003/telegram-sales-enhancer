@@ -137,6 +137,8 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
         metadata: {
           grouped_id: message.groupedId ? String(message.groupedId) : null,
           media: Boolean(message.media),
+          unread: Boolean(message.unread),
+          delivery_status: message.out ? 'sent' : null,
         },
       })));
     }

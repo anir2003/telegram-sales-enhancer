@@ -24,7 +24,6 @@ type RailMode =
   | `folder:${string}` | `crm:${string}`;
 
 const REACTIONS = ['👍', '❤️', '🔥', '😂', '✅', '👀'];
-const COMPOSER_EMOJI = ['🙂', '👍', '🔥', '🚀', '✅', '👀'];
 
 function fmt(value: string | null | undefined) {
   if (!value) return '';
@@ -72,10 +71,50 @@ function getMessageMediaName(message: TgConsoleMessageRecord) {
     : (Boolean(metadata.media) ? 'Media attachment' : null);
 }
 
+function getMessagePreviewUrl(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  return typeof metadata.preview_data_url === 'string'
+    ? metadata.preview_data_url
+    : (typeof metadata.local_preview_url === 'string' ? metadata.local_preview_url : null);
+}
+
+function getMessageMimeType(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  return typeof metadata.mime_type === 'string' ? metadata.mime_type : '';
+}
+
+function getMessageDeliveryState(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  if (!message.is_outbound) return 'none';
+  if (metadata.pending) return 'pending';
+  if (metadata.unread === false) return 'read';
+  return 'sent';
+}
+
 function getMessageCaption(message: TgConsoleMessageRecord) {
   const text = (message.text ?? '').trim();
   if (!text || text.startsWith('[media]')) return '';
   return text;
+}
+
+function MessageMedia({ message }: { message: TgConsoleMessageRecord }) {
+  const previewUrl = getMessagePreviewUrl(message);
+  const mimeType = getMessageMimeType(message);
+  const mediaName = getMessageMediaName(message);
+
+  if (!mediaName) return null;
+
+  if (previewUrl && mimeType.startsWith('image/')) {
+    return <img className="tgi-msg-media-preview" src={previewUrl} alt={mediaName} />;
+  }
+
+  if (previewUrl && mimeType.startsWith('video/')) {
+    return (
+      <video className="tgi-msg-media-preview" src={previewUrl} controls playsInline muted />
+    );
+  }
+
+  return <div className="tgi-msg-media-chip">{mediaName}</div>;
 }
 
 /* ── Icons ─────────────────────────────────────────────── */
@@ -98,6 +137,16 @@ function IcoSmile() {
 }
 function IcoPaperclip() {
   return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><path d="M21.44 11.05l-8.49 8.49a6 6 0 01-8.49-8.49l8.49-8.48a4 4 0 015.66 5.65l-8.48 8.49a2 2 0 01-2.83-2.83l7.78-7.78"/></svg>;
+}
+function IcoTicks({ state }: { state: 'pending' | 'sent' | 'read' | 'none' }) {
+  if (state === 'none') return null;
+  if (state === 'pending') {
+    return <span className="tgi-ticks pending">○</span>;
+  }
+  if (state === 'read') {
+    return <span className="tgi-ticks read">✓✓</span>;
+  }
+  return <span className="tgi-ticks sent">✓</span>;
 }
 function IcoAllInboxes() {
   return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>;
@@ -144,6 +193,7 @@ export default function TelegramInboxPage() {
   const [search, setSearch] = useState('');
   const [replyDraft, setReplyDraft] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedPreviewUrl, setAttachedPreviewUrl] = useState<string | null>(null);
   const [reactionFor, setReactionFor] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<TgConsoleMessageRecord[]>([]);
   const [localReactions, setLocalReactions] = useState<Record<string, string>>({});
@@ -218,6 +268,20 @@ export default function TelegramInboxPage() {
     setOptimistic([]);
   }, [selectedDialog?.id]);
 
+  useEffect(() => {
+    if (!attachedFile) {
+      setAttachedPreviewUrl(null);
+      return;
+    }
+    if (!/^(image|video)\//.test(attachedFile.type)) {
+      setAttachedPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(attachedFile);
+    setAttachedPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [attachedFile]);
+
   // Auto-scroll to bottom when messages arrive
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -250,6 +314,7 @@ export default function TelegramInboxPage() {
     if (!selectedDialog || (!text && !file)) return;
     const tempId = `opt-${Date.now()}`;
     const previewText = text || `[media] ${file?.name ?? 'Media attachment'}`;
+    const localPreviewUrl = attachedPreviewUrl;
     const tempMsg: TgConsoleMessageRecord = {
       id: tempId,
       dialog_id: selectedDialog.id,
@@ -267,9 +332,12 @@ export default function TelegramInboxPage() {
           file_name: file.name,
           mime_type: file.type || null,
           file_size: file.size,
+          local_preview_url: localPreviewUrl,
           pending: true,
         }
-        : {},
+        : {
+          pending: true,
+        },
     } as any;
     setOptimistic((prev) => [...prev, tempMsg]);
     setReplyDraft('');
@@ -518,22 +586,27 @@ export default function TelegramInboxPage() {
                   )}
                   <div className="tgi-msg-wrap">
                     <div className="tgi-msg-bubble">
-                      {getMessageMediaName(msg) && (
-                        <div className="tgi-msg-media-chip">{getMessageMediaName(msg)}</div>
-                      )}
+                      <MessageMedia message={msg} />
                       {getMessageCaption(msg) ? (
                         <span>{getMessageCaption(msg)}</span>
                       ) : !getMessageMediaName(msg) ? (
                         <span>{msg.text || '[media]'}</span>
                       ) : null}
-                      <button
-                        className="tgi-react-btn"
-                        title="React"
-                        disabled={!msg.telegram_message_id}
-                        onClick={(e) => { e.stopPropagation(); setReactionFor((v) => v === msg.id ? null : msg.id); }}
-                      >
-                        <IcoSmile />
-                      </button>
+                    </div>
+                    <div
+                      className="tgi-msg-meta"
+                      onMouseEnter={() => { if (msg.telegram_message_id) setReactionFor(msg.id); }}
+                      onMouseLeave={() => setReactionFor((current) => current === msg.id ? null : current)}
+                    >
+                      {localReactions[msg.id] && (
+                        <div className="tgi-msg-reaction-chip">{localReactions[msg.id]}</div>
+                      )}
+                      {msg.is_outbound && (
+                        <span className="tgi-msg-status">
+                          <IcoTicks state={getMessageDeliveryState(msg)} />
+                        </span>
+                      )}
+                      <small className="tgi-msg-time">{fmt(msg.sent_at)}</small>
                       {reactionFor === msg.id && (
                         <div className="tgi-reaction-picker" onClick={(e) => e.stopPropagation()}>
                           {REACTIONS.map((emoji) => (
@@ -542,10 +615,6 @@ export default function TelegramInboxPage() {
                         </div>
                       )}
                     </div>
-                    {localReactions[msg.id] && (
-                      <div className="tgi-msg-reaction-chip">{localReactions[msg.id]}</div>
-                    )}
-                    <small className="tgi-msg-time">{fmt(msg.sent_at)}</small>
                   </div>
                   {msg.is_outbound && (
                     <div className="tgi-msg-avatar out">
@@ -572,55 +641,52 @@ export default function TelegramInboxPage() {
                 style={{ display: 'none' }}
                 onChange={(event) => setAttachedFile(event.target.files?.[0] ?? null)}
               />
-              {(attachedFile || COMPOSER_EMOJI.length > 0) && (
-                <div className="tgi-composer-toolbar">
-                  <button className="tgi-icon-btn" type="button" title="Attach media" onClick={() => fileInputRef.current?.click()}>
-                    <IcoPaperclip />
-                  </button>
-                  <div className="tgi-composer-emoji-strip">
-                    {COMPOSER_EMOJI.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        className="tgi-emoji-btn"
-                        onClick={() => setReplyDraft((value) => `${value}${value ? ' ' : ''}${emoji}`)}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
-                  </div>
-                  {attachedFile && (
+              <div className="tgi-composer-inner">
+                {attachedFile && (
+                  <div className="tgi-composer-attachment-preview">
+                    {attachedPreviewUrl && attachedFile.type.startsWith('image/') ? (
+                      <img src={attachedPreviewUrl} alt={attachedFile.name} className="tgi-composer-preview-media" />
+                    ) : attachedPreviewUrl && attachedFile.type.startsWith('video/') ? (
+                      <video src={attachedPreviewUrl} className="tgi-composer-preview-media" muted playsInline controls />
+                    ) : (
+                      <div className="tgi-attachment-chip">
+                        {attachedFile.name}
+                        <span>{Math.max(1, Math.round(attachedFile.size / 1024))} KB</span>
+                      </div>
+                    )}
                     <button
                       type="button"
-                      className="tgi-attachment-chip"
+                      className="tgi-attachment-remove"
                       onClick={() => {
                         setAttachedFile(null);
                         if (fileInputRef.current) fileInputRef.current.value = '';
                       }}
                     >
-                      {attachedFile.name}
-                      <span>Remove</span>
+                      Remove
                     </button>
-                  )}
+                  </div>
+                )}
+                <div className="tgi-composer-row">
+                  <button className="tgi-attach-btn" type="button" title="Attach media" onClick={() => fileInputRef.current?.click()}>
+                    <IcoPaperclip />
+                  </button>
+                  <textarea
+                    ref={textareaRef}
+                    value={replyDraft}
+                    onChange={(e) => setReplyDraft(e.target.value)}
+                    onKeyDown={handleTextareaKey}
+                    placeholder={`Write to ${selectedDialog.title}…`}
+                    rows={1}
+                  />
+                  <button
+                    className="tgi-send-btn"
+                    disabled={busy || (!replyDraft.trim() && !attachedFile)}
+                    onClick={() => void sendReply()}
+                    title="Send (Enter)"
+                  >
+                    <IcoSend />
+                  </button>
                 </div>
-              )}
-              <div className="tgi-composer-inner">
-                <textarea
-                  ref={textareaRef}
-                  value={replyDraft}
-                  onChange={(e) => setReplyDraft(e.target.value)}
-                  onKeyDown={handleTextareaKey}
-                  placeholder={`Write to ${selectedDialog.title}…`}
-                  rows={1}
-                />
-                <button
-                  className="tgi-send-btn"
-                  disabled={busy || (!replyDraft.trim() && !attachedFile)}
-                  onClick={() => void sendReply()}
-                  title="Send (Enter)"
-                >
-                  <IcoSend />
-                </button>
               </div>
               <div className="tgi-composer-hint">Enter to send · Shift+Enter for new line · Attach images, video, or files</div>
             </footer>

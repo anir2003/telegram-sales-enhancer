@@ -3262,10 +3262,18 @@ export async function upsertTgConsoleMessages(
   const active = resolveWorkspaceContext(context);
   if (!messages.length) return;
 
+  const mergeMetadata = (
+    existingMetadata: Record<string, unknown> | null | undefined,
+    nextMetadata: Record<string, unknown> | null | undefined,
+  ) => ({
+    ...(existingMetadata ?? {}),
+    ...(nextMetadata ?? {}),
+  });
+
   if (!isSupabaseConfigured()) {
     for (const message of messages) {
       const existing = demoState.tgConsoleMessages.find((item) => item.dialog_id === message.dialog_id && item.telegram_message_id === message.telegram_message_id);
-      if (existing) Object.assign(existing, message);
+      if (existing) Object.assign(existing, { ...message, metadata: mergeMetadata(existing.metadata, message.metadata) });
       else demoState.tgConsoleMessages.push({
         id: message.id ?? demoId('tg-message'),
         workspace_id: active.workspaceId,
@@ -3277,9 +3285,26 @@ export async function upsertTgConsoleMessages(
   }
 
   const supabase = getAdminSupabaseClient();
+  const dialogIds = [...new Set(messages.map((message) => message.dialog_id))];
+  const telegramMessageIds = [...new Set(messages.map((message) => message.telegram_message_id))];
+  const { data: existingRows, error: existingError } = await supabase!
+    .from('telegram_messages')
+    .select('dialog_id, telegram_message_id, metadata')
+    .eq('workspace_id', active.workspaceId)
+    .in('dialog_id', dialogIds)
+    .in('telegram_message_id', telegramMessageIds);
+  if (existingError) throw existingError;
+  const existingByKey = new Map(
+    (existingRows ?? []).map((row) => [`${row.dialog_id}:${row.telegram_message_id}`, row.metadata as Record<string, unknown> | null]),
+  );
+
   const { error } = await supabase!
     .from('telegram_messages')
-    .upsert(messages.map((message) => ({ ...message, workspace_id: active.workspaceId })), { onConflict: 'dialog_id,telegram_message_id' });
+    .upsert(messages.map((message) => ({
+      ...message,
+      workspace_id: active.workspaceId,
+      metadata: mergeMetadata(existingByKey.get(`${message.dialog_id}:${message.telegram_message_id}`), message.metadata),
+    })), { onConflict: 'dialog_id,telegram_message_id' });
   if (error) throw error;
 }
 
