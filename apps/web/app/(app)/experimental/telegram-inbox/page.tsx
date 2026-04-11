@@ -164,7 +164,7 @@ export default function TelegramInboxPage() {
       if (stateFilter === 'replied' && !d.is_replied) return false;
       if (stateFilter === 'needs-reply' && d.is_replied) return false;
       if (q) {
-        const hay = [d.title, d.username, d.last_message_preview, ...d.tags].filter(Boolean).join(' ').toLowerCase();
+        const hay = [d.title, d.username, d.last_message_preview, ...(d.tags ?? [])].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -182,7 +182,7 @@ export default function TelegramInboxPage() {
   // Sync detail fields on dialog change
   useEffect(() => {
     setFolder(selectedDialog?.crm_folder ?? '');
-    setTags(selectedDialog?.tags.join(', ') ?? '');
+    setTags((selectedDialog?.tags ?? []).join(', '));
     setNotes(selectedDialog?.notes ?? '');
     setReplyDraft('');
     setStatus('');
@@ -424,7 +424,7 @@ export default function TelegramInboxPage() {
                   <button className="btn-secondary" onClick={() => void saveDialog({ is_unread: !selectedDialog.is_unread })}>
                     {selectedDialog.is_unread ? 'Mark read' : 'Mark unread'}
                   </button>
-                  {selectedDialog.tags.map((t) => <span key={t} className="tgi-tag">#{t}</span>)}
+                  {(selectedDialog.tags ?? []).map((t) => <span key={t} className="tgi-tag">#{t}</span>)}
                 </div>
               </div>
             )}

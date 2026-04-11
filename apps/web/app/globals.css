@@ -173,6 +173,18 @@ button, input, textarea, select {
   overflow-y: auto;
 }
 
+/* Full-height pages (e.g. TG Inbox) manage their own scroll — prevent double scrollbars */
+.app-main:has(.tgi-page) {
+  overflow: hidden;
+}
+.app-main:has(.tgi-page) > div {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .topbar {
   height: 52px;
   display: flex;
@@ -3910,7 +3922,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 /* Page shell */
 .tgi-page {
-  height: calc(100vh - 52px);
+  flex: 1;
+  height: 0; /* forces flex child to not overflow — flex-grow fills parent */
   min-height: 600px;
   display: grid;
   grid-template-columns: 220px 280px minmax(0, 1fr);
