@@ -48,6 +48,12 @@ type SendApprovalRow = {
   target_username: string | null;
   message_text: string;
   status: string;
+  scheduled_for: string | null;
+  media_name: string | null;
+  media_mime_type: string | null;
+  media_size: number | null;
+  media_base64: string | null;
+  approved_at: string | null;
 };
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -57,8 +63,90 @@ if (!supabaseUrl || !serviceRoleKey) {
   throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.');
 }
 
+const transientHttpStatuses = new Set([408, 425, 429, 500, 502, 503, 504, 522, 523, 524]);
+const transientErrorPatterns = [
+  'terminated',
+  'UND_ERR_SOCKET',
+  'other side closed',
+  'bad gateway',
+  'cloudflare',
+  '<!DOCTYPE html>',
+  'fetch failed',
+  'Supabase HTTP',
+  'ECONNRESET',
+  'ETIMEDOUT',
+];
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientError(error: unknown) {
+  const text = [
+    error instanceof Error ? error.message : String(error),
+    (error as any)?.details,
+    (error as any)?.hint,
+    (error as any)?.code,
+  ].filter(Boolean).join('\n');
+  return transientErrorPatterns.some((pattern) => text.toLowerCase().includes(pattern.toLowerCase()));
+}
+
+function sanitizedError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const details = String((error as any)?.details ?? '');
+  const code = String((error as any)?.code ?? '');
+
+  if (message.includes('<!DOCTYPE html>') || details.includes('<!DOCTYPE html>') || /bad gateway/i.test(message + details)) {
+    return {
+      message: 'Supabase returned a transient Cloudflare 502 Bad Gateway response.',
+      code: code || 'TRANSIENT_SUPABASE_502',
+    };
+  }
+
+  if (isTransientError(error)) {
+    return {
+      message,
+      code: code || 'TRANSIENT_NETWORK',
+    };
+  }
+
+  return {
+    message,
+    details: details || undefined,
+    code: code || undefined,
+  };
+}
+
+async function withTransientRetry<T>(operation: () => PromiseLike<T> | Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts || !isTransientError(error)) {
+        throw error;
+      }
+      await wait(500 * attempt + Math.random() * 400);
+    }
+  }
+  throw lastError;
+}
+
+async function resilientFetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
+  return withTransientRetry(async () => {
+    const response = await fetch(input, init);
+    if (transientHttpStatuses.has(response.status)) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`Supabase HTTP ${response.status}`);
+    }
+    return response;
+  }, 3);
+}
+
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
+  global: { fetch: resilientFetch },
 });
 
 function nowIso() {
@@ -115,6 +203,52 @@ function parseDialogPeer(dialog: Pick<DialogRow, 'telegram_dialog_id'>) {
   return null;
 }
 
+function naturalTypingDurationMs(text: string, hasMedia = false) {
+  if (process.env.TELEGRAM_NATURAL_TYPING === 'false') return 0;
+  const maxMs = Number(process.env.TELEGRAM_NATURAL_TYPING_MAX_MS || 8500);
+  const minMs = hasMedia ? 1200 : 700;
+  const perCharacterMs = 35 + Math.random() * 65;
+  return Math.min(Math.max(minMs, Math.round(text.length * perCharacterMs)), Number.isFinite(maxMs) ? maxMs : 8500);
+}
+
+async function emitNaturalTyping(client: any, entity: any, text: string, hasMedia = false) {
+  const durationMs = naturalTypingDurationMs(text, hasMedia);
+  if (!durationMs) return;
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < durationMs) {
+    try {
+      await client.invoke(new Api.messages.SetTyping({
+        peer: entity,
+        action: new Api.SendMessageTypingAction(),
+      }));
+    } catch {
+      return;
+    }
+    await wait(900 + Math.random() * 1300);
+  }
+}
+
+function buildApprovalMedia(approval: SendApprovalRow) {
+  if (!approval.media_base64 || !approval.media_name || !approval.media_size) return null;
+  return {
+    name: approval.media_name,
+    type: approval.media_mime_type,
+    size: approval.media_size,
+    buffer: Buffer.from(approval.media_base64, 'base64'),
+  };
+}
+
+function buildMediaMetadata(media: ReturnType<typeof buildApprovalMedia>) {
+  if (!media) return {};
+  return {
+    media: true,
+    file_name: media.name,
+    mime_type: media.type || null,
+    file_size: media.size,
+  };
+}
+
 async function resolveDialogEntity(client: any, dialog: DialogRow) {
   if (dialog.username) {
     return client.getEntity(dialog.username.replace(/^@/, ''));
@@ -133,12 +267,14 @@ async function logActivity(input: {
   eventLabel: string;
   payload: Record<string, unknown>;
 }) {
-  await supabase.from('activity_log').insert({
+  await withTransientRetry(() => supabase.from('activity_log').insert({
     workspace_id: input.workspaceId,
     event_type: input.eventType,
     event_label: input.eventLabel,
     payload: input.payload,
-  });
+  }).then(({ error }) => {
+    if (error) throw error;
+  }));
 }
 
 async function listAuthenticatedAccounts() {
@@ -258,23 +394,52 @@ async function syncAccount(account: ConnectedAccountRow) {
 }
 
 async function claimApprovedSends() {
-  const { data, error } = await supabase
-    .from('telegram_send_approvals')
-    .select('*')
-    .eq('status', 'approved')
-    .order('created_at', { ascending: true })
-    .limit(20);
-  if (error) throw error;
+  const dueAt = nowIso();
+  const [approvedResult, scheduledResult] = await Promise.all([
+    withTransientRetry<any>(() => supabase
+      .from('telegram_send_approvals')
+      .select('*')
+      .eq('status', 'approved')
+      .order('created_at', { ascending: true })
+      .limit(20)),
+    withTransientRetry<any>(() => supabase
+      .from('telegram_send_approvals')
+      .select('*')
+      .eq('status', 'scheduled')
+      .lte('scheduled_for', dueAt)
+      .order('scheduled_for', { ascending: true })
+      .limit(20)),
+  ]);
+
+  if (approvedResult.error) throw approvedResult.error;
+  if (scheduledResult.error) throw scheduledResult.error;
 
   const claimed: SendApprovalRow[] = [];
-  for (const approval of (data ?? []) as SendApprovalRow[]) {
-    const { data: updated } = await supabase
+  const dueApprovals = [
+    ...((approvedResult.data ?? []) as SendApprovalRow[]),
+    ...((scheduledResult.data ?? []) as SendApprovalRow[]),
+  ].sort((a, b) => {
+    const aDate = a.scheduled_for ?? '';
+    const bDate = b.scheduled_for ?? '';
+    if (aDate === bDate) return a.id.localeCompare(b.id);
+    if (!aDate) return -1;
+    if (!bDate) return 1;
+    return aDate.localeCompare(bDate);
+  }).slice(0, 20);
+
+  for (const approval of dueApprovals) {
+    const { data: updated, error } = await withTransientRetry<any>(() => supabase
       .from('telegram_send_approvals')
-      .update({ status: 'sending', updated_at: nowIso() })
+      .update({
+        status: 'sending',
+        approved_at: approval.approved_at ?? nowIso(),
+        updated_at: nowIso(),
+      })
       .eq('id', approval.id)
-      .eq('status', 'approved')
+      .eq('status', approval.status)
       .select('*')
-      .maybeSingle();
+      .maybeSingle());
+    if (error) throw error;
     if (updated) claimed.push(updated as SendApprovalRow);
   }
   return claimed;
@@ -317,23 +482,53 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
   const proxy = decryptJson<TgConsoleProxyConfig>(account.proxy_config_ciphertext);
   const { apiId, apiHash } = await resolveWorkspaceTgCredentials(supabase, account.workspace_id);
   const client = createTelegramClient(session, Number(apiId), apiHash, proxy);
+  let deliveredToTelegram = false;
+  let deliveredMessageId = '';
+  let deliveredAt = '';
+  let deliveredHadMedia = false;
   try {
     await client.connect();
     const entity = dialog
       ? await resolveDialogEntity(client, dialog)
       : await client.getEntity(target!.replace(/^@/, ''));
-    const sent = await client.sendMessage(entity, { message: approval.message_text });
+    const media = buildApprovalMedia(approval);
+    deliveredHadMedia = Boolean(media);
+    await emitNaturalTyping(client, entity, approval.message_text, Boolean(media));
+
+    let sent: any;
+    if (media) {
+      const { CustomFile } = await import('telegram/client/uploads');
+      const telegramFile = new CustomFile(media.name, media.size, '', media.buffer);
+      sent = await client.sendFile(entity, {
+        file: telegramFile,
+        caption: approval.message_text || undefined,
+        forceDocument: !(media.type?.startsWith('image/') || media.type?.startsWith('video/')),
+        workers: 2,
+      });
+    } else {
+      sent = await client.sendMessage(entity, { message: approval.message_text });
+    }
     const sentAt = toIsoFromTelegramDate((sent as any)?.date);
-    await supabase
+    deliveredToTelegram = true;
+    deliveredMessageId = String((sent as any)?.id ?? '');
+    deliveredAt = sentAt;
+    const updateResult = await withTransientRetry<any>(() => supabase
       .from('telegram_send_approvals')
       .update({
         status: 'sent',
-        delivery_result: { telegram_message_id: String((sent as any)?.id ?? ''), delivered_at: sentAt },
+        delivery_result: {
+          telegram_message_id: String((sent as any)?.id ?? ''),
+          delivered_at: sentAt,
+          scheduled_for: approval.scheduled_for ?? null,
+          media: Boolean(media),
+          natural_typing: process.env.TELEGRAM_NATURAL_TYPING !== 'false',
+        },
         updated_at: nowIso(),
       })
-      .eq('id', approval.id);
+      .eq('id', approval.id));
+    if (updateResult.error) throw updateResult.error;
     if (dialog) {
-      await supabase
+      const dialogUpdate = await withTransientRetry<any>(() => supabase
         .from('telegram_dialogs')
         .update({
           last_message_at: sentAt,
@@ -343,8 +538,11 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
           is_replied: true,
           updated_at: nowIso(),
         })
-        .eq('id', dialog.id);
-      await supabase
+        .eq('id', dialog.id));
+      if (dialogUpdate.error) {
+        console.error('[tg-worker] sent message but dialog mirror update failed', sanitizedError(dialogUpdate.error));
+      }
+      const messageUpsert = await withTransientRetry<any>(() => supabase
         .from('telegram_messages')
         .upsert({
           workspace_id: approval.workspace_id,
@@ -355,25 +553,68 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
           is_outbound: true,
           text: approval.message_text,
           sent_at: sentAt,
-          metadata: { delivery: 'worker' },
-        }, { onConflict: 'dialog_id,telegram_message_id' });
+          metadata: {
+            delivery: 'worker',
+            delivery_status: 'sent',
+            unread: true,
+            scheduled_for: approval.scheduled_for ?? null,
+            ...buildMediaMetadata(media),
+          },
+        }, { onConflict: 'dialog_id,telegram_message_id' }));
+      if (messageUpsert.error) {
+        console.error('[tg-worker] sent message but message mirror upsert failed', sanitizedError(messageUpsert.error));
+      }
     }
     await logActivity({
       workspaceId: approval.workspace_id,
       eventType: 'telegram.send.delivered',
       eventLabel: 'Telegram approved send delivered',
-      payload: { approval_id: approval.id, account_id: approval.account_id, target },
+      payload: {
+        approval_id: approval.id,
+        account_id: approval.account_id,
+        target,
+        scheduled_for: approval.scheduled_for ?? null,
+        media: Boolean(media),
+      },
+    }).catch((activityError) => {
+      console.error('[tg-worker] sent message but activity log failed', sanitizedError(activityError));
     });
   } catch (error) {
+    if (deliveredToTelegram) {
+      console.error(`[tg-worker] send delivered but persistence failed for ${approval.id}`, sanitizedError(error));
+      const sentRepair = await withTransientRetry<any>(() => supabase
+        .from('telegram_send_approvals')
+        .update({
+          status: 'sent',
+          delivery_result: {
+            telegram_message_id: deliveredMessageId,
+            delivered_at: deliveredAt || nowIso(),
+            scheduled_for: approval.scheduled_for ?? null,
+            media: deliveredHadMedia,
+            persistence_warning: sanitizedError(error),
+          },
+          updated_at: nowIso(),
+        })
+        .eq('id', approval.id)).catch((repairError) => {
+        console.error('[tg-worker] could not repair sent status after persistence failure', sanitizedError(repairError));
+        return null;
+      });
+      if (sentRepair?.error) {
+        console.error('[tg-worker] could not repair sent status after persistence failure', sanitizedError(sentRepair.error));
+      }
+      return;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
-    await supabase
+    const failUpdate = await withTransientRetry<any>(() => supabase
       .from('telegram_send_approvals')
       .update({
         status: 'failed',
         delivery_result: { error: message, failed_at: nowIso() },
         updated_at: nowIso(),
       })
-      .eq('id', approval.id);
+      .eq('id', approval.id));
+    if (failUpdate.error) console.error('[tg-worker] failed to mark send as failed', sanitizedError(failUpdate.error));
     await logActivity({
       workspaceId: approval.workspace_id,
       eventType: 'telegram.send.failed',
@@ -386,18 +627,22 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
 }
 
 async function tick() {
-  const accounts = await listAuthenticatedAccounts();
+  const accounts = await withTransientRetry(listAuthenticatedAccounts);
   for (const account of accounts) {
     try {
-      await syncAccount(account);
+      await withTransientRetry(() => syncAccount(account), 2);
     } catch (error) {
-      console.error(`[tg-worker] sync failed for ${account.id}`, error);
+      console.error(`[tg-worker] sync failed for ${account.id}`, sanitizedError(error));
     }
   }
 
-  const approvedSends = await claimApprovedSends();
+  const approvedSends = await withTransientRetry(claimApprovedSends);
   for (const approval of approvedSends) {
-    await deliverApprovedSend(approval);
+    try {
+      await deliverApprovedSend(approval);
+    } catch (error) {
+      console.error(`[tg-worker] send failed for ${approval.id}`, sanitizedError(error));
+    }
   }
 }
 

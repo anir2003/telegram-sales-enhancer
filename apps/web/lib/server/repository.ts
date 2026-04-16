@@ -3428,7 +3428,7 @@ export async function listTgSendApprovals(context: WorkspaceContext): Promise<Tg
   const supabase = getAdminSupabaseClient();
   const { data, error } = await supabase!
     .from('telegram_send_approvals')
-    .select('*')
+    .select('id, workspace_id, account_id, dialog_id, target_username, message_text, status, scheduled_for, media_name, media_mime_type, media_size, approved_by_profile_id, approved_at, delivery_result, created_at, updated_at')
     .eq('workspace_id', active.workspaceId)
     .order('created_at', { ascending: false })
     .limit(100);
@@ -3440,10 +3440,28 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
   const active = resolveWorkspaceContext(context);
   const parsed = tgSendApprovalInputSchema.parse(input);
   const timestamp = nowIso();
-  const status = parsed.approve_now ? 'sending' : 'pending_approval';
-  const approvedBy = parsed.approve_now ? active.profileId : null;
-  const approvedAt = parsed.approve_now ? timestamp : null;
+  const scheduledFor = parsed.scheduled_for ? new Date(parsed.scheduled_for) : null;
+  if (scheduledFor && scheduledFor.getTime() <= Date.now() - 30_000) {
+    throw new Error('Choose a future time for scheduled sends.');
+  }
+  const isScheduled = Boolean(scheduledFor);
+  const status = isScheduled ? 'scheduled' : parsed.approve_now ? 'sending' : 'pending_approval';
+  const approvedBy = parsed.approve_now || isScheduled ? active.profileId : null;
+  const approvedAt = parsed.approve_now || isScheduled ? timestamp : null;
   const targetUsernames = parsed.target_usernames.map(normalizeTgConsoleUsername);
+  const mediaColumns = parsed.media
+    ? {
+      media_name: parsed.media.name,
+      media_mime_type: parsed.media.type || null,
+      media_size: parsed.media.size,
+      media_base64: parsed.media.data_base64,
+    }
+    : {
+      media_name: null,
+      media_mime_type: null,
+      media_size: null,
+      media_base64: null,
+    };
   const rows = [
     ...parsed.dialog_ids.map((dialogId) => ({
       workspace_id: active.workspaceId,
@@ -3452,6 +3470,8 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
       target_username: null,
       message_text: parsed.message_text,
       status,
+      scheduled_for: scheduledFor?.toISOString() ?? null,
+      ...mediaColumns,
       approved_by_profile_id: approvedBy,
       approved_at: approvedAt,
       delivery_result: null,
@@ -3465,6 +3485,8 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
       target_username: username,
       message_text: parsed.message_text,
       status,
+      scheduled_for: scheduledFor?.toISOString() ?? null,
+      ...mediaColumns,
       approved_by_profile_id: approvedBy,
       approved_at: approvedAt,
       delivery_result: null,
@@ -3479,9 +3501,9 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
     await logActivity({
       workspaceId: active.workspaceId,
       profileId: active.profileId,
-      event_type: parsed.approve_now ? 'telegram.send.dispatch_requested' : 'telegram.send.pending_approval',
-      event_label: parsed.approve_now ? 'Telegram send dispatch requested' : 'Telegram send queued for approval',
-      payload: { account_id: parsed.account_id, count: records.length },
+      event_type: isScheduled ? 'telegram.send.scheduled' : parsed.approve_now ? 'telegram.send.dispatch_requested' : 'telegram.send.pending_approval',
+      event_label: isScheduled ? 'Telegram send scheduled' : parsed.approve_now ? 'Telegram send dispatch requested' : 'Telegram send queued for approval',
+      payload: { account_id: parsed.account_id, count: records.length, scheduled_for: scheduledFor?.toISOString() ?? null },
     });
     return records;
   }
@@ -3496,9 +3518,9 @@ export async function createTgSendApprovals(context: WorkspaceContext, input: un
   await logActivity({
     workspaceId: active.workspaceId,
     profileId: active.profileId,
-    event_type: parsed.approve_now ? 'telegram.send.dispatch_requested' : 'telegram.send.pending_approval',
-    event_label: parsed.approve_now ? 'Telegram send dispatch requested' : 'Telegram send queued for approval',
-    payload: { account_id: parsed.account_id, count: data?.length ?? rows.length },
+    event_type: isScheduled ? 'telegram.send.scheduled' : parsed.approve_now ? 'telegram.send.dispatch_requested' : 'telegram.send.pending_approval',
+    event_label: isScheduled ? 'Telegram send scheduled' : parsed.approve_now ? 'Telegram send dispatch requested' : 'Telegram send queued for approval',
+    payload: { account_id: parsed.account_id, count: data?.length ?? rows.length, scheduled_for: scheduledFor?.toISOString() ?? null },
   });
 
   return (data ?? []) as TgSendApprovalRecord[];

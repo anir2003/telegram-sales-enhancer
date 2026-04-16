@@ -10,6 +10,7 @@ const labels: Record<string, { title: string; subtitle: string }> = {
   '/accounts': { title: 'Accounts', subtitle: 'Telegram sender availability, workload, and campaign coverage' },
   '/activity': { title: 'Activity', subtitle: 'Audit trail for sends, skips, and replies' },
   '/settings': { title: 'Settings', subtitle: 'Organization and bot linking' },
+  '/experimental/demo-guilds': { title: 'Demo Guilds', subtitle: 'Shared browser-demo traces with local-only video rendering' },
   '/experimental/telegram-checker': { title: 'Telegram Checker', subtitle: 'Look up any Telegram username using your personal API credentials' },
 };
 
