@@ -9,6 +9,7 @@ import {
 import { resolveWorkspaceTgCredentials } from '@/lib/server/tg-console/credentials';
 import { buildTelegramClient } from '@/lib/server/tg-console/client';
 import { decryptJson, decryptSecret } from '@/lib/server/tg-console/crypto';
+import { buildTgMessageMediaMetadata, getTgMessagePreview } from '@/lib/server/tg-console/media';
 import type { TgConsoleProxyConfig } from '@telegram-enhancer/shared';
 
 type SyncContext = {
@@ -37,11 +38,6 @@ function getEntityKind(entity: any) {
 function getEntityTitle(entity: any) {
   const fullName = [entity?.firstName, entity?.lastName].filter(Boolean).join(' ').trim();
   return entity?.title || fullName || entity?.username || `Telegram ${getEntityId(entity)}`;
-}
-
-function getPreview(message: any) {
-  const text = typeof message?.message === 'string' ? message.message : '';
-  return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
 async function downloadPhotoAsDataUrl(client: any, entity: any): Promise<string | null> {
@@ -119,7 +115,7 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
         is_unread: Number(dialog.unreadCount ?? 0) > 0,
         is_replied: Boolean(lastMessage?.out),
         last_message_at: lastMessage?.date ? toIsoFromTelegramDate(lastMessage.date) : null,
-        last_message_preview: lastMessage ? getPreview(lastMessage) : null,
+        last_message_preview: lastMessage ? getTgMessagePreview(lastMessage) : null,
         tags: existing?.tags ?? [],
         notes: existing?.notes ?? null,
         avatar_url: avatarUrl ?? existing?.avatar_url ?? null,
@@ -136,7 +132,7 @@ export async function syncTgConsoleAccountOnce(context: SyncContext, accountId: 
         sent_at: toIsoFromTelegramDate(message.date),
         metadata: {
           grouped_id: message.groupedId ? String(message.groupedId) : null,
-          media: Boolean(message.media),
+          ...buildTgMessageMediaMetadata(message),
           unread: Boolean(message.unread),
           delivery_status: message.out ? 'sent' : null,
         },

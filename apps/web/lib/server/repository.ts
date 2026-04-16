@@ -3172,6 +3172,23 @@ export async function listTgConsoleMessages(context: WorkspaceContext, dialogId?
   return (data ?? []) as TgConsoleMessageRecord[];
 }
 
+export async function getTgConsoleMessage(context: WorkspaceContext, messageId: string): Promise<TgConsoleMessageRecord | null> {
+  const active = resolveWorkspaceContext(context);
+  if (!isSupabaseConfigured()) {
+    return demoState.tgConsoleMessages.find((message) => message.workspace_id === active.workspaceId && message.id === messageId) ?? null;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_messages')
+    .select('*')
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', messageId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as TgConsoleMessageRecord | null;
+}
+
 export async function getTgConsoleDialog(
   context: WorkspaceContext,
   dialogId: string,

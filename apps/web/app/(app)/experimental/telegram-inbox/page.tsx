@@ -66,9 +66,12 @@ function getMessageMetadata(message: TgConsoleMessageRecord) {
 
 function getMessageMediaName(message: TgConsoleMessageRecord) {
   const metadata = getMessageMetadata(message);
-  return typeof metadata.file_name === 'string' && metadata.file_name.trim()
-    ? metadata.file_name
-    : (Boolean(metadata.media) ? 'Media attachment' : null);
+  if (typeof metadata.file_name === 'string' && metadata.file_name.trim()) return metadata.file_name;
+  if (typeof metadata.sticker_alt === 'string' && metadata.sticker_alt.trim()) return `Sticker ${metadata.sticker_alt}`;
+  if (typeof metadata.media_kind === 'string' && metadata.media_kind.trim()) {
+    return metadata.media_kind[0].toUpperCase() + metadata.media_kind.slice(1);
+  }
+  return Boolean(metadata.media) ? 'Media attachment' : null;
 }
 
 function getMessagePreviewUrl(message: TgConsoleMessageRecord) {
@@ -81,6 +84,27 @@ function getMessagePreviewUrl(message: TgConsoleMessageRecord) {
 function getMessageMimeType(message: TgConsoleMessageRecord) {
   const metadata = getMessageMetadata(message);
   return typeof metadata.mime_type === 'string' ? metadata.mime_type : '';
+}
+
+function getMessageMediaKind(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  return typeof metadata.media_kind === 'string' ? metadata.media_kind : '';
+}
+
+function getMessageStickerAlt(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  return typeof metadata.sticker_alt === 'string' ? metadata.sticker_alt : '';
+}
+
+function getMessageFileSize(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  return typeof metadata.file_size === 'number' ? metadata.file_size : null;
+}
+
+function getMessageMediaRoute(message: TgConsoleMessageRecord) {
+  const metadata = getMessageMetadata(message);
+  if (!metadata.media || !message.telegram_message_id || message.id.startsWith('opt-')) return null;
+  return `/api/experimental/tg-console/messages/${encodeURIComponent(message.id)}/media`;
 }
 
 function getMessageDeliveryState(message: TgConsoleMessageRecord) {
@@ -97,24 +121,58 @@ function getMessageCaption(message: TgConsoleMessageRecord) {
   return text;
 }
 
+function formatBytes(bytes: number | null) {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
 function MessageMedia({ message }: { message: TgConsoleMessageRecord }) {
-  const previewUrl = getMessagePreviewUrl(message);
+  const routeUrl = getMessageMediaRoute(message);
+  const previewUrl = getMessagePreviewUrl(message) ?? routeUrl;
   const mimeType = getMessageMimeType(message);
+  const mediaKind = getMessageMediaKind(message);
   const mediaName = getMessageMediaName(message);
+  const stickerAlt = getMessageStickerAlt(message);
+  const fileSize = getMessageFileSize(message);
+  const isImage = mimeType.startsWith('image/') || mediaKind === 'photo';
+  const isVideo = mimeType.startsWith('video/');
 
   if (!mediaName) return null;
 
-  if (previewUrl && mimeType.startsWith('image/')) {
-    return <img className="tgi-msg-media-preview" src={previewUrl} alt={mediaName} />;
+  if (previewUrl && isImage) {
+    return <img className={`tgi-msg-media-preview ${mediaKind === 'sticker' ? 'sticker' : ''}`} src={previewUrl} alt={mediaName} />;
   }
 
-  if (previewUrl && mimeType.startsWith('video/')) {
+  if (previewUrl && isVideo) {
     return (
-      <video className="tgi-msg-media-preview" src={previewUrl} controls playsInline muted />
+      <video className={`tgi-msg-media-preview ${mediaKind === 'sticker' ? 'sticker' : ''}`} src={previewUrl} controls playsInline muted />
     );
   }
 
-  return <div className="tgi-msg-media-chip">{mediaName}</div>;
+  if (mediaKind === 'sticker') {
+    return (
+      <div className="tgi-msg-sticker-fallback" title={mediaName}>
+        <span>{stickerAlt || 'Sticker'}</span>
+        <small>Animated sticker</small>
+      </div>
+    );
+  }
+
+  const sizeLabel = formatBytes(fileSize);
+  const chip = (
+    <>
+      <span className="tgi-msg-media-icon" aria-hidden="true"><IcoPaperclip /></span>
+      <span className="tgi-msg-media-chip-text">
+        <strong>{mediaName}</strong>
+        {sizeLabel && <small>{sizeLabel}</small>}
+      </span>
+    </>
+  );
+
+  return routeUrl
+    ? <a className="tgi-msg-media-chip" href={routeUrl} target="_blank" rel="noreferrer">{chip}</a>
+    : <div className="tgi-msg-media-chip">{chip}</div>;
 }
 
 /* ── Icons ─────────────────────────────────────────────── */
