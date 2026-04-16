@@ -223,7 +223,7 @@ async function deliverOneApproval(
 
     let sent: any;
     if (media) {
-      const { CustomFile } = await import('telegram/client/uploads');
+      const { CustomFile } = await import('telegram/client/uploads.js');
       const telegramFile = new CustomFile(media.name, media.size, '', media.buffer);
       sent = await client.sendFile(entity, {
         file: telegramFile,
@@ -543,7 +543,7 @@ export async function sendTgDialogMessage(input: {
 
     let sent: any;
     if (file) {
-      const { CustomFile } = await import('telegram/client/uploads');
+      const { CustomFile } = await import('telegram/client/uploads.js');
       const telegramFile = new CustomFile(file.name, file.size, '', file.buffer);
       sent = await client.sendFile(entity, {
         file: telegramFile,

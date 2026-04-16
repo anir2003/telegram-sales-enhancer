@@ -3566,3 +3566,49 @@ export async function approveTgSendApproval(context: WorkspaceContext, approvalI
 
   return data as TgSendApprovalRecord;
 }
+
+export async function retryTgSendApprovalNow(context: WorkspaceContext, approvalId: string): Promise<TgSendApprovalRecord> {
+  const active = resolveWorkspaceContext(context);
+  const timestamp = nowIso();
+  if (!isSupabaseConfigured()) {
+    const approval = demoState.tgSendApprovals.find((item) => item.id === approvalId && item.workspace_id === active.workspaceId);
+    if (!approval) throw new Error('Send approval not found.');
+    Object.assign(approval, {
+      status: 'sending',
+      scheduled_for: null,
+      approved_by_profile_id: active.profileId,
+      approved_at: timestamp,
+      delivery_result: null,
+      updated_at: timestamp,
+    });
+    return approval;
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('telegram_send_approvals')
+    .update({
+      status: 'sending',
+      scheduled_for: null,
+      approved_by_profile_id: active.profileId,
+      approved_at: timestamp,
+      delivery_result: null,
+      updated_at: timestamp,
+    })
+    .eq('workspace_id', active.workspaceId)
+    .eq('id', approvalId)
+    .in('status', ['failed', 'cancelled', 'scheduled'])
+    .select('*')
+    .single();
+  if (error) throw error;
+
+  await logActivity({
+    workspaceId: active.workspaceId,
+    profileId: active.profileId,
+    event_type: 'telegram.send.retry_requested',
+    event_label: 'Telegram send retry requested',
+    payload: { approval_id: approvalId, account_id: data.account_id },
+  });
+
+  return data as TgSendApprovalRecord;
+}

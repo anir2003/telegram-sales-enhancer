@@ -53,6 +53,17 @@ function IconTgSetup({ size = 16 }: { size?: number }) {
   );
 }
 
+function IconTgScheduler({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v4l3 2" />
+      <path d="M7 3L4 6" />
+      <path d="M17 3l3 3" />
+    </svg>
+  );
+}
+
 function IconDemoGuilds({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -151,6 +162,7 @@ export function Sidebar() {
 
   const experimentalItems = [
     { href: '/experimental/demo-guilds', label: 'Demo Guilds', icon: IconDemoGuilds },
+    { href: '/experimental/telegram-scheduler', label: 'TG Scheduler', icon: IconTgScheduler },
     { href: '/experimental/telegram-inbox', label: 'TG Inbox', icon: IconTgInbox },
     { href: '/experimental/telegram-console', label: 'TG Setup', icon: IconTgSetup },
   ];

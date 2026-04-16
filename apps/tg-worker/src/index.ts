@@ -497,7 +497,7 @@ async function deliverApprovedSend(approval: SendApprovalRow) {
 
     let sent: any;
     if (media) {
-      const { CustomFile } = await import('telegram/client/uploads');
+      const { CustomFile } = await import('telegram/client/uploads.js');
       const telegramFile = new CustomFile(media.name, media.size, '', media.buffer);
       sent = await client.sendFile(entity, {
         file: telegramFile,

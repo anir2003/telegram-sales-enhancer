@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkspaceContext } from '@/lib/server/context';
-import { approveTgSendApproval, createTgSendApprovals, listTgSendApprovals } from '@/lib/server/repository';
+import { approveTgSendApproval, createTgSendApprovals, listTgSendApprovals, retryTgSendApprovalNow } from '@/lib/server/repository';
 import { dispatchTgSendApprovalsNow } from '@/lib/server/tg-console/dispatch';
 
 export const dynamic = 'force-dynamic';
@@ -86,10 +86,12 @@ export async function PATCH(req: NextRequest) {
   const ctx = await getCtx();
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id, action } = await req.json();
-  if (!id || action !== 'approve') {
-    return NextResponse.json({ error: 'Use action=approve with a send approval id.' }, { status: 400 });
+  if (!id || !['approve', 'retry'].includes(action)) {
+    return NextResponse.json({ error: 'Use action=approve or action=retry with a send approval id.' }, { status: 400 });
   }
-  const sendApproval = await approveTgSendApproval(ctx, String(id));
+  const sendApproval = action === 'retry'
+    ? await retryTgSendApprovalNow(ctx, String(id))
+    : await approveTgSendApproval(ctx, String(id));
   const [delivered] = await dispatchTgSendApprovalsNow(ctx, [sendApproval]);
   return NextResponse.json({ sendApproval: delivered });
 }
