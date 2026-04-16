@@ -36,11 +36,6 @@ function fmt(value: string | null | undefined) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
 }
 
-function toDateTimeLocalValue(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
 function railMatches(d: TgConsoleDialogRecord, mode: RailMode) {
   if (mode === 'all') return true;
   if (mode === 'my') return d.crm_folder === 'My Inbox';
@@ -131,9 +126,6 @@ function IcoSend() {
 function IcoSync({ spin }: { spin: boolean }) {
   return <svg width="14" height="14" viewBox="0 0 24 24" {...ico} style={spin ? { animation: 'spin 0.8s linear infinite' } : undefined}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>;
 }
-function IcoClock() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
-}
 function IcoChevRight() {
   return <svg width="13" height="13" viewBox="0 0 24 24" {...ico}><polyline points="9 18 15 12 9 6"/></svg>;
 }
@@ -216,13 +208,6 @@ export default function TelegramInboxPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const scheduleFileInputRef = useRef<HTMLInputElement>(null);
-  const [schedulerOpen, setSchedulerOpen] = useState(false);
-  const [scheduleAccountId, setScheduleAccountId] = useState('');
-  const [scheduleUsername, setScheduleUsername] = useState('');
-  const [scheduleMessage, setScheduleMessage] = useState('');
-  const [scheduleAt, setScheduleAt] = useState('');
-  const [scheduleFile, setScheduleFile] = useState<File | null>(null);
 
   const key = `/api/experimental/tg-console?${new URLSearchParams({
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
@@ -445,62 +430,6 @@ export default function TelegramInboxPage() {
     }
   };
 
-  const openScheduler = () => {
-    const defaultAccountId = selectedDialog?.account_id ?? selectedAccountId ?? accounts[0]?.id ?? '';
-    setScheduleAccountId(defaultAccountId);
-    setScheduleUsername(selectedDialog?.username ? `@${selectedDialog.username}` : '');
-    setScheduleAt(toDateTimeLocalValue(new Date(Date.now() + 15 * 60_000)));
-    setScheduleFile(null);
-    if (scheduleFileInputRef.current) scheduleFileInputRef.current.value = '';
-    setSchedulerOpen(true);
-  };
-
-  const scheduleMessageSend = async () => {
-    const username = scheduleUsername.trim().replace(/^@/, '');
-    const text = scheduleMessage.trim();
-    if (!scheduleAccountId || !username || !text || !scheduleAt) return;
-
-    const scheduledDate = new Date(scheduleAt);
-    if (Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now()) {
-      setStatusTone('error');
-      setStatus('Pick a future time for the scheduled message.');
-      return;
-    }
-
-    setBusy(true);
-    setStatus('');
-    try {
-      const formData = new FormData();
-      formData.append('account_id', scheduleAccountId);
-      formData.append('target_usernames', JSON.stringify([username]));
-      formData.append('dialog_ids', JSON.stringify([]));
-      formData.append('message_text', text);
-      formData.append('scheduled_for', scheduledDate.toISOString());
-      if (scheduleFile) formData.append('file', scheduleFile);
-
-      const response = await fetch('/api/experimental/tg-console/send-approvals', {
-        method: 'POST',
-        body: formData,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error ?? 'Could not schedule message.');
-      }
-
-      setStatusTone('success');
-      setStatus(`Scheduled message to @${username} for ${fmt(scheduledDate.toISOString())}.`);
-      setScheduleMessage('');
-      setScheduleFile(null);
-      if (scheduleFileInputRef.current) scheduleFileInputRef.current.value = '';
-      setSchedulerOpen(false);
-      await mutate();
-    } catch (error) {
-      setStatusTone('error');
-      setStatus(error instanceof Error ? error.message : 'Could not schedule message.');
-    }
-    setBusy(false);
-  };
-
   return (
     <div className={`tgi-page ${navCollapsed ? 'nav-collapsed' : ''}`} onClick={() => setReactionFor(null)}>
 
@@ -619,9 +548,6 @@ export default function TelegramInboxPage() {
                 <button className="tgi-icon-btn" title="Details" onClick={() => setDetailsOpen((v) => !v)}>
                   <IcoMore />
                 </button>
-                <button className="tgi-icon-btn" title="Schedule message" onClick={openScheduler}>
-                  <IcoClock />
-                </button>
                 <button
                   className={`tgi-status-pill ${selectedDialog.is_replied ? 'resolved' : 'open'}`}
                   onClick={() => void saveDialog({ is_replied: !selectedDialog.is_replied })}
@@ -630,74 +556,6 @@ export default function TelegramInboxPage() {
                 </button>
               </div>
             </header>
-
-            {schedulerOpen && (
-              <div className="tgi-scheduler-panel" onClick={(e) => e.stopPropagation()}>
-                <div className="tgi-scheduler-head">
-                  <div>
-                    <strong>Schedule Telegram send</strong>
-                    <span>Railway worker sends it at this time. Telegram itself is not scheduling the message.</span>
-                  </div>
-                  <button className="btn-secondary" onClick={() => setSchedulerOpen(false)}>Close</button>
-                </div>
-                <div className="tgi-scheduler-grid">
-                  <select className="input" value={scheduleAccountId} onChange={(e) => setScheduleAccountId(e.target.value)}>
-                    <option value="">Select sender account</option>
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>{account.display_name || account.phone}</option>
-                    ))}
-                  </select>
-                  <input
-                    className="input"
-                    value={scheduleUsername}
-                    onChange={(e) => setScheduleUsername(e.target.value)}
-                    placeholder="@telegram_username"
-                  />
-                  <input
-                    className="input"
-                    type="datetime-local"
-                    value={scheduleAt}
-                    onChange={(e) => setScheduleAt(e.target.value)}
-                  />
-                </div>
-                <textarea
-                  className="input"
-                  rows={3}
-                  value={scheduleMessage}
-                  onChange={(e) => setScheduleMessage(e.target.value)}
-                  placeholder="Message that should be sent later"
-                />
-                <div className="tgi-scheduler-actions">
-                  <input
-                    ref={scheduleFileInputRef}
-                    type="file"
-                    style={{ display: 'none' }}
-                    onChange={(event) => setScheduleFile(event.target.files?.[0] ?? null)}
-                  />
-                  <button className="btn-secondary" type="button" onClick={() => scheduleFileInputRef.current?.click()}>
-                    {scheduleFile ? scheduleFile.name : 'Attach media'}
-                  </button>
-                  {scheduleFile && (
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => {
-                        setScheduleFile(null);
-                        if (scheduleFileInputRef.current) scheduleFileInputRef.current.value = '';
-                      }}
-                    >
-                      Remove media
-                    </button>
-                  )}
-                  <button className="btn" disabled={busy || !scheduleAccountId || !scheduleUsername.trim() || !scheduleMessage.trim() || !scheduleAt} onClick={() => void scheduleMessageSend()}>
-                    {busy ? 'Scheduling…' : 'Schedule send'}
-                  </button>
-                </div>
-                <div className="card-subtitle">
-                  Before sending, the worker emits Telegram typing activity with randomized pauses, then sends the final message and media from the selected account.
-                </div>
-              </div>
-            )}
 
             {/* Details drawer */}
             {detailsOpen && (

@@ -1673,7 +1673,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     padding-right: 18px;
   }
 
-  .tgi-scheduler-grid {
+  .tgs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .tgs-time-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -4315,51 +4319,253 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .tgi-status-pill.open { background: #1e1e0a; color: #facc15; border-color: #2e2e0e; }
 .tgi-status-pill:hover { filter: brightness(1.1); }
 
-/* Scheduler */
-.tgi-scheduler-panel {
+/* Telegram Scheduler */
+.tgs-page {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  background:
-    radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 34%),
-    #0f1010;
-  border-bottom: 1px solid #2b2112;
-  flex-shrink: 0;
+  gap: 14px;
 }
 
-.tgi-scheduler-head {
+.tgs-hero {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.08), transparent 32%),
+    var(--panel-alt);
+}
+
+.tgs-hero h2 {
+  margin: 6px 0 6px;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.tgs-hero p {
+  max-width: 680px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.tgs-timezone-pill {
+  display: grid;
+  gap: 4px;
+  min-width: 230px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--panel-strong);
+}
+
+.tgs-timezone-pill span,
+.tgs-form label > span {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.tgs-timezone-pill strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tgs-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.6fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.tgs-card {
+  padding: 16px;
+}
+
+.tgs-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.tgs-form {
+  display: grid;
   gap: 12px;
 }
 
-.tgi-scheduler-head strong {
-  display: block;
-  color: var(--text);
-  font-size: 13px;
-  margin-bottom: 3px;
+.tgs-form label {
+  display: grid;
+  gap: 7px;
 }
 
-.tgi-scheduler-head span {
-  display: block;
+.tgs-input,
+.tgs-message {
+  border-radius: 6px;
+}
+
+.tgs-message {
+  min-height: 118px;
+  resize: vertical;
+}
+
+.tgs-time-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 120px;
+  gap: 10px;
+}
+
+.tgs-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tgs-small-btn,
+.tgs-mini-btn,
+.tgs-icon-action {
+  min-height: 32px;
+  border-radius: 6px;
+}
+
+.tgs-small-btn {
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.tgs-mini-btn {
+  padding: 5px 9px;
+  font-size: 10px;
+}
+
+.tgs-icon-action {
+  width: 32px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.tgs-status {
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
+.tgs-log {
+  display: grid;
+  gap: 8px;
+}
+
+.tgs-log-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+
+.tgs-log-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.tgs-log-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tgs-log-meta {
+  margin-top: 4px;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.5;
 }
 
-.tgi-scheduler-grid {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 0.8fr);
-  gap: 8px;
+.tgs-log-error {
+  margin-top: 7px;
+  color: #f2a6a6;
+  font-size: 10px;
+  line-height: 1.55;
+  word-break: break-word;
 }
 
-.tgi-scheduler-actions {
+.tgs-log-side {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+}
+
+.tgs-status-pill {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tgs-status-pill.scheduled {
+  color: #e8d68a;
+  border-color: #473d14;
+  background: #1d1908;
+}
+
+.tgs-status-pill.sending {
+  color: #93c5fd;
+  border-color: #1d3f68;
+  background: #0b1726;
+}
+
+.tgs-status-pill.sent {
+  color: #34d399;
+  border-color: #1a4a2a;
+  background: #0f2d1a;
+}
+
+.tgs-status-pill.failed {
+  color: #f2a6a6;
+  border-color: #613232;
+  background: #251111;
+}
+
+@media (max-width: 720px) {
+  .tgs-hero {
+    flex-direction: column;
+  }
+
+  .tgs-timezone-pill {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tgs-log-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tgs-log-side {
+    align-items: flex-start;
+    flex-direction: row;
+  }
 }
 
 /* Details drawer */

@@ -12,6 +12,9 @@ const labels: Record<string, { title: string; subtitle: string }> = {
   '/settings': { title: 'Settings', subtitle: 'Organization and bot linking' },
   '/experimental/demo-guilds': { title: 'Demo Guilds', subtitle: 'Shared browser-demo traces with local-only video rendering' },
   '/experimental/telegram-checker': { title: 'Telegram Checker', subtitle: 'Look up any Telegram username using your personal API credentials' },
+  '/experimental/telegram-scheduler': { title: 'TG Scheduler', subtitle: 'Platform-side scheduled Telegram sends with local timezone controls' },
+  '/experimental/telegram-inbox': { title: 'TG Inbox', subtitle: 'Conversation review and approval queue for Telegram' },
+  '/experimental/telegram-console': { title: 'TG Setup', subtitle: 'Connect and manage Telegram sender accounts' },
 };
 
 export function TopBar({
