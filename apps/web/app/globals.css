@@ -424,6 +424,115 @@ button, input, textarea, select {
   border-color: var(--border-focus);
 }
 
+.demo-guilds-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.dg-setup-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.dg-lead-title {
+  font-size: 24px;
+  line-height: 1.2;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.dg-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.dg-summary-stack {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.dg-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.dg-summary-row strong {
+  color: var(--text);
+}
+
+.dg-trace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dg-trace-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.dg-trace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dg-trace-name {
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dg-trace-badges {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dg-trace-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.dg-trace-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dg-trace-meta-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.dg-empty-card {
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 /* Checkbox — use design system accent instead of browser blue */
 input[type="checkbox"] {
   accent-color: var(--text);
@@ -1541,6 +1650,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .heatmap-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .dg-trace-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {
@@ -1558,6 +1671,24 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .page-content {
     padding-left: 18px;
     padding-right: 18px;
+  }
+
+  .tgi-scheduler-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .dg-trace-header {
+    flex-direction: column;
+  }
+
+  .dg-trace-badges {
+    justify-content: flex-start;
+  }
+
+  .dg-trace-meta {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -4183,6 +4314,53 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .tgi-status-pill.resolved { background: #0f2d1a; color: #34d399; border-color: #1a4a2a; }
 .tgi-status-pill.open { background: #1e1e0a; color: #facc15; border-color: #2e2e0e; }
 .tgi-status-pill:hover { filter: brightness(1.1); }
+
+/* Scheduler */
+.tgi-scheduler-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background:
+    radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 34%),
+    #0f1010;
+  border-bottom: 1px solid #2b2112;
+  flex-shrink: 0;
+}
+
+.tgi-scheduler-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.tgi-scheduler-head strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
+.tgi-scheduler-head span {
+  display: block;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.tgi-scheduler-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 0.8fr);
+  gap: 8px;
+}
+
+.tgi-scheduler-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
 
 /* Details drawer */
 .tgi-details-drawer {

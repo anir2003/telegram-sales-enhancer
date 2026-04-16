@@ -53,6 +53,19 @@ function IconTgSetup({ size = 16 }: { size?: number }) {
   );
 }
 
+function IconDemoGuilds({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6h16" />
+      <path d="M4 12h10" />
+      <path d="M4 18h7" />
+      <path d="M17 10l3 2-3 2" />
+      <path d="M14 16l3 2-3 2" />
+      <path d="M13 4l3 2-3 2" />
+    </svg>
+  );
+}
+
 // ─── Warning Modal ────────────────────────────────────────────────────
 function ExperimentalWarningModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   return (
@@ -84,10 +97,10 @@ function ExperimentalWarningModal({ onConfirm, onCancel }: { onConfirm: () => vo
           </div>
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 12 }}>
-          These features are experimental and may not work as expected. They use phone-session login to mirror Telegram data through the server connector.
+          These features are experimental and may not work as expected. Some of them connect to local tools, background workers, or unfinished integrations.
         </p>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 20 }}>
-          <strong style={{ color: '#f59e0b' }}>Important:</strong> Always use a backup Telegram account, not your primary one. Experimental usage may trigger rate limits or account restrictions.
+          <strong style={{ color: '#f59e0b' }}>Important:</strong> Use backup accounts and non-production workflows when possible. Some experiments can hit third-party limits or depend on software running locally on your machine.
         </p>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onConfirm} style={{
@@ -137,6 +150,7 @@ export function Sidebar() {
   const handleCancel = () => setShowModal(false);
 
   const experimentalItems = [
+    { href: '/experimental/demo-guilds', label: 'Demo Guilds', icon: IconDemoGuilds },
     { href: '/experimental/telegram-inbox', label: 'TG Inbox', icon: IconTgInbox },
     { href: '/experimental/telegram-console', label: 'TG Setup', icon: IconTgSetup },
   ];

@@ -88,7 +88,7 @@ function proxyPayload(proxy: ProxyForm) {
 function statusTone(status: string | null | undefined) {
   if (status === 'authenticated' || status === 'validated' || status === 'sent') return '#22c55e';
   if (status === 'failed' || status === 'unreachable' || status === 'needs_reauth') return '#ef4444';
-  if (status === 'approved' || status === 'sending' || status === 'pending_code') return '#f59e0b';
+  if (status === 'approved' || status === 'scheduled' || status === 'sending' || status === 'pending_code') return '#f59e0b';
   return 'var(--text-dim)';
 }
 
@@ -618,7 +618,19 @@ function SendApprovalsPanel({ sendApprovals, onMutate }: { sendApprovals: TgSend
       <div className="tg-console-queue">
         {sendApprovals.slice(0, 8).map((item) => (
           <div key={item.id} className="tg-console-queue-row">
-            <span>{item.message_text}</span>
+            <span>
+              {item.message_text}
+              {item.scheduled_for && (
+                <small style={{ display: 'block', color: 'var(--text-dim)', marginTop: 3 }}>
+                  Scheduled for {formatDate(item.scheduled_for)}
+                </small>
+              )}
+              {item.media_name && (
+                <small style={{ display: 'block', color: 'var(--text-dim)', marginTop: 3 }}>
+                  Media: {item.media_name}
+                </small>
+              )}
+            </span>
             <strong style={{ color: statusTone(item.status) }}>{item.status.replace('_', ' ')}</strong>
             {item.status === 'pending_approval' && <button className="btn-secondary" onClick={() => void approve(item.id)}>Send now</button>}
           </div>

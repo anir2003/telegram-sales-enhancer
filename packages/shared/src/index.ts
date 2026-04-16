@@ -16,7 +16,7 @@ export const campaignLeadStatusValues = [
 export const sendTaskStatusValues = ['pending', 'claimed', 'sent', 'skipped', 'expired'] as const;
 export const tgConsoleAccountStatusValues = ['pending_code', 'authenticated', 'needs_reauth', 'disabled'] as const;
 export const tgConsoleDialogKindValues = ['user', 'group', 'channel', 'bot', 'unknown'] as const;
-export const tgConsoleSendStatusValues = ['draft', 'pending_approval', 'approved', 'sending', 'sent', 'failed', 'cancelled'] as const;
+export const tgConsoleSendStatusValues = ['draft', 'pending_approval', 'scheduled', 'approved', 'sending', 'sent', 'failed', 'cancelled'] as const;
 export const tgConsoleProxySchemeValues = ['socks5', 'http', 'https'] as const;
 
 export type CampaignStatus = (typeof campaignStatusValues)[number];
@@ -226,6 +226,11 @@ export interface TgSendApprovalRecord {
   target_username: string | null;
   message_text: string;
   status: TgConsoleSendStatus;
+  scheduled_for: string | null;
+  media_name: string | null;
+  media_mime_type: string | null;
+  media_size: number | null;
+  media_base64?: string | null;
   approved_by_profile_id: string | null;
   approved_at: string | null;
   delivery_result: Record<string, unknown> | null;
@@ -335,6 +340,13 @@ export const tgSendApprovalInputSchema = z.object({
   target_usernames: z.array(z.string().trim().min(1).max(64)).default([]),
   message_text: z.string().trim().min(1).max(4000),
   approve_now: z.boolean().default(false),
+  scheduled_for: z.string().datetime().optional().nullable(),
+  media: z.object({
+    name: z.string().trim().min(1).max(180),
+    type: z.string().trim().max(180).optional().nullable(),
+    size: z.number().int().min(1).max(10 * 1024 * 1024),
+    data_base64: z.string().min(1),
+  }).optional().nullable(),
 }).superRefine((value, ctx) => {
   if (!value.dialog_ids.length && !value.target_usernames.length) {
     ctx.addIssue({

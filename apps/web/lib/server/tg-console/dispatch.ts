@@ -55,6 +55,46 @@ function buildMediaMetadata(file: {
   return metadata;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function naturalTypingDurationMs(text: string, hasMedia = false) {
+  if (process.env.TELEGRAM_NATURAL_TYPING === 'false') return 0;
+  const maxMs = Number(process.env.TELEGRAM_NATURAL_TYPING_MAX_MS || 8500);
+  const minMs = hasMedia ? 1200 : 700;
+  const perCharacterMs = 35 + Math.random() * 65;
+  return Math.min(Math.max(minMs, Math.round(text.length * perCharacterMs)), Number.isFinite(maxMs) ? maxMs : 8500);
+}
+
+async function emitNaturalTyping(client: any, entity: any, text: string, hasMedia = false) {
+  const durationMs = naturalTypingDurationMs(text, hasMedia);
+  if (!durationMs) return;
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < durationMs) {
+    try {
+      await client.invoke(new Api.messages.SetTyping({
+        peer: entity,
+        action: new Api.SendMessageTypingAction(),
+      }));
+    } catch {
+      return;
+    }
+    await wait(900 + Math.random() * 1300);
+  }
+}
+
+function buildApprovalMedia(approval: TgSendApprovalRecord) {
+  if (!approval.media_base64 || !approval.media_name || !approval.media_size) return null;
+  return {
+    name: approval.media_name,
+    type: approval.media_mime_type,
+    size: approval.media_size,
+    buffer: Buffer.from(approval.media_base64, 'base64'),
+  };
+}
+
 function parseDialogPeer(dialog: Pick<TgConsoleDialogRecord, 'telegram_dialog_id'>) {
   const [kind, rawId] = dialog.telegram_dialog_id.split(':');
   if (!kind || !rawId) return null;
@@ -178,7 +218,22 @@ async function deliverOneApproval(
     const entity = dialog
       ? await resolveDialogEntity(client, dialog)
       : await client.getEntity(target!.replace(/^@/, ''));
-    const sent = await client.sendMessage(entity, { message: approval.message_text });
+    const media = buildApprovalMedia(approval);
+    await emitNaturalTyping(client, entity, approval.message_text, Boolean(media));
+
+    let sent: any;
+    if (media) {
+      const { CustomFile } = await import('telegram/client/uploads');
+      const telegramFile = new CustomFile(media.name, media.size, '', media.buffer);
+      sent = await client.sendFile(entity, {
+        file: telegramFile,
+        caption: approval.message_text || undefined,
+        forceDocument: !(media.type?.startsWith('image/') || media.type?.startsWith('video/')),
+        workers: 2,
+      });
+    } else {
+      sent = await client.sendMessage(entity, { message: approval.message_text });
+    }
     const sentAt = toIsoFromTelegramDate((sent as any)?.date);
     const delivered = await persistApprovalResult(context, approval, {
       status: 'sent',
@@ -186,6 +241,8 @@ async function deliverOneApproval(
         telegram_message_id: String((sent as any)?.id ?? ''),
         delivered_at: sentAt,
         direct: true,
+        scheduled_for: approval.scheduled_for ?? null,
+        media: Boolean(media),
       },
     });
 
@@ -197,6 +254,9 @@ async function deliverOneApproval(
       messageId: String((sent as any)?.id ?? `local-${Date.now()}`),
       messageText: approval.message_text,
       sentAt,
+      metadata: media
+        ? { ...buildMediaMetadata(media), delivery_status: 'sent', unread: true }
+        : { delivery_status: 'sent', unread: true },
     });
 
     await logActivity({
@@ -479,6 +539,7 @@ export async function sendTgDialogMessage(input: {
   try {
     await client.connect();
     const entity = await resolveDialogEntity(client, dialog);
+    await emitNaturalTyping(client, entity, text, Boolean(file));
 
     let sent: any;
     if (file) {
