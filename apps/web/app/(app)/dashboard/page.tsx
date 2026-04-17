@@ -512,7 +512,7 @@ export default function DashboardPage() {
   const { data: accountsData, isLoading: loadingAccounts } = useSWR<{ accounts: Account[] }>('/api/accounts');
   const { data: leadsData, isLoading: loadingLeads } = useSWR<{ leads: Lead[] }>('/api/leads');
   const { data: activityData, isLoading: loadingActivity } = useSWR<{ activity: Activity[] }>('/api/activity');
-  const { data: analyticsResponse, isLoading: loadingAnalytics } = useSWR<{ analytics: DashboardAnalyticsPayload }>(
+  const { data: analyticsResponse, error: analyticsError, isLoading: loadingAnalytics } = useSWR<{ analytics: DashboardAnalyticsPayload }>(
     '/api/dashboard/analytics',
     { refreshInterval: 60_000, revalidateOnFocus: true },
   );
@@ -562,6 +562,12 @@ export default function DashboardPage() {
 
   return (
     <div className="page-content">
+      {analyticsError && (
+        <div className="status-callout danger" style={{ marginBottom: 16 }}>
+          Dashboard analytics failed to load: {analyticsError instanceof Error ? analyticsError.message : 'Unknown error'}
+        </div>
+      )}
+
       <div className="grid grid-4">
         <div className="card">
           <div className="card-title">Telegram Accounts Active</div>
