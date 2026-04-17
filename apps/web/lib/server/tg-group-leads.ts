@@ -2,12 +2,13 @@ import { Api } from 'telegram';
 import { isSupabaseConfigured } from '@/lib/env';
 import { demoId } from '@/lib/server/demo-store';
 import { getTgConsoleAccountPrivate, logActivity } from '@/lib/server/repository';
-import { resolveTelegramConnectorMode } from '@/lib/server/tg-console/credentials';
+import { getWorkspaceSecret, resolveTelegramConnectorMode } from '@/lib/server/tg-console/credentials';
 import { buildTelegramClient } from '@/lib/server/tg-console/client';
 import { decryptJson, decryptSecret } from '@/lib/server/tg-console/crypto';
 import { getAdminSupabaseClient } from '@/lib/supabase/server';
 import {
   normalizeTelegramUsername,
+  tgGroupLeadCleanInputSchema,
   tgGroupLeadScrapeInputSchema,
   tgGroupLeadSaveInputSchema,
   type LeadRecord,
@@ -19,6 +20,9 @@ import {
 
 type WorkspaceContext = { workspaceId: string; profileId: string | null };
 type ScrapeInput = ReturnType<typeof tgGroupLeadScrapeInputSchema.parse>;
+type InsertableGroupLeadResult =
+  Omit<TgGroupLeadResultRecord, 'id' | 'created_at' | 'company_name' | 'company_confidence' | 'company_reason' | 'ai_cleaned_at'>
+  & Partial<Pick<TgGroupLeadResultRecord, 'company_name' | 'company_confidence' | 'company_reason' | 'ai_cleaned_at'>>;
 
 type GroupOption = {
   id: string;
@@ -67,6 +71,10 @@ function toResult(row: any): TgGroupLeadResultRecord {
     bio: row.bio ?? null,
     premium: Boolean(row.premium),
     avatar_data_url: row.avatar_data_url ?? null,
+    company_name: row.company_name ?? null,
+    company_confidence: row.company_confidence === null || row.company_confidence === undefined ? null : Number(row.company_confidence),
+    company_reason: row.company_reason ?? null,
+    ai_cleaned_at: row.ai_cleaned_at ?? null,
     created_at: row.created_at,
   };
 }
@@ -149,15 +157,23 @@ async function updateJob(context: WorkspaceContext, jobId: string, patch: Partia
   if (error) throw error;
 }
 
-async function insertResult(context: WorkspaceContext, result: Omit<TgGroupLeadResultRecord, 'id' | 'created_at'>) {
+async function insertResult(context: WorkspaceContext, result: InsertableGroupLeadResult) {
+  const normalized: Omit<TgGroupLeadResultRecord, 'id' | 'created_at'> = {
+    ...result,
+    company_name: result.company_name ?? null,
+    company_confidence: result.company_confidence ?? null,
+    company_reason: result.company_reason ?? null,
+    ai_cleaned_at: result.ai_cleaned_at ?? null,
+  };
+
   if (!isSupabaseConfigured()) {
-    const existing = inMemoryResults.find((item) => item.job_id === result.job_id && item.telegram_user_id === result.telegram_user_id);
+    const existing = inMemoryResults.find((item) => item.job_id === normalized.job_id && item.telegram_user_id === normalized.telegram_user_id);
     if (existing) {
-      Object.assign(existing, result);
+      Object.assign(existing, normalized);
       return existing;
     }
     const record: TgGroupLeadResultRecord = {
-      ...result,
+      ...normalized,
       id: demoId('tg-group-lead-result'),
       created_at: nowIso(),
     };
@@ -168,7 +184,7 @@ async function insertResult(context: WorkspaceContext, result: Omit<TgGroupLeadR
   const supabase = getAdminSupabaseClient()!;
   const { data, error } = await supabase
     .from('telegram_group_lead_scrape_results')
-    .upsert(result, { onConflict: 'job_id,telegram_user_id' })
+    .upsert(normalized, { onConflict: 'job_id,telegram_user_id' })
     .select('*')
     .single();
   if (error) throw error;
@@ -228,6 +244,203 @@ export async function listGroupLeadResults(context: WorkspaceContext, jobId: str
     .limit(limit);
   if (error) throw error;
   return (data ?? []).map(toResult);
+}
+
+function outputTextFromResponse(payload: any) {
+  if (typeof payload?.output_text === 'string') return payload.output_text;
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  return output
+    .flatMap((item: any) => Array.isArray(item?.content) ? item.content : [])
+    .map((content: any) => content?.text)
+    .filter((text: unknown): text is string => typeof text === 'string')
+    .join('\n');
+}
+
+function clampConfidence(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(1, parsed));
+}
+
+async function resolveOpenAiApiKey(context: WorkspaceContext) {
+  const envKey = process.env.OPENAI_API_KEY?.trim();
+  if (envKey) return envKey;
+  return getWorkspaceSecret(context.workspaceId, 'OPENAI_API_KEY');
+}
+
+async function updateCleanedResults(context: WorkspaceContext, rows: Array<Pick<TgGroupLeadResultRecord, 'id' | 'company_name' | 'company_confidence' | 'company_reason' | 'ai_cleaned_at'>>) {
+  if (!rows.length) return;
+
+  if (!isSupabaseConfigured()) {
+    for (const row of rows) {
+      const existing = inMemoryResults.find((item) => item.id === row.id && item.workspace_id === context.workspaceId);
+      if (existing) Object.assign(existing, row);
+    }
+    return;
+  }
+
+  const supabase = getAdminSupabaseClient()!;
+  for (const row of rows) {
+    const { error } = await supabase
+      .from('telegram_group_lead_scrape_results')
+      .update({
+        company_name: row.company_name,
+        company_confidence: row.company_confidence,
+        company_reason: row.company_reason,
+        ai_cleaned_at: row.ai_cleaned_at,
+      })
+      .eq('workspace_id', context.workspaceId)
+      .eq('id', row.id);
+    if (error) throw error;
+  }
+}
+
+async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadResultRecord, 'id' | 'name' | 'bio'>>) {
+  const model = process.env.OPENAI_GROUP_LEAD_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-5.4-nano';
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      reasoning: { effort: 'none' },
+      max_output_tokens: 5000,
+      input: [
+        {
+          role: 'developer',
+          content: [
+            {
+              type: 'input_text',
+              text: [
+                'You clean Telegram group scrape rows for a CRM.',
+                'Use only the provided name and bio.',
+                'Return a company only when the company, project, studio, agency, fund, DAO, or product is explicitly named.',
+                'Do not infer from an industry, job title, interest, location, or username-like handle.',
+                'If no company is explicit, return an empty company_name, confidence 0, and a short reason.',
+                'Use confidence between 0 and 1.',
+              ].join(' '),
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: JSON.stringify({
+                leads: leads.map((lead) => ({
+                  id: lead.id,
+                  name: lead.name,
+                  bio: lead.bio || '',
+                })),
+              }),
+            },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'telegram_group_lead_company_cleaning',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              leads: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'string' },
+                    company_name: { type: 'string' },
+                    confidence: { type: 'number', minimum: 0, maximum: 1 },
+                    reason: { type: 'string' },
+                  },
+                  required: ['id', 'company_name', 'confidence', 'reason'],
+                },
+              },
+            },
+            required: ['leads'],
+          },
+        },
+      },
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || 'OpenAI could not clean the scraped leads.';
+    throw new Error(message);
+  }
+
+  const text = outputTextFromResponse(payload);
+  if (!text) throw new Error('OpenAI returned an empty cleaning result.');
+  const parsed = JSON.parse(text) as { leads?: Array<{ id: string; company_name: string; confidence: number; reason: string }> };
+  return Array.isArray(parsed.leads) ? parsed.leads : [];
+}
+
+export async function cleanGroupLeadResultsWithAi(context: WorkspaceContext, input: unknown) {
+  const parsed = tgGroupLeadCleanInputSchema.parse(input);
+  const job = await getGroupLeadScrapeJob(context, parsed.job_id);
+  if (!job) throw new Error('Scrape job not found.');
+
+  const apiKey = await resolveOpenAiApiKey(context);
+  if (!apiKey) {
+    throw new Error('Add an OpenAI API key for this organization before running Auto-clean.');
+  }
+
+  const results = await listGroupLeadResults(context, parsed.job_id);
+  const pending = results.filter((result) => !result.ai_cleaned_at);
+  if (!pending.length) {
+    return {
+      cleaned: 0,
+      withCompany: results.filter((result) => result.company_name).length,
+      total: results.length,
+    };
+  }
+
+  let cleaned = 0;
+  const updatedRows: Array<Pick<TgGroupLeadResultRecord, 'id' | 'company_name' | 'company_confidence' | 'company_reason' | 'ai_cleaned_at'>> = [];
+  const batchSize = 40;
+
+  for (let index = 0; index < pending.length; index += batchSize) {
+    const batch = pending.slice(index, index + batchSize);
+    const cleanedBatch = await cleanCompanyBatch(apiKey, batch);
+    const byId = new Map(cleanedBatch.map((item) => [item.id, item]));
+    const cleanedAt = nowIso();
+
+    const rows = batch.map((result) => {
+      const item = byId.get(result.id);
+      const company = String(item?.company_name ?? '').trim();
+      return {
+        id: result.id,
+        company_name: company || null,
+        company_confidence: company ? clampConfidence(item?.confidence) : 0,
+        company_reason: String(item?.reason ?? '').trim() || null,
+        ai_cleaned_at: cleanedAt,
+      };
+    });
+
+    await updateCleanedResults(context, rows);
+    updatedRows.push(...rows);
+    cleaned += rows.length;
+
+    if (index + batchSize < pending.length) {
+      await sleep(250);
+    }
+  }
+
+  const previouslyCleanedWithCompany = results.filter((result) => result.ai_cleaned_at && result.company_name).length;
+  const newlyCleanedWithCompany = updatedRows.filter((row) => row.company_name).length;
+  return {
+    cleaned,
+    withCompany: previouslyCleanedWithCompany + newlyCleanedWithCompany,
+    total: results.length,
+  };
 }
 
 export async function createGroupLeadScrapeJob(context: WorkspaceContext, input: unknown) {
@@ -584,13 +797,14 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
   if (!job) throw new Error('Scrape job not found.');
 
   const results = (await listGroupLeadResults(context, parsed.job_id))
-    .filter((result) => result.username)
+    .filter((result) => result.username && result.company_name)
     .map((result) => ({ ...result, username: normalizeTelegramUsername(result.username || '') }))
-    .filter((result) => result.username);
+    .filter((result) => result.username && result.company_name);
+  const skipped = job.total_found > 0 ? Math.max(0, job.total_found - results.length) : 0;
 
   if (!results.length) {
     await updateJob(context, parsed.job_id, { saved_count: 0 });
-    return { inserted: 0, updated: 0, skipped: 0 };
+    return { inserted: 0, updated: 0, skipped };
   }
 
   const tag = parsed.tag.trim();
@@ -608,6 +822,7 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
       if (existing) {
         existing.tags = [...new Set([...existing.tags, tag])];
         if (!existing.notes && result.bio) existing.notes = result.bio;
+        if (!existing.company_name && result.company_name) existing.company_name = result.company_name;
         if (!existing.profile_picture_url && result.avatar_data_url) existing.profile_picture_url = result.avatar_data_url;
         existing.telegram_exists = true;
         existing.telegram_checked_at = nowIso();
@@ -618,7 +833,7 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
           id: demoId('lead'),
           workspace_id: context.workspaceId,
           ...names,
-          company_name: '',
+          company_name: result.company_name || '',
           telegram_username: result.username!,
           tags: [tag],
           notes: result.bio,
@@ -633,7 +848,7 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
       }
     }
     await updateJob(context, parsed.job_id, { saved_count: inserted + updated });
-    return { inserted, updated, skipped: 0 };
+    return { inserted, updated, skipped: results.length - inserted - updated + skipped };
   }
 
   const supabase = getAdminSupabaseClient()!;
@@ -660,6 +875,7 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
         .from('leads')
         .update({
           tags: [...new Set([...(existing.tags ?? []), tag])],
+          company_name: existing.company_name || result.company_name || '',
           notes: existing.notes || result.bio || null,
           source: existing.source || source,
           profile_picture_url: existing.profile_picture_url || result.avatar_data_url || null,
@@ -676,7 +892,7 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
         workspace_id: context.workspaceId,
         created_by: context.profileId,
         ...names,
-        company_name: '',
+        company_name: result.company_name || '',
         telegram_username: result.username,
         tags: [tag],
         notes: result.bio,
@@ -703,5 +919,5 @@ export async function saveGroupLeadResultsAsLeads(context: WorkspaceContext, inp
     payload: { job_id: parsed.job_id, inserted, updated, tag },
   });
 
-  return { inserted, updated, skipped: results.length - inserted - updated };
+  return { inserted, updated, skipped: results.length - inserted - updated + skipped };
 }

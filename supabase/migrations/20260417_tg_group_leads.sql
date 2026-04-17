@@ -27,6 +27,10 @@ create table if not exists public.telegram_group_lead_scrape_results (
   bio text,
   premium boolean not null default false,
   avatar_data_url text,
+  company_name text,
+  company_confidence double precision,
+  company_reason text,
+  ai_cleaned_at timestamptz,
   created_at timestamptz not null default timezone('utc', now()),
   unique (job_id, telegram_user_id)
 );

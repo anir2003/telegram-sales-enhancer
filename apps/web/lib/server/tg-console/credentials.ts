@@ -15,7 +15,7 @@ import { isSupabaseConfigured } from '@/lib/env';
 
 type WorkspaceContext = { workspaceId: string; profileId: string | null };
 
-function decryptOrgSecret(stored: string): string | null {
+export function decryptOrgSecret(stored: string): string | null {
   const appSecret = process.env.APP_SECRET;
   if (!appSecret) return null;
   const keyHex = appSecret.padEnd(64, '0').slice(0, 64);
@@ -30,7 +30,7 @@ function decryptOrgSecret(stored: string): string | null {
   }
 }
 
-async function getDbSecret(workspaceId: string, label: string): Promise<string | null> {
+export async function getWorkspaceSecret(workspaceId: string, label: string): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
   const supabase = getAdminSupabaseClient()!;
   const { data } = await supabase
@@ -58,8 +58,8 @@ export async function resolveWorkspaceTgCredentials(ctx: WorkspaceContext): Prom
 
   // Fall back to DB secrets
   const [apiId, apiHash] = await Promise.all([
-    getDbSecret(ctx.workspaceId, 'TELEGRAM_API_ID'),
-    getDbSecret(ctx.workspaceId, 'TELEGRAM_API_HASH'),
+    getWorkspaceSecret(ctx.workspaceId, 'TELEGRAM_API_ID'),
+    getWorkspaceSecret(ctx.workspaceId, 'TELEGRAM_API_HASH'),
   ]);
 
   if (apiId && apiHash && Number.isInteger(Number(apiId))) {
