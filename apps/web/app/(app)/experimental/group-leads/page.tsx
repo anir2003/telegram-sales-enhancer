@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import useSWR from 'swr';
 import { AvatarCircle } from '@/components/ui/avatar';
 import { CustomSelect } from '@/components/ui/select';
@@ -25,12 +25,6 @@ type CredentialState = {
   source: 'env' | 'organization' | 'missing';
   apiId: string | null;
   apiHashConfigured: boolean;
-  canEdit: boolean;
-};
-
-type OpenAiKeyState = {
-  source: 'env' | 'organization' | 'missing';
-  configured: boolean;
   canEdit: boolean;
 };
 
@@ -89,6 +83,59 @@ function cleanPhone(value: string) {
   return value.trim();
 }
 
+function PanelTitle({ icon, title, detail }: { icon: ReactNode; title: string; detail?: string }) {
+  return (
+    <div className="group-leads-panel-title">
+      <span className="group-leads-panel-icon" aria-hidden>{icon}</span>
+      <span>
+        <strong>{title}</strong>
+        {detail && <small>{detail}</small>}
+      </span>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="group-leads-field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function IconKey() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="7.5" cy="14.5" r="3.5" stroke="currentColor" strokeWidth="1.6" /><path d="M10 12l8-8 2 2-2 2 1.5 1.5-2 2L16 10l-4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function IconPhone() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M8 4h8a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 16 20H8a1.5 1.5 0 0 1-1.5-1.5v-13A1.5 1.5 0 0 1 8 4z" stroke="currentColor" strokeWidth="1.6" /><path d="M10.5 17.5h3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>;
+}
+
+function IconSliders() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 7h14M5 17h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><circle cx="9" cy="7" r="2" fill="var(--panel-alt)" stroke="currentColor" strokeWidth="1.6" /><circle cx="15" cy="17" r="2" fill="var(--panel-alt)" stroke="currentColor" strokeWidth="1.6" /></svg>;
+}
+
+function IconGroup() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" /><circle cx="17" cy="10" r="2.3" stroke="currentColor" strokeWidth="1.6" /><path d="M3.5 19c.7-3.3 2.6-5 5.5-5s4.8 1.7 5.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /><path d="M14.5 15.2c2.4.2 4 1.5 4.7 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>;
+}
+
+function IconArchive() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h16v12H4V7z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M3 5h18v3H3V5zM9 11h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function IconDownload() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function IconChevron() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M8 10l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function IconVerified() {
+  return <svg className="premium-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-label="Premium"><circle cx="12" cy="12" r="8.5" fill="currentColor" /><path d="M8.2 12.2l2.4 2.4 5.2-5.4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
 export default function GroupLeadsPage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [showScrapedGroups, setShowScrapedGroups] = useState(false);
@@ -124,12 +171,10 @@ export default function GroupLeadsPage() {
 
       <div className="group-leads-layout">
         <div className="group-leads-side">
-          <CredentialsPanel onSaved={mutate} />
-          <OpenAiKeyPanel onSaved={mutate} />
-          <LoginPanel serverConfigured={Boolean(data?.serverConfigured)} onDone={mutate} />
           <ScrapePanel data={data} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} onStarted={mutate} />
+          <ScrapeSettingsPanel serverConfigured={Boolean(data?.serverConfigured)} onSaved={mutate} />
           <button className={`group-leads-library-toggle ${showScrapedGroups ? 'active' : ''}`} onClick={() => setShowScrapedGroups((value) => !value)}>
-            <span>Groups scraped</span>
+            <span><IconArchive /> Groups scraped</span>
             <strong>{data?.jobs.length ?? 0}</strong>
           </button>
           {showScrapedGroups && (
@@ -139,6 +184,21 @@ export default function GroupLeadsPage() {
         <ResultsPanel job={data?.selectedJob ?? null} results={data?.results ?? []} onSaved={mutate} />
       </div>
     </div>
+  );
+}
+
+function ScrapeSettingsPanel({ serverConfigured, onSaved }: { serverConfigured: boolean; onSaved: () => void }) {
+  return (
+    <details className="tg-console-panel group-leads-setup-panel">
+      <summary>
+        <PanelTitle icon={<IconSliders />} title="Scrape settings" detail="API and Telegram login" />
+        <span className="group-leads-chevron"><IconChevron /></span>
+      </summary>
+      <div className="group-leads-settings-grid">
+        <CredentialsPanel onSaved={onSaved} />
+        <LoginPanel serverConfigured={serverConfigured} onDone={onSaved} />
+      </div>
+    </details>
   );
 }
 
@@ -172,61 +232,24 @@ function CredentialsPanel({ onSaved }: { onSaved: () => void }) {
   };
 
   return (
-    <section className="tg-console-panel">
-      <div className="card-title">Telegram API Keys</div>
+    <div className="group-leads-settings-block">
+      <PanelTitle icon={<IconKey />} title="API keys" detail={data?.apiHashConfigured ? 'Saved' : 'Required'} />
       <div className="form-grid" style={{ marginTop: 12 }}>
-        <input className="input" placeholder="API ID" value={apiId} onChange={(event) => setApiId(event.target.value)} disabled={data?.canEdit === false} />
-        <input className="input" placeholder={data?.apiHashConfigured ? 'API hash saved' : 'API hash'} type="password" value={apiHash} onChange={(event) => setApiHash(event.target.value)} disabled={data?.canEdit === false} />
+        <Field label="API ID">
+          <input className="input" placeholder="123456" value={apiId} onChange={(event) => setApiId(event.target.value)} disabled={data?.canEdit === false} />
+        </Field>
+        <Field label="API hash">
+          <input className="input" placeholder={data?.apiHashConfigured ? 'Saved hash' : 'Paste hash'} type="password" value={apiHash} onChange={(event) => setApiHash(event.target.value)} disabled={data?.canEdit === false} />
+        </Field>
         <button className="btn" disabled={busy || data?.canEdit === false || !apiId.trim() || !apiHash.trim()} onClick={save}>
-          {busy ? 'Saving...' : 'Save API keys'}
+          {busy ? 'Saving...' : 'Save keys'}
         </button>
         <div className="card-subtitle">
           {data?.source === 'env' ? 'Using server environment keys.' : data?.apiHashConfigured ? 'Organization keys are saved.' : 'Organization keys missing.'}
         </div>
         {status && <div className="card-subtitle" style={{ color: status.includes('saved') ? '#22c55e' : '#ef4444' }}>{status}</div>}
       </div>
-    </section>
-  );
-}
-
-function OpenAiKeyPanel({ onSaved }: { onSaved: () => void }) {
-  const { data, mutate } = useSWR<OpenAiKeyState>('/api/experimental/group-leads/openai-key', swrFetcher);
-  const [apiKey, setApiKey] = useState('');
-  const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    setStatus('');
-    try {
-      await fetchJson('/api/experimental/group-leads/openai-key', {
-        method: 'POST',
-        body: JSON.stringify({ api_key: apiKey }),
-      });
-      setApiKey('');
-      setStatus('OpenAI key saved.');
-      await mutate();
-      onSaved();
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not save OpenAI key.');
-    }
-    setBusy(false);
-  };
-
-  return (
-    <section className="tg-console-panel">
-      <div className="card-title">AI Auto-clean</div>
-      <div className="form-grid" style={{ marginTop: 12 }}>
-        <input className="input" placeholder={data?.configured ? 'OpenAI key saved' : 'OpenAI API key'} type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={data?.canEdit === false} />
-        <button className="btn" disabled={busy || data?.canEdit === false || !apiKey.trim()} onClick={save}>
-          {busy ? 'Saving...' : 'Save OpenAI key'}
-        </button>
-        <div className="card-subtitle">
-          {data?.source === 'env' ? 'Using server environment key.' : data?.configured ? 'Organization AI key is saved.' : 'Organization AI key missing.'}
-        </div>
-        {status && <div className="card-subtitle" style={{ color: status.includes('saved') ? '#22c55e' : '#ef4444' }}>{status}</div>}
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -284,22 +307,28 @@ function LoginPanel({ serverConfigured, onDone }: { serverConfigured: boolean; o
   };
 
   return (
-    <section className="tg-console-panel">
-      <div className="card-title">Telegram Login</div>
+    <div className="group-leads-settings-block">
+      <PanelTitle icon={<IconPhone />} title="Telegram login" detail={step === 'phone' ? 'Phone' : 'Verify'} />
       <div className="form-grid" style={{ marginTop: 12 }}>
-        <input className="input" placeholder="+1 555 010 0001" value={phone} onChange={(event) => setPhone(event.target.value)} disabled={step !== 'phone'} />
+        <Field label="Phone number">
+          <input className="input" placeholder="+1 555 010 0001" value={phone} onChange={(event) => setPhone(event.target.value)} disabled={step !== 'phone'} />
+        </Field>
         {step !== 'phone' && (
-          <input className="input" placeholder="Telegram code" value={code} onChange={(event) => setCode(event.target.value)} />
+          <Field label="Telegram code">
+            <input className="input" placeholder="12345" value={code} onChange={(event) => setCode(event.target.value)} />
+          </Field>
         )}
         {step === '2fa' && (
-          <input className="input" placeholder="2FA password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <Field label="2FA password">
+            <input className="input" placeholder="Password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          </Field>
         )}
         <button className="btn" disabled={busy || !serverConfigured || (step === 'phone' ? !phone.trim() : !code.trim())} onClick={step === 'phone' ? sendCode : verify}>
           {busy ? 'Working...' : step === 'phone' ? 'Send OTP' : 'Verify OTP'}
         </button>
         {status && <div className="card-subtitle">{status}</div>}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -375,33 +404,46 @@ function ScrapePanel({
   };
 
   return (
-    <section className="tg-console-panel">
-      <div className="card-title">Group Scrape</div>
+    <section className="tg-console-panel group-leads-primary-panel">
+      <PanelTitle icon={<IconGroup />} title="Scrape a group" detail="Primary workflow" />
       <div className="form-grid" style={{ marginTop: 12 }}>
-        <CustomSelect value={accountId} onChange={setAccountId} options={accountOptions.length ? accountOptions : [{ value: '', label: 'No Telegram login' }]} />
+        <Field label="Telegram account">
+          <CustomSelect value={accountId} onChange={setAccountId} options={accountOptions.length ? accountOptions : [{ value: '', label: 'No Telegram login' }]} />
+        </Field>
         <div className="btn-row">
           <button className="btn-secondary" disabled={!accountId || loadingGroups} onClick={loadGroups}>
             {loadingGroups ? 'Loading...' : 'Load joined groups'}
           </button>
         </div>
         {groups.length > 0 && (
-          <CustomSelect
-            value={groupRef}
-            onChange={setGroupRef}
-            options={groups.map((group) => ({ value: group.ref, label: group.username ? `${group.title} (@${group.username})` : group.title }))}
-          />
+          <Field label="Joined group">
+            <CustomSelect
+              value={groupRef}
+              onChange={setGroupRef}
+              options={groups.map((group) => ({ value: group.ref, label: group.username ? `${group.title} (@${group.username})` : group.title }))}
+            />
+          </Field>
         )}
-        <input className="input" placeholder="@group, t.me/group, or group id" value={groupRef} onChange={(event) => setGroupRef(event.target.value)} />
-        <CustomSelect value={mode} onChange={setMode} options={[
-          { value: 'auto', label: 'Auto' },
-          { value: 'members', label: 'Members list' },
-          { value: 'messages', label: 'Message scan' },
-        ]} />
-        <div className="form-grid columns-2">
-          <input className="input" placeholder="Min delay ms" value={minDelay} onChange={(event) => setMinDelay(event.target.value)} />
-          <input className="input" placeholder="Max delay ms" value={maxDelay} onChange={(event) => setMaxDelay(event.target.value)} />
+        <Field label="Group link or ID">
+          <input className="input group-leads-group-input" placeholder="@group, t.me/group, or group id" value={groupRef} onChange={(event) => setGroupRef(event.target.value)} />
+        </Field>
+        <div className="group-leads-scrape-options">
+          <Field label="Scrape mode">
+            <CustomSelect value={mode} onChange={setMode} options={[
+              { value: 'auto', label: 'Auto' },
+              { value: 'members', label: 'Members list' },
+              { value: 'messages', label: 'Message scan' },
+            ]} />
+          </Field>
+          <Field label="Delay window">
+            <div className="group-leads-delay-pair">
+              <input className="input" aria-label="Minimum delay in milliseconds" value={minDelay} onChange={(event) => setMinDelay(event.target.value)} />
+              <span>to</span>
+              <input className="input" aria-label="Maximum delay in milliseconds" value={maxDelay} onChange={(event) => setMaxDelay(event.target.value)} />
+            </div>
+          </Field>
         </div>
-        <button className="btn" disabled={busy || !data?.serverConfigured || !accountId || !groupRef.trim()} onClick={start}>
+        <button className="btn group-leads-start-btn" disabled={busy || !data?.serverConfigured || !accountId || !groupRef.trim()} onClick={start}>
           {busy ? 'Starting...' : 'Start scrape'}
         </button>
         {selectedJobId && <div className="card-subtitle">Selected job: {selectedJobId.slice(0, 8)}</div>}
@@ -422,7 +464,7 @@ function JobsPanel({
 }) {
   return (
     <section className="tg-console-panel">
-      <div className="card-title">Scrape Jobs</div>
+      <PanelTitle icon={<IconArchive />} title="Scrape jobs" />
       <div className="group-leads-job-list">
         {jobs.map((job) => (
           <button key={job.id} className={`group-leads-job ${selectedJobId === job.id ? 'active' : ''}`} onClick={() => onSelect(job.id)}>
@@ -452,10 +494,17 @@ function ResultsPanel({
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const [cleaning, setCleaning] = useState(false);
+  const [leadFilter, setLeadFilter] = useState<'all' | 'premium' | 'standard' | 'company'>('all');
   const usernames = useMemo(() => results.filter((result) => result.username).length, [results]);
   const cleaned = useMemo(() => results.filter((result) => result.ai_cleaned_at).length, [results]);
   const cleanCompanies = useMemo(() => results.filter((result) => result.company_name).length, [results]);
   const saveableCleanLeads = useMemo(() => results.filter((result) => result.username && result.company_name).length, [results]);
+  const filteredResults = useMemo(() => {
+    if (leadFilter === 'premium') return results.filter((result) => result.premium);
+    if (leadFilter === 'standard') return results.filter((result) => !result.premium);
+    if (leadFilter === 'company') return results.filter((result) => result.company_name);
+    return results;
+  }, [leadFilter, results]);
   const cleanable = Boolean(job && job.status === 'completed' && results.length > 0);
   const pendingClean = Math.max(0, results.length - cleaned);
 
@@ -498,7 +547,7 @@ function ResultsPanel({
     : Math.min(99, Math.max(0, Math.round(((job?.processed_count ?? 0) / Math.max(1, job?.total_found || job?.processed_count || 1)) * 100)));
 
   return (
-    <section className="tg-console-panel group-leads-results">
+    <section className={`tg-console-panel group-leads-results ${cleaning ? 'is-cleaning-panel' : ''}`}>
       <div className="group-leads-results-head">
         <div>
           <div className="card-title">{job?.group_title || job?.group_ref || 'Lead Results'}</div>
@@ -510,7 +559,7 @@ function ResultsPanel({
           <button className="btn-secondary" disabled={!cleanable || cleaning || pendingClean === 0} onClick={clean}>
             {cleaning ? 'Cleaning...' : pendingClean === 0 ? 'Auto-cleaned' : 'Auto-clean'}
           </button>
-          <button className="btn-secondary" disabled={!results.length} onClick={() => exportCsv(results, job)}>Export CSV</button>
+          <button className="btn-secondary" disabled={!results.length} onClick={() => exportCsv(results, job)}><IconDownload /> CSV</button>
         </div>
       </div>
 
@@ -522,98 +571,133 @@ function ResultsPanel({
 
       {job?.error && <div className="status-callout danger" style={{ marginTop: 12 }}>{job.error}</div>}
 
-      {cleaning && (
-        <div className="ai-cleaning-stage" aria-live="polite">
-          <div className="ai-cleaning-orbit" aria-hidden>
-            <svg viewBox="0 0 48 48" width="48" height="48">
-              <circle cx="24" cy="24" r="19" fill="none" stroke="var(--border-strong)" strokeWidth="2" />
-              <circle
-                cx="24"
-                cy="24"
-                r="19"
-                fill="none"
-                stroke="url(#ai-clean-grad)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeDasharray="30 90"
-              />
-              <defs>
-                <linearGradient id="ai-clean-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0%" stopColor="#22c55e" />
-                  <stop offset="50%" stopColor="#38bdf8" />
-                  <stop offset="100%" stopColor="#e879f9" />
-                </linearGradient>
-              </defs>
-            </svg>
-          </div>
-          <div className="ai-cleaning-body">
-            <strong>Cleaning {pendingClean} lead{pendingClean === 1 ? '' : 's'} with AI</strong>
-            <small>Reading names, usernames, and bios. Matching against existing companies in your leads.</small>
-            <div className="ai-cleaning-bar">
-              <span />
+      <div className={`group-leads-results-workspace ${cleaning ? 'is-cleaning' : ''}`}>
+        {cleaning && (
+          <div className="ai-cleaning-stage" aria-live="polite">
+            <div className="ai-cleaning-orbit" aria-hidden>
+              <svg viewBox="0 0 48 48" width="48" height="48">
+                <circle cx="24" cy="24" r="19" fill="none" stroke="var(--border-strong)" strokeWidth="2" />
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="19"
+                  fill="none"
+                  stroke="url(#ai-clean-grad)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeDasharray="30 90"
+                />
+                <defs>
+                  <linearGradient id="ai-clean-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#22c55e" />
+                    <stop offset="50%" stopColor="#38bdf8" />
+                    <stop offset="100%" stopColor="#60a5fa" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+            <div className="ai-cleaning-body">
+              <strong>Cleaning {pendingClean} lead{pendingClean === 1 ? '' : 's'} with AI</strong>
+              <small>Finding company signals. The lead list is locked while cleanup runs.</small>
+              <div className="ai-cleaning-bar">
+                <span />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {saveableCleanLeads > 0 ? (
-        <div className="group-leads-save-row">
-          <input className="input" placeholder="Tag for clean leads" value={tag} onChange={(event) => setTag(event.target.value)} />
-          <button className="btn" disabled={busy || !job || !tag.trim()} onClick={save}>
-            {busy ? 'Adding...' : `Add ${saveableCleanLeads} clean leads`}
-          </button>
-        </div>
-      ) : (
-        job && results.length > 0 && (
-          <div className="status-callout" style={{ marginTop: 16 }}>
-            {cleanCompanies > 0 ? 'Only cleaned leads with usernames can move into the main lead list.' : 'Auto-clean these leads to unlock adding them to the main lead list.'}
-          </div>
-        )
-      )}
-      {status && <div className="card-subtitle" style={{ marginTop: 8 }}>{status}</div>}
+        <div className="group-leads-results-content">
+          {saveableCleanLeads > 0 ? (
+            <div className="group-leads-save-row">
+              <input className="input" placeholder="Tag for clean leads" value={tag} onChange={(event) => setTag(event.target.value)} />
+              <button className="btn" disabled={busy || !job || !tag.trim()} onClick={save}>
+                {busy ? 'Adding...' : `Add ${saveableCleanLeads} clean leads`}
+              </button>
+            </div>
+          ) : (
+            job && results.length > 0 && (
+              <div className="status-callout" style={{ marginTop: 16 }}>
+                {cleanCompanies > 0 ? 'Only cleaned leads with usernames can move into the main lead list.' : 'Auto-clean these leads to unlock adding them to the main lead list.'}
+              </div>
+            )
+          )}
+          {status && <div className="card-subtitle" style={{ marginTop: 8 }}>{status}</div>}
 
-      <div className="group-leads-table">
-        <div className="table-header">
-          <span>Name</span>
-          <span>Username</span>
-          <span>Bio</span>
-          <span>Company</span>
-          <span>Premium</span>
-        </div>
-        {results.map((result) => (
-          <div className="table-row" key={result.id}>
-            <span className="group-leads-person">
-              <AvatarCircle url={result.avatar_data_url} name={result.name} size={34} />
-              <strong>{result.name}</strong>
-            </span>
-            <span>{result.username ? `@${result.username}` : 'No username'}</span>
-            <span className="group-leads-bio">{result.bio || 'No bio'}</span>
-            <span className={`group-leads-company ${result.company_name ? 'found' : ''}`} title={result.company_reason || undefined}>
-              {result.company_name ? (
-                <>
-                  <strong>{result.company_name}</strong>
-                  <small>{Math.round((result.company_confidence ?? 0) * 100)}% confidence</small>
-                </>
-              ) : result.ai_cleaned_at ? (
-                <small>No company found</small>
-              ) : (
-                <small>Not cleaned</small>
-              )}
-            </span>
-            <span>
-              {result.premium ? (
-                <svg className="premium-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" aria-label="Premium">
-                  <path d="M12 3.8l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8L12 3.8z" fill="currentColor" />
-                </svg>
-              ) : (
-                <span className="muted">-</span>
-              )}
-            </span>
+          {results.length > 0 && (
+            <div className="group-leads-filter-row" aria-label="Lead filters">
+              {[
+                ['all', 'All'],
+                ['premium', 'Premium'],
+                ['standard', 'Standard'],
+                ['company', 'Company found'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={leadFilter === value ? 'active' : ''}
+                  onClick={() => setLeadFilter(value as typeof leadFilter)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="group-leads-table">
+            <div className="table-header">
+              <span>Name</span>
+              <span>Username</span>
+              <span>Bio</span>
+              <span>Company</span>
+              <span>Premium</span>
+            </div>
+            {filteredResults.map((result) => (
+              <div className="table-row" key={result.id}>
+                <span className="group-leads-person">
+                  <AvatarCircle url={result.avatar_data_url} name={result.name} size={34} />
+                  <strong>{result.name}</strong>
+                </span>
+                <span>{result.username ? `@${result.username}` : 'No username'}</span>
+                <span className="group-leads-bio">{result.bio || 'No bio'}</span>
+                <span className={`group-leads-company ${result.company_name ? 'found' : ''}`} title={result.company_reason || undefined}>
+                  {result.company_name ? (
+                    <>
+                      <strong>{result.company_name}</strong>
+                      <small>{Math.round((result.company_confidence ?? 0) * 100)}% confidence</small>
+                    </>
+                  ) : result.ai_cleaned_at ? (
+                    <small>No company found</small>
+                  ) : (
+                    <small>Not cleaned</small>
+                  )}
+                </span>
+                <span>
+                  {result.premium ? (
+                    <IconVerified />
+                  ) : (
+                    <span className="muted">-</span>
+                  )}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
+
+          {results.length === 0 && (
+            <div className="group-leads-empty">
+              <IconGroup />
+              <strong>No group leads yet</strong>
+              <span>Choose a Telegram account, enter a group, then start the scrape.</span>
+            </div>
+          )}
+
+          {results.length > 0 && filteredResults.length === 0 && (
+            <div className="group-leads-empty compact">
+              <strong>No leads match this filter</strong>
+              <span>Switch filters to see the rest of this scrape.</span>
+            </div>
+          )}
+        </div>
       </div>
-
-      {results.length === 0 && <div className="empty-state" style={{ minHeight: 180 }}>No group leads collected yet.</div>}
     </section>
   );
 }
