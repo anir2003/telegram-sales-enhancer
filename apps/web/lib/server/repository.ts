@@ -3764,7 +3764,7 @@ export async function getDashboardAnalytics(
         .select('id', { count: 'exact', head: true })
         .eq('workspace_id', active.workspaceId),
       supabase!
-        .from('campaign_accounts')
+        .from('campaign_account_assignments')
         .select('campaign_id, telegram_account_id')
         .eq('workspace_id', active.workspaceId),
     ]);
