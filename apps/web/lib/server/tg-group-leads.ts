@@ -375,7 +375,7 @@ async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadRe
     },
     body: JSON.stringify({
       model,
-      reasoning: { effort: 'minimal' },
+      reasoning: { effort: 'none' },
       max_output_tokens: 8000,
       input: [
         {

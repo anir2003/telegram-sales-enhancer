@@ -524,10 +524,27 @@ function ResultsPanel({
 
       {cleaning && (
         <div className="ai-cleaning-stage" aria-live="polite">
-          <div className="ai-cleaning-orbit">
-            <span className="ai-cleaning-orbit-dot" />
-            <span className="ai-cleaning-orbit-dot" />
-            <span className="ai-cleaning-orbit-dot" />
+          <div className="ai-cleaning-orbit" aria-hidden>
+            <svg viewBox="0 0 48 48" width="48" height="48">
+              <circle cx="24" cy="24" r="19" fill="none" stroke="var(--border-strong)" strokeWidth="2" />
+              <circle
+                cx="24"
+                cy="24"
+                r="19"
+                fill="none"
+                stroke="url(#ai-clean-grad)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeDasharray="30 90"
+              />
+              <defs>
+                <linearGradient id="ai-clean-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#22c55e" />
+                  <stop offset="50%" stopColor="#38bdf8" />
+                  <stop offset="100%" stopColor="#e879f9" />
+                </linearGradient>
+              </defs>
+            </svg>
           </div>
           <div className="ai-cleaning-body">
             <strong>Cleaning {pendingClean} lead{pendingClean === 1 ? '' : 's'} with AI</strong>
