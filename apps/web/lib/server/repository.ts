@@ -3629,3 +3629,293 @@ export async function retryTgSendApprovalNow(context: WorkspaceContext, approval
 
   return data as TgSendApprovalRecord;
 }
+
+export type DashboardAnalytics = {
+  activeAccounts: number;
+  totalAccounts: number;
+  liveCampaigns: number;
+  totalCampaigns: number;
+  openLeads: number;
+  blockedLeads: number;
+  repliedLeads: number;
+  totalCampaignLeads: number;
+  totalCrmLeads: number;
+  totalSends: number;
+  totalReplies: number;
+  avgReplyRate: number;
+  sendsToday: number;
+  sendsYesterday: number;
+  heatmap: Array<{ iso: string; count: number }>;
+  campaignPulse: Array<{
+    campaign_id: string;
+    name: string;
+    status: string;
+    totalLeads: number;
+    sentToday: number;
+    totalSent: number;
+    replies: number;
+    replyRate: number;
+    accountCount: number;
+  }>;
+  accountUtilization: Array<{
+    account_id: string;
+    label: string;
+    telegram_username: string | null;
+    profile_picture_url: string | null;
+    daily_limit: number;
+    sentToday: number;
+    sentYesterday: number;
+    campaignCount: number;
+  }>;
+};
+
+function dayKeyFromIso(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function todayKey() {
+  return dayKeyFromIso(new Date().toISOString())!;
+}
+
+function yesterdayKey() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return dayKeyFromIso(d.toISOString())!;
+}
+
+export async function getDashboardAnalytics(
+  context?: WorkspaceContext,
+  options: { heatmapDays?: number } = {},
+): Promise<DashboardAnalytics> {
+  const active = resolveWorkspaceContext(context);
+  const heatmapDays = Math.max(1, options.heatmapDays ?? 120);
+
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+  since.setDate(since.getDate() - heatmapDays + 1);
+  const sinceIso = since.toISOString();
+
+  const today = todayKey();
+  const yesterday = yesterdayKey();
+
+  type StepEvent = { step_order?: number; event?: string; at?: string; account_id?: string | null };
+  type LeadAggRow = {
+    id: string;
+    campaign_id: string;
+    assigned_account_id: string | null;
+    status: string;
+    last_sent_at: string | null;
+    last_reply_at: string | null;
+    step_events: StepEvent[] | null;
+  };
+
+  let accounts: Array<{ id: string; label: string; telegram_username: string | null; profile_picture_url: string | null; daily_limit: number; is_active: boolean }> = [];
+  let campaigns: Array<{ id: string; name: string; status: string }> = [];
+  let leadRows: LeadAggRow[] = [];
+  let crmLeadCount = 0;
+  let assignments: Array<{ campaign_id: string; telegram_account_id: string }> = [];
+
+  if (!isSupabaseConfigured()) {
+    accounts = demoState.accounts.map((a) => ({
+      id: a.id,
+      label: a.label,
+      telegram_username: a.telegram_username ?? null,
+      profile_picture_url: (a as any).profile_picture_url ?? null,
+      daily_limit: a.daily_limit,
+      is_active: a.is_active,
+    }));
+    campaigns = demoState.campaigns.map((c) => ({ id: c.id, name: c.name, status: c.status }));
+    leadRows = demoState.campaignLeads.map((l) => ({
+      id: l.id,
+      campaign_id: l.campaign_id,
+      assigned_account_id: l.assigned_account_id,
+      status: l.status,
+      last_sent_at: l.last_sent_at ?? null,
+      last_reply_at: l.last_reply_at ?? null,
+      step_events: (l as any).step_events ?? [],
+    }));
+    crmLeadCount = demoState.leads.length;
+    assignments = demoState.assignments.map((a) => ({
+      campaign_id: a.campaign_id,
+      telegram_account_id: a.telegram_account_id,
+    }));
+  } else {
+    const supabase = getAdminSupabaseClient();
+    const [accountsRes, campaignsRes, leadsRes, crmRes, assignmentsRes] = await Promise.all([
+      supabase!
+        .from('telegram_accounts')
+        .select('id, label, telegram_username, profile_picture_url, daily_limit, is_active')
+        .eq('workspace_id', active.workspaceId),
+      supabase!
+        .from('campaigns')
+        .select('id, name, status')
+        .eq('workspace_id', active.workspaceId),
+      supabase!
+        .from('campaign_leads')
+        .select('id, campaign_id, assigned_account_id, status, last_sent_at, last_reply_at, step_events')
+        .eq('workspace_id', active.workspaceId),
+      supabase!
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', active.workspaceId),
+      supabase!
+        .from('campaign_accounts')
+        .select('campaign_id, telegram_account_id')
+        .eq('workspace_id', active.workspaceId),
+    ]);
+    if (accountsRes.error) throw accountsRes.error;
+    if (campaignsRes.error) throw campaignsRes.error;
+    if (leadsRes.error) throw leadsRes.error;
+    if (assignmentsRes.error) throw assignmentsRes.error;
+    accounts = (accountsRes.data ?? []) as typeof accounts;
+    campaigns = (campaignsRes.data ?? []) as typeof campaigns;
+    leadRows = (leadsRes.data ?? []) as LeadAggRow[];
+    crmLeadCount = crmRes.count ?? 0;
+    assignments = (assignmentsRes.data ?? []) as typeof assignments;
+  }
+
+  const activeAccounts = accounts.filter((a) => a.is_active).length;
+  const liveCampaigns = campaigns.filter((c) => c.status === 'active').length;
+
+  const openStatuses = new Set(['due', 'queued', 'sent_waiting_followup', 'first_followup_done']);
+  let openLeads = 0;
+  let blockedLeads = 0;
+  let repliedLeads = 0;
+  for (const lead of leadRows) {
+    if (lead.status === 'blocked') blockedLeads++;
+    else if (lead.status === 'replied') repliedLeads++;
+    if (openStatuses.has(lead.status)) openLeads++;
+  }
+
+  // Heatmap + totals built from step_events (truest source of per-send timestamps).
+  // Fall back to last_sent_at when step_events is missing.
+  const sendCountByDay = new Map<string, number>();
+  let totalSends = 0;
+  let totalReplies = 0;
+  let sendsToday = 0;
+  let sendsYesterday = 0;
+
+  const perCampaignSendsToday = new Map<string, number>();
+  const perCampaignTotalSends = new Map<string, number>();
+  const perAccountSendsToday = new Map<string, number>();
+  const perAccountSendsYesterday = new Map<string, number>();
+
+  const addSend = (iso: string, campaignId: string, accountId: string | null) => {
+    const key = dayKeyFromIso(iso);
+    if (!key) return;
+    totalSends++;
+    if (key >= sinceIso.slice(0, 10)) {
+      sendCountByDay.set(key, (sendCountByDay.get(key) ?? 0) + 1);
+    }
+    if (key === today) {
+      sendsToday++;
+      perCampaignSendsToday.set(campaignId, (perCampaignSendsToday.get(campaignId) ?? 0) + 1);
+      if (accountId) perAccountSendsToday.set(accountId, (perAccountSendsToday.get(accountId) ?? 0) + 1);
+    } else if (key === yesterday) {
+      sendsYesterday++;
+      if (accountId) perAccountSendsYesterday.set(accountId, (perAccountSendsYesterday.get(accountId) ?? 0) + 1);
+    }
+    perCampaignTotalSends.set(campaignId, (perCampaignTotalSends.get(campaignId) ?? 0) + 1);
+  };
+
+  for (const lead of leadRows) {
+    const events = Array.isArray(lead.step_events) ? lead.step_events : [];
+    const sendEvents = events.filter((ev) => ev?.at && (ev.event === 'sent' || ev.event === 'followup_sent'));
+    if (sendEvents.length) {
+      for (const ev of sendEvents) {
+        if (ev.at) addSend(ev.at, lead.campaign_id, ev.account_id ?? lead.assigned_account_id ?? null);
+      }
+    } else if (lead.last_sent_at) {
+      addSend(lead.last_sent_at, lead.campaign_id, lead.assigned_account_id);
+    }
+    if (lead.status === 'replied' || lead.last_reply_at) totalReplies++;
+  }
+
+  const avgReplyRate = totalSends ? Math.round((totalReplies / totalSends) * 100) : 0;
+
+  // Build heatmap array of last N days (oldest first).
+  const heatmap: DashboardAnalytics['heatmap'] = [];
+  const cursor = new Date(since);
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  while (cursor <= end) {
+    const key = dayKeyFromIso(cursor.toISOString())!;
+    heatmap.push({ iso: key, count: sendCountByDay.get(key) ?? 0 });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const assignmentsByCampaign = new Map<string, Set<string>>();
+  for (const row of assignments) {
+    if (!assignmentsByCampaign.has(row.campaign_id)) assignmentsByCampaign.set(row.campaign_id, new Set());
+    assignmentsByCampaign.get(row.campaign_id)!.add(row.telegram_account_id);
+  }
+
+  const campaignLeadCountByCampaign = new Map<string, number>();
+  const campaignRepliesByCampaign = new Map<string, number>();
+  for (const lead of leadRows) {
+    campaignLeadCountByCampaign.set(lead.campaign_id, (campaignLeadCountByCampaign.get(lead.campaign_id) ?? 0) + 1);
+    if (lead.status === 'replied') {
+      campaignRepliesByCampaign.set(lead.campaign_id, (campaignRepliesByCampaign.get(lead.campaign_id) ?? 0) + 1);
+    }
+  }
+
+  const campaignPulse = campaigns
+    .map((c) => {
+      const total = campaignLeadCountByCampaign.get(c.id) ?? 0;
+      const sent = perCampaignTotalSends.get(c.id) ?? 0;
+      const replies = campaignRepliesByCampaign.get(c.id) ?? 0;
+      return {
+        campaign_id: c.id,
+        name: c.name,
+        status: c.status,
+        totalLeads: total,
+        sentToday: perCampaignSendsToday.get(c.id) ?? 0,
+        totalSent: sent,
+        replies,
+        replyRate: sent ? Math.round((replies / sent) * 100) : 0,
+        accountCount: assignmentsByCampaign.get(c.id)?.size ?? 0,
+      };
+    })
+    .sort((a, b) => b.sentToday - a.sentToday || b.totalSent - a.totalSent);
+
+  const accountUtilization = accounts
+    .map((a) => {
+      const campaignCount = [...assignmentsByCampaign.entries()].filter(([, ids]) => ids.has(a.id)).length;
+      return {
+        account_id: a.id,
+        label: a.label,
+        telegram_username: a.telegram_username,
+        profile_picture_url: a.profile_picture_url,
+        daily_limit: a.daily_limit,
+        sentToday: perAccountSendsToday.get(a.id) ?? 0,
+        sentYesterday: perAccountSendsYesterday.get(a.id) ?? 0,
+        campaignCount,
+      };
+    })
+    .sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount);
+
+  return {
+    activeAccounts,
+    totalAccounts: accounts.length,
+    liveCampaigns,
+    totalCampaigns: campaigns.length,
+    openLeads,
+    blockedLeads,
+    repliedLeads,
+    totalCampaignLeads: leadRows.length,
+    totalCrmLeads: crmLeadCount,
+    totalSends,
+    totalReplies,
+    avgReplyRate,
+    sendsToday,
+    sendsYesterday,
+    heatmap,
+    campaignPulse,
+    accountUtilization,
+  };
+}
