@@ -366,80 +366,81 @@ async function updateCleanedResults(context: WorkspaceContext, rows: Array<Pick<
 }
 
 async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadResultRecord, 'id' | 'name' | 'username' | 'bio'>>) {
-  const model = process.env.OPENAI_GROUP_LEAD_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-5-nano';
+  const model = process.env.OPENAI_GROUP_LEAD_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini';
+  const isReasoningModel = /^(o\d|gpt-5)/i.test(model);
+
+  const systemPrompt = [
+    'You clean Telegram group scrape rows for a CRM.',
+    'Use only the provided name, username, and bio to extract a company, project, studio, agency, fund, DAO, or product that the person is explicitly associated with.',
+    'Strong clues: "Founder at X", "CEO @ X", "Building X", "X team", "@X" handles that match a known brand in the bio, domain names like x.com or x.xyz, or the literal company name.',
+    'Do not infer from a generic industry, job title, interest, or location alone.',
+    'If no company is explicit, return an empty company_name, confidence 0, and a short reason.',
+    'Confidence is between 0 and 1. Use 0.9+ when the company is literally written; 0.6-0.8 when inferred from a clear handle or domain; below 0.5 when unsure.',
+  ].join(' ');
+
+  const userPayload = JSON.stringify({
+    leads: leads.map((lead) => ({
+      id: lead.id,
+      name: lead.name,
+      username: lead.username || '',
+      bio: lead.bio || '',
+    })),
+  });
+
+  const body: Record<string, unknown> = {
+    model,
+    max_output_tokens: 8000,
+    input: [
+      {
+        role: isReasoningModel ? 'developer' : 'system',
+        content: [{ type: 'input_text', text: systemPrompt }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'input_text', text: userPayload }],
+      },
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'telegram_group_lead_company_cleaning',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            leads: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string' },
+                  company_name: { type: 'string' },
+                  confidence: { type: 'number', minimum: 0, maximum: 1 },
+                  reason: { type: 'string' },
+                },
+                required: ['id', 'company_name', 'confidence', 'reason'],
+              },
+            },
+          },
+          required: ['leads'],
+        },
+      },
+    },
+  };
+
+  if (isReasoningModel) {
+    body.reasoning = { effort: 'minimal' };
+  }
+
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model,
-      reasoning: { effort: 'minimal' },
-      max_output_tokens: 8000,
-      input: [
-        {
-          role: 'developer',
-          content: [
-            {
-              type: 'input_text',
-              text: [
-                'You clean Telegram group scrape rows for a CRM.',
-                'Use only the provided name, username, and bio to extract a company, project, studio, agency, fund, DAO, or product that the person is explicitly associated with.',
-                'Strong clues: "Founder at X", "CEO @ X", "Building X", "X team", "@X" handles that match a known brand in the bio, domain names like x.com or x.xyz, or the literal company name.',
-                'Do not infer from a generic industry, job title, interest, or location alone.',
-                'If no company is explicit, return an empty company_name, confidence 0, and a short reason.',
-                'Confidence is between 0 and 1. Use 0.9+ when the company is literally written; 0.6-0.8 when inferred from a clear handle or domain; below 0.5 when unsure.',
-              ].join(' '),
-            },
-          ],
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: JSON.stringify({
-                leads: leads.map((lead) => ({
-                  id: lead.id,
-                  name: lead.name,
-                  username: lead.username || '',
-                  bio: lead.bio || '',
-                })),
-              }),
-            },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'telegram_group_lead_company_cleaning',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              leads: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    id: { type: 'string' },
-                    company_name: { type: 'string' },
-                    confidence: { type: 'number', minimum: 0, maximum: 1 },
-                    reason: { type: 'string' },
-                  },
-                  required: ['id', 'company_name', 'confidence', 'reason'],
-                },
-              },
-            },
-            required: ['leads'],
-          },
-        },
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   const payload = await response.json().catch(() => ({}));
