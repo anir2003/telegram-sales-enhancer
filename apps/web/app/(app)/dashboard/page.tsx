@@ -5,6 +5,88 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import useSWR from 'swr';
 import { fetchJson } from '@/lib/web/fetch-json';
 import { buildAccountInsights, buildHeatmap, formatLocalDateKey, formatPercent, summariseCampaign, type Account, type Activity, type Campaign, type CampaignDetail, type HeatmapDay, type Lead } from '@/lib/web/insights';
+
+type DashboardAnalyticsPayload = {
+  activeAccounts: number;
+  liveCampaigns: number;
+  openLeads: number;
+  blockedLeads: number;
+  repliedLeads: number;
+  totalCampaignLeads: number;
+  totalCrmLeads: number;
+  totalSends: number;
+  totalReplies: number;
+  avgReplyRate: number;
+  sendsToday: number;
+  sendsYesterday: number;
+  heatmap: Array<{ iso: string; count: number }>;
+  campaignPulse: Array<{
+    campaign_id: string;
+    name: string;
+    status: string;
+    totalLeads: number;
+    sentToday: number;
+    totalSent: number;
+    replies: number;
+    replyRate: number;
+    accountCount: number;
+  }>;
+  accountUtilization: Array<{
+    account_id: string;
+    label: string;
+    telegram_username: string | null;
+    profile_picture_url: string | null;
+    daily_limit: number;
+    sentToday: number;
+    sentYesterday: number;
+    campaignCount: number;
+  }>;
+};
+
+function buildHeatmapFromCounts(source: Array<{ iso: string; count: number }>, weeks = 36) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayDow = today.getDay();
+  const totalDays = weeks * 7 + todayDow + 1;
+  const startDate = new Date(today);
+  startDate.setDate(today.getDate() - totalDays + 1);
+  startDate.setDate(startDate.getDate() - startDate.getDay());
+
+  const countMap = new Map(source.map((s) => [s.iso, s.count]));
+  const days: HeatmapDay[] = [];
+  const cursor = new Date(startDate);
+  let weekIdx = 0;
+  while (cursor <= today) {
+    const dow = cursor.getDay();
+    if (dow === 0 && days.length > 0) weekIdx++;
+    const iso = formatLocalDateKey(cursor);
+    days.push({
+      iso,
+      label: cursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      count: countMap.get(iso) ?? 0,
+      intensity: 0,
+      dayOfWeek: dow,
+      weekIndex: weekIdx,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const max = Math.max(1, ...days.map((d) => d.count));
+  days.forEach((d) => { d.intensity = d.count / max; });
+
+  const totalWeeks = weekIdx + 1;
+  const weekLabels: string[] = [];
+  for (let w = 0; w < totalWeeks; w++) {
+    const first = days.find((d) => d.weekIndex === w);
+    if (first) {
+      const d = new Date(first.iso);
+      weekLabels.push(d.getDate() <= 7 ? d.toLocaleDateString(undefined, { month: 'short' }) : '');
+    } else {
+      weekLabels.push('');
+    }
+  }
+  return { days, weeks: totalWeeks, weekLabels };
+}
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { AvatarCircle } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -430,15 +512,21 @@ export default function DashboardPage() {
   const { data: accountsData, isLoading: loadingAccounts } = useSWR<{ accounts: Account[] }>('/api/accounts');
   const { data: leadsData, isLoading: loadingLeads } = useSWR<{ leads: Lead[] }>('/api/leads');
   const { data: activityData, isLoading: loadingActivity } = useSWR<{ activity: Activity[] }>('/api/activity');
+  const { data: analyticsResponse, isLoading: loadingAnalytics } = useSWR<{ analytics: DashboardAnalyticsPayload }>(
+    '/api/dashboard/analytics',
+    { refreshInterval: 60_000, revalidateOnFocus: true },
+  );
+  const analytics = analyticsResponse?.analytics;
 
   const campaigns = campaignsData?.campaigns ?? [];
   const accounts = accountsData?.accounts ?? [];
   const leads = leadsData?.leads ?? [];
   const activity = activityData?.activity ?? [];
 
-  const isLoading = loadingCampaigns || loadingAccounts || loadingLeads || loadingActivity;
+  const isLoading = loadingAnalytics || loadingCampaigns || loadingAccounts || loadingLeads || loadingActivity;
 
-  // Fetch ALL campaign details as one SWR key (avoids hook-in-loop)
+  // Fetch ALL campaign details as one SWR key (avoids hook-in-loop).
+  // Still used by MiniCalendar for per-day drilldown.
   const detailsKey = campaigns.length > 0 ? `campaign-details:${campaigns.map(c => c.id).sort().join(',')}` : null;
   const { data: details = [] } = useSWR<CampaignDetail[]>(detailsKey, async () => {
     const results = await Promise.all(campaigns.map(c => fetchJson<CampaignDetail>(`/api/campaigns/${c.id}`)));
@@ -446,23 +534,22 @@ export default function DashboardPage() {
   });
 
   const metrics = useMemo(() => {
-    const campaignSummaries = details.map((detail) => ({ campaign: detail.campaign, ...summariseCampaign(detail, activity) }));
-    const activeAccounts = accounts.filter((a) => a.is_active).length;
-    const sentEvents = activity.filter((i) => i.event_type === 'task.sent').length;
-    const replyEvents = activity.filter((i) => i.event_type === 'task.sent' && i.payload?.reply_status).length;
-    const avgReplyRate = sentEvents
-      ? Math.round((replyEvents / sentEvents) * 100)
-      : campaignSummaries.length
-      ? Math.round(campaignSummaries.reduce((sum, i) => sum + i.replyRate, 0) / campaignSummaries.length)
-      : 0;
-    const liveCampaigns = campaigns.filter((c) => c.status === 'active').length;
-    const openLeads = campaignSummaries.reduce((sum, i) => sum + i.active, 0);
-    const blockedLeads = campaignSummaries.reduce((sum, i) => sum + i.blocked, 0);
-    const heatmap = buildHeatmap(activity, 36);
-    const accountInsights = buildAccountInsights(accounts, details).sort((a, b) => b.sentToday - a.sentToday || b.campaignCount - a.campaignCount);
-    const campaignPulse = campaignSummaries.sort((a, b) => b.sentToday - a.sentToday || b.totalLeads - a.totalLeads).slice(0, 4);
-    return { activeAccounts, avgReplyRate, liveCampaigns, openLeads, blockedLeads, heatmap, accountInsights, campaignPulse, sentEvents, totalLeads: leads.length };
-  }, [accounts, activity, campaigns, details, leads.length]);
+    const heatmap = buildHeatmapFromCounts(analytics?.heatmap ?? [], 36);
+    const campaignPulse = (analytics?.campaignPulse ?? []).slice(0, 4);
+    const accountInsights = analytics?.accountUtilization ?? [];
+    return {
+      activeAccounts: analytics?.activeAccounts ?? 0,
+      avgReplyRate: analytics?.avgReplyRate ?? 0,
+      liveCampaigns: analytics?.liveCampaigns ?? 0,
+      openLeads: analytics?.openLeads ?? 0,
+      blockedLeads: analytics?.blockedLeads ?? 0,
+      totalLeads: analytics?.totalCrmLeads ?? leads.length,
+      sentEvents: analytics?.totalSends ?? 0,
+      heatmap,
+      campaignPulse,
+      accountInsights,
+    };
+  }, [analytics, leads.length]);
 
   const handleCellHover = useCallback((day: HeatmapDay, e: React.MouseEvent) => {
     const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -569,13 +656,13 @@ export default function DashboardPage() {
           </div>
           <div className="pulse-table">
             {metrics.campaignPulse.length ? metrics.campaignPulse.map((item) => (
-              <div key={item.campaign?.id} className="pulse-table-row">
+              <div key={item.campaign_id} className="pulse-table-row">
                 <div className="pulse-table-main">
                   <div className="pulse-table-name">
-                    <span className={`pulse-status-dot ${item.campaign?.status ?? 'draft'}`} />
-                    {item.campaign?.name ?? 'Campaign'}
+                    <span className={`pulse-status-dot ${item.status ?? 'draft'}`} />
+                    {item.name}
                   </div>
-                  <div className="pulse-table-meta">{item.totalLeads} leads · {item.assignedAccounts.length} accounts · {item.sentToday} sent today</div>
+                  <div className="pulse-table-meta">{item.totalLeads} leads · {item.accountCount} accounts · {item.sentToday} sent today</div>
                 </div>
                 <div className="pulse-table-right">
                   <span className="pulse-table-rate">{formatPercent(item.replyRate)}</span>
@@ -603,23 +690,26 @@ export default function DashboardPage() {
               scrollbarColor: 'var(--border-strong) transparent',
             } : undefined}
           >
-            {metrics.accountInsights.length ? metrics.accountInsights.map((account) => (
-              <div key={account.id} className="pulse-table-row">
-                <div className="pulse-table-main">
-                  <div className="pulse-table-name" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <AvatarCircle url={account.profile_picture_url} name={account.label} size={24} style={{ flexShrink: 0 }} />
-                    {account.label}
+            {metrics.accountInsights.length ? metrics.accountInsights.map((account) => {
+              const utilization = Math.min(100, Math.round((account.sentToday / Math.max(account.daily_limit, 1)) * 100));
+              return (
+                <div key={account.account_id} className="pulse-table-row">
+                  <div className="pulse-table-main">
+                    <div className="pulse-table-name" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <AvatarCircle url={account.profile_picture_url} name={account.label} size={24} style={{ flexShrink: 0 }} />
+                      {account.label}
+                    </div>
+                    <div className="pulse-table-meta">@{account.telegram_username ?? ''} · {account.campaignCount} campaigns · {account.sentYesterday} yesterday</div>
                   </div>
-                  <div className="pulse-table-meta">@{account.telegram_username} · {account.campaignCount} campaigns · {account.sentYesterday} yesterday</div>
-                </div>
-                <div className="pulse-table-right">
-                  <div className="util-bar">
-                    <div className="util-bar-fill" style={{ width: `${account.utilization}%` }} />
+                  <div className="pulse-table-right">
+                    <div className="util-bar">
+                      <div className="util-bar-fill" style={{ width: `${utilization}%` }} />
+                    </div>
+                    <span className="pulse-table-count">{account.sentToday}/{account.daily_limit} <span className="pulse-table-rate-label">today</span></span>
                   </div>
-                  <span className="pulse-table-count">{account.sentToday}/{account.daily_limit} <span className="pulse-table-rate-label">today</span></span>
                 </div>
-              </div>
-            )) : <div className="empty-state">Add Telegram sender accounts to track utilization.</div>}
+              );
+            }) : <div className="empty-state">Add Telegram sender accounts to track utilization.</div>}
           </div>
         </div>
       </div>
