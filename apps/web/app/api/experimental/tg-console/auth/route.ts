@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Api } from 'telegram';
 import { computeCheck } from 'telegram/Password.js';
-import { isTelegramMockAdapter } from '@/lib/env';
-import { resolveWorkspaceTgCredentials } from '@/lib/server/tg-console/credentials';
+import { resolveTelegramConnectorMode } from '@/lib/server/tg-console/credentials';
 import { getWorkspaceContext } from '@/lib/server/context';
 import {
   getTgConsoleAccountPrivate,
@@ -29,8 +28,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const action = String(body.action ?? '');
 
-  const tgCreds = isTelegramMockAdapter() ? null : await resolveWorkspaceTgCredentials(ctx);
-  if (!isTelegramMockAdapter() && !tgCreds) {
+  const connector = await resolveTelegramConnectorMode(ctx);
+  const useMock = connector.mode === 'mock';
+  const tgCreds = connector.credentials;
+  if (!useMock && !tgCreds) {
     return NextResponse.json({
       error: 'Telegram phone sign-in is not configured on this server yet.',
     }, { status: 503 });
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     }
     const proxy = proxyParsed?.success ? proxyParsed.data : null;
 
-    if (isTelegramMockAdapter()) {
+    if (useMock) {
       const account = await upsertTgConsolePendingAccount(ctx, {
         phone: parsed.data.phone,
         pendingSessionCiphertext: encryptSecret(`mock-pending:${parsed.data.phone}`),
@@ -98,11 +99,11 @@ export async function POST(req: NextRequest) {
     if (!account) {
       return NextResponse.json({ error: 'Telegram account not found.' }, { status: 404 });
     }
-    if (!account.phone_code_hash && !isTelegramMockAdapter()) {
+    if (!account.phone_code_hash && !useMock) {
       return NextResponse.json({ error: 'No pending Telegram code. Send a new code first.' }, { status: 400 });
     }
 
-    if (isTelegramMockAdapter()) {
+    if (useMock) {
       if (code === '222222' && !password) {
         return NextResponse.json({ ok: false, step: '2fa' });
       }

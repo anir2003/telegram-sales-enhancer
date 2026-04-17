@@ -18,6 +18,8 @@ export const tgConsoleAccountStatusValues = ['pending_code', 'authenticated', 'n
 export const tgConsoleDialogKindValues = ['user', 'group', 'channel', 'bot', 'unknown'] as const;
 export const tgConsoleSendStatusValues = ['draft', 'pending_approval', 'scheduled', 'approved', 'sending', 'sent', 'failed', 'cancelled'] as const;
 export const tgConsoleProxySchemeValues = ['socks5', 'http', 'https'] as const;
+export const tgGroupLeadScrapeStatusValues = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const;
+export const tgGroupLeadScrapeModeValues = ['auto', 'members', 'messages'] as const;
 
 export type CampaignStatus = (typeof campaignStatusValues)[number];
 export type CampaignLeadStatus = (typeof campaignLeadStatusValues)[number];
@@ -26,6 +28,8 @@ export type TgConsoleAccountStatus = (typeof tgConsoleAccountStatusValues)[numbe
 export type TgConsoleDialogKind = (typeof tgConsoleDialogKindValues)[number];
 export type TgConsoleSendStatus = (typeof tgConsoleSendStatusValues)[number];
 export type TgConsoleProxyScheme = (typeof tgConsoleProxySchemeValues)[number];
+export type TgGroupLeadScrapeStatus = (typeof tgGroupLeadScrapeStatusValues)[number];
+export type TgGroupLeadScrapeMode = (typeof tgGroupLeadScrapeModeValues)[number];
 
 export const templatePlaceholders = [
   '{First Name}',
@@ -218,6 +222,38 @@ export interface TgWarmedUsernameRecord {
   created_at: string;
 }
 
+export interface TgGroupLeadScrapeJobRecord {
+  id: string;
+  workspace_id: string;
+  profile_id: string | null;
+  account_id: string | null;
+  group_ref: string;
+  group_title: string | null;
+  mode: TgGroupLeadScrapeMode;
+  status: TgGroupLeadScrapeStatus;
+  total_found: number;
+  processed_count: number;
+  saved_count: number;
+  error: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TgGroupLeadResultRecord {
+  id: string;
+  workspace_id: string;
+  job_id: string;
+  telegram_user_id: string;
+  name: string;
+  username: string | null;
+  bio: string | null;
+  premium: boolean;
+  avatar_data_url: string | null;
+  created_at: string;
+}
+
 export interface TgSendApprovalRecord {
   id: string;
   workspace_id: string;
@@ -332,6 +368,29 @@ export const tgWarmedUsernameInputSchema = z.object({
   label: z.string().trim().max(80).optional().nullable(),
   notes: z.string().trim().max(5000).optional().nullable(),
   tags: z.array(z.string().trim().min(1).max(48)).default([]),
+});
+
+export const tgGroupLeadScrapeInputSchema = z.object({
+  account_id: z.string().trim().min(1),
+  group_ref: z.string().trim().min(1).max(255),
+  mode: z.enum(tgGroupLeadScrapeModeValues).default('auto'),
+  limit: z.coerce.number().int().min(1).max(10000).default(10000),
+  include_profile_pictures: z.boolean().default(true),
+  min_delay_ms: z.coerce.number().int().min(500).max(60000).default(1200),
+  max_delay_ms: z.coerce.number().int().min(500).max(120000).default(3200),
+}).superRefine((value, ctx) => {
+  if (value.max_delay_ms < value.min_delay_ms) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Maximum delay must be greater than the minimum delay.',
+      path: ['max_delay_ms'],
+    });
+  }
+});
+
+export const tgGroupLeadSaveInputSchema = z.object({
+  job_id: z.string().trim().min(1),
+  tag: z.string().trim().min(1).max(48),
 });
 
 export const tgSendApprovalInputSchema = z.object({
