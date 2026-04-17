@@ -251,6 +251,10 @@ export interface TgGroupLeadResultRecord {
   bio: string | null;
   premium: boolean;
   avatar_data_url: string | null;
+  company_name: string | null;
+  company_confidence: number | null;
+  company_reason: string | null;
+  ai_cleaned_at: string | null;
   created_at: string;
 }
 
@@ -391,6 +395,10 @@ export const tgGroupLeadScrapeInputSchema = z.object({
 export const tgGroupLeadSaveInputSchema = z.object({
   job_id: z.string().trim().min(1),
   tag: z.string().trim().min(1).max(48),
+});
+
+export const tgGroupLeadCleanInputSchema = z.object({
+  job_id: z.string().trim().min(1),
 });
 
 export const tgSendApprovalInputSchema = z.object({
