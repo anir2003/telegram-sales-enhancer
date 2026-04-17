@@ -21,10 +21,22 @@ function commandMenu() {
   return new Keyboard().text('Next task').text('Restricted').resized();
 }
 
+// Words/phrases that should always exit any pending flow rather than being
+// consumed as restriction/skip reasons. Keeps the bot from getting stuck when
+// a user taps a menu button mid-flow.
+const RESERVED_INPUTS = /^(next task|restricted|\/cancel|\/next|\/restricted|\/start|\/connect(\s|$)|\/replied(\s|$))/i;
+
 // Intercept plain text messages from users who are mid-skip flow (typed a reason).
 bot.use(async (ctx, next) => {
   const userId = ctx.from?.id;
   const text = ctx.message?.text;
+  const isReserved = !!(text && RESERVED_INPUTS.test(text.trim()));
+  if (userId && isReserved) {
+    // User switched intent — abandon any pending flows so the command runs normally.
+    pendingRestrictions.delete(userId);
+    pendingSkips.delete(userId);
+    return next();
+  }
   if (userId && text && !text.startsWith('/') && pendingRestrictions.has(userId)) {
     const pending = pendingRestrictions.get(userId)!;
     pendingRestrictions.delete(userId);
@@ -42,7 +54,9 @@ bot.use(async (ctx, next) => {
         reply_markup: commandMenu(),
       });
     } catch (error: any) {
-      await ctx.reply(error?.message ?? 'Could not parse that SpamBot message. Please paste the full message exactly as Telegram sent it.');
+      await ctx.reply(
+        `${error?.message ?? 'Could not parse that SpamBot message.'}\n\nPaste the full SpamBot message, or send /cancel to exit.`,
+      );
       pendingRestrictions.set(userId, pending);
     }
     return;
@@ -130,6 +144,7 @@ bot.command('start', async (ctx) => {
       '/next — Pull the next due outreach task',
       '/restricted — Report a Telegram restriction from SpamBot',
       '/replied @username — Mark a lead as replied by their Telegram username',
+      '/cancel — Exit a restriction or skip prompt if you\'re stuck',
       '',
       'Each Telegram account you want to use for sending needs its own /connect code.',
     ].join('\n'),
@@ -195,6 +210,18 @@ bot.command('replied', async (ctx) => {
 
 bot.command('next', sendNextTask);
 bot.command('restricted', promptRestrictionFlow);
+bot.command('cancel', async (ctx) => {
+  const userId = ctx.from?.id;
+  if (!userId) return;
+  const hadRestriction = pendingRestrictions.delete(userId);
+  const hadSkip = pendingSkips.delete(userId);
+  await ctx.reply(
+    hadRestriction || hadSkip
+      ? 'Cancelled. You can tap Next task to keep going.'
+      : 'Nothing to cancel. Tap Next task to continue.',
+    { reply_markup: commandMenu() },
+  );
+});
 bot.hears(/^next task$/i, sendNextTask);
 bot.hears(/^restricted$/i, promptRestrictionFlow);
 bot.hears(/^[A-Z0-9]{6}$/i, async (ctx) => {
@@ -342,6 +369,7 @@ async function startWebhookMode() {
     { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
     { command: 'replied', description: 'Mark a lead as replied — /replied @username' },
+    { command: 'cancel', description: 'Exit a restriction or skip prompt' },
   ]);
 
   await bot.api.setWebhook(`${config.botPublicUrl}${path}`, {
@@ -373,6 +401,7 @@ async function startPollingMode() {
     { command: 'connect', description: 'Register this account as a sender' },
     { command: 'next', description: 'Pull the next due outreach task' },
     { command: 'replied', description: 'Mark a lead as replied — /replied @username' },
+    { command: 'cancel', description: 'Exit a restriction or skip prompt' },
   ]);
   await bot.start({
     onStart: () => {
