@@ -524,15 +524,17 @@ function ResultsPanel({
 
       {cleaning && (
         <div className="ai-cleaning-stage" aria-live="polite">
-          <div className="ai-cleaning-mark">
-            <span />
-            <span />
-            <span />
-            <span />
+          <div className="ai-cleaning-orbit">
+            <span className="ai-cleaning-orbit-dot" />
+            <span className="ai-cleaning-orbit-dot" />
+            <span className="ai-cleaning-orbit-dot" />
           </div>
-          <div>
-            <strong>Reading names and bios</strong>
-            <small>Looking for explicit company names before these move into leads.</small>
+          <div className="ai-cleaning-body">
+            <strong>Cleaning {pendingClean} lead{pendingClean === 1 ? '' : 's'} with AI</strong>
+            <small>Reading names, usernames, and bios. Matching against existing companies in your leads.</small>
+            <div className="ai-cleaning-bar">
+              <span />
+            </div>
           </div>
         </div>
       )}

@@ -262,6 +262,76 @@ function clampConfidence(value: unknown) {
   return Math.max(0, Math.min(1, parsed));
 }
 
+function normalizeCompanyKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|corp|co|labs|lab|studios?|team|dao|protocol|network|group|the)\b/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function levenshtein(a: string, b: string) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const prev = new Array(b.length + 1).fill(0).map((_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let curr = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const next = Math.min(curr + 1, prev[j] + 1, prev[j - 1] + cost);
+      prev[j - 1] = curr;
+      curr = next;
+    }
+    prev[b.length] = curr;
+  }
+  return prev[b.length];
+}
+
+function canonicalizeCompany(candidate: string, knownCompanies: string[]) {
+  const target = normalizeCompanyKey(candidate);
+  if (!target) return candidate;
+  let best: { name: string; score: number } | null = null;
+  for (const known of knownCompanies) {
+    const norm = normalizeCompanyKey(known);
+    if (!norm) continue;
+    if (norm === target) return known;
+    const maxLen = Math.max(norm.length, target.length);
+    if (maxLen < 3) continue;
+    const dist = levenshtein(norm, target);
+    const similarity = 1 - dist / maxLen;
+    const isContained = norm.includes(target) || target.includes(norm);
+    const score = isContained ? Math.max(similarity, 0.85) : similarity;
+    if (score >= 0.82 && (!best || score > best.score)) {
+      best = { name: known, score };
+    }
+  }
+  return best ? best.name : candidate;
+}
+
+async function listExistingCompanyNames(context: WorkspaceContext): Promise<string[]> {
+  if (!isSupabaseConfigured()) {
+    const { demoState } = await import('@/lib/server/demo-store');
+    const set = new Set<string>();
+    for (const lead of demoState.leads) {
+      if (lead.workspace_id === context.workspaceId && lead.company_name) set.add(lead.company_name);
+    }
+    return Array.from(set);
+  }
+  const supabase = getAdminSupabaseClient()!;
+  const { data, error } = await supabase
+    .from('leads')
+    .select('company_name')
+    .eq('workspace_id', context.workspaceId)
+    .not('company_name', 'is', null);
+  if (error) throw error;
+  const set = new Set<string>();
+  for (const row of data ?? []) {
+    const name = String((row as { company_name?: string }).company_name ?? '').trim();
+    if (name) set.add(name);
+  }
+  return Array.from(set);
+}
+
 async function resolveOpenAiApiKey(context: WorkspaceContext) {
   const envKey = process.env.OPENAI_API_KEY?.trim();
   if (envKey) return envKey;
@@ -295,7 +365,7 @@ async function updateCleanedResults(context: WorkspaceContext, rows: Array<Pick<
   }
 }
 
-async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadResultRecord, 'id' | 'name' | 'bio'>>) {
+async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadResultRecord, 'id' | 'name' | 'username' | 'bio'>>) {
   const model = process.env.OPENAI_GROUP_LEAD_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-5.4-nano';
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -305,8 +375,8 @@ async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadRe
     },
     body: JSON.stringify({
       model,
-      reasoning: { effort: 'none' },
-      max_output_tokens: 5000,
+      reasoning: { effort: 'minimal' },
+      max_output_tokens: 8000,
       input: [
         {
           role: 'developer',
@@ -315,11 +385,11 @@ async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadRe
               type: 'input_text',
               text: [
                 'You clean Telegram group scrape rows for a CRM.',
-                'Use only the provided name and bio.',
-                'Return a company only when the company, project, studio, agency, fund, DAO, or product is explicitly named.',
-                'Do not infer from an industry, job title, interest, location, or username-like handle.',
+                'Use only the provided name, username, and bio to extract a company, project, studio, agency, fund, DAO, or product that the person is explicitly associated with.',
+                'Strong clues: "Founder at X", "CEO @ X", "Building X", "X team", "@X" handles that match a known brand in the bio, domain names like x.com or x.xyz, or the literal company name.',
+                'Do not infer from a generic industry, job title, interest, or location alone.',
                 'If no company is explicit, return an empty company_name, confidence 0, and a short reason.',
-                'Use confidence between 0 and 1.',
+                'Confidence is between 0 and 1. Use 0.9+ when the company is literally written; 0.6-0.8 when inferred from a clear handle or domain; below 0.5 when unsure.',
               ].join(' '),
             },
           ],
@@ -333,6 +403,7 @@ async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadRe
                 leads: leads.map((lead) => ({
                   id: lead.id,
                   name: lead.name,
+                  username: lead.username || '',
                   bio: lead.bio || '',
                 })),
               }),
@@ -406,6 +477,7 @@ export async function cleanGroupLeadResultsWithAi(context: WorkspaceContext, inp
   let cleaned = 0;
   const updatedRows: Array<Pick<TgGroupLeadResultRecord, 'id' | 'company_name' | 'company_confidence' | 'company_reason' | 'ai_cleaned_at'>> = [];
   const batchSize = 40;
+  const knownCompanies = await listExistingCompanyNames(context);
 
   for (let index = 0; index < pending.length; index += batchSize) {
     const batch = pending.slice(index, index + batchSize);
@@ -415,7 +487,11 @@ export async function cleanGroupLeadResultsWithAi(context: WorkspaceContext, inp
 
     const rows = batch.map((result) => {
       const item = byId.get(result.id);
-      const company = String(item?.company_name ?? '').trim();
+      const rawCompany = String(item?.company_name ?? '').trim();
+      const company = rawCompany ? canonicalizeCompany(rawCompany, knownCompanies) : '';
+      if (company && !knownCompanies.some((existing) => existing.toLowerCase() === company.toLowerCase())) {
+        knownCompanies.push(company);
+      }
       return {
         id: result.id,
         company_name: company || null,

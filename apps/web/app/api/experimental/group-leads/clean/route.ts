@@ -10,9 +10,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const result = await cleanGroupLeadResultsWithAi(
-    { workspaceId: context.workspace.id, profileId: context.profile.id },
-    await req.json(),
-  );
-  return NextResponse.json(result);
+  try {
+    const result = await cleanGroupLeadResultsWithAi(
+      { workspaceId: context.workspace.id, profileId: context.profile.id },
+      await req.json(),
+    );
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Auto-clean failed.';
+    console.error('[group-leads/clean] error:', error);
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 }
