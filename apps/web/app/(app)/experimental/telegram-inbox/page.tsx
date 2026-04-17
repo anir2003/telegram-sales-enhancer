@@ -273,13 +273,21 @@ export default function TelegramInboxPage() {
   })}`;
 
   const { data, isLoading, mutate } = useSWR<ConsoleData>(key, swrFetcher, {
-    refreshInterval: 2500,
+    refreshInterval: 6000,
     revalidateOnFocus: true,
+    keepPreviousData: true,
+    dedupingInterval: 1500,
+    revalidateIfStale: false,
   });
+  const hasEverLoaded = !!data;
+  const showListSkeleton = isLoading && !hasEverLoaded;
 
   const accounts = data?.accounts ?? [];
   const dialogs = data?.dialogs ?? [];
-  const remoteMessages = data?.messages ?? [];
+  const remoteMessages = useMemo(
+    () => (data?.messages ?? []).filter((m) => !selectedDialogId || m.dialog_id === selectedDialogId),
+    [data?.messages, selectedDialogId],
+  );
   const remoteIds = useMemo(() => new Set(remoteMessages.map((m) => m.id)), [remoteMessages]);
   const messages = useMemo(
     () => [...remoteMessages, ...optimistic.filter((m) => !remoteIds.has(m.id))],
@@ -322,8 +330,8 @@ export default function TelegramInboxPage() {
     setReplyDraft('');
     setAttachedFile(null);
     setStatus('');
-    setLocalReactions({});
     setOptimistic([]);
+    setReactionFor(null);
   }, [selectedDialog?.id]);
 
   useEffect(() => {
@@ -340,9 +348,19 @@ export default function TelegramInboxPage() {
     return () => URL.revokeObjectURL(objectUrl);
   }, [attachedFile]);
 
-  // Auto-scroll to bottom when messages arrive
+  // Auto-dismiss status banner
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!status) return;
+    const t = window.setTimeout(() => setStatus(''), 2800);
+    return () => window.clearTimeout(t);
+  }, [status]);
+
+  // Auto-scroll to bottom when messages arrive
+  const prevDialogRef = useRef<string | null>(null);
+  useEffect(() => {
+    const switched = prevDialogRef.current !== selectedDialogId;
+    prevDialogRef.current = selectedDialogId;
+    bottomRef.current?.scrollIntoView({ behavior: switched ? 'auto' : 'smooth' });
   }, [messages.length, selectedDialogId]);
 
   // Periodic sync
@@ -446,15 +464,22 @@ export default function TelegramInboxPage() {
       return;
     }
     setReactionFor(null);
+    const prevReaction = localReactions[msgId];
+    setLocalReactions((prev) => ({ ...prev, [msgId]: emoji }));
     try {
       await fetchJson(`/api/experimental/tg-console/dialogs/${selectedDialog.id}/reaction`, {
         method: 'POST',
         body: JSON.stringify({ emoji, telegram_message_id: msg.telegram_message_id }),
       });
-      setLocalReactions((prev) => ({ ...prev, [msgId]: emoji }));
       setStatusTone('success');
       setStatus(`Reaction sent: ${emoji}`);
     } catch (error) {
+      setLocalReactions((prev) => {
+        const next = { ...prev };
+        if (prevReaction) next[msgId] = prevReaction;
+        else delete next[msgId];
+        return next;
+      });
       setStatusTone('error');
       setStatus(error instanceof Error ? error.message : 'Reaction failed.');
     }
@@ -554,8 +579,19 @@ export default function TelegramInboxPage() {
         </div>
 
         <div className="tgi-list-items">
-          {isLoading ? (
-            <div className="tgi-empty">Loading…</div>
+          {showListSkeleton ? (
+            <div className="tgi-skel-list">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="tgi-skel-conv" style={{ animationDelay: `${i * 60}ms` }}>
+                  <div className="tgi-skel tgi-skel-avatar" />
+                  <div className="tgi-skel-body">
+                    <div className="tgi-skel tgi-skel-line w60" />
+                    <div className="tgi-skel tgi-skel-line w90" />
+                    <div className="tgi-skel tgi-skel-line w40" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : filteredDialogs.length ? filteredDialogs.map((dialog) => {
             const acc = accountById.get(dialog.account_id);
             return (
@@ -636,7 +672,7 @@ export default function TelegramInboxPage() {
             {/* Messages */}
             <div className="tgi-messages" onClick={() => setReactionFor(null)}>
               {messages.length ? messages.map((msg) => (
-                <div key={msg.id} className={`tgi-msg ${msg.is_outbound ? 'out' : 'in'}`}>
+                <div key={msg.id} className={`tgi-msg tgi-msg-enter ${msg.is_outbound ? 'out' : 'in'}`}>
                   {!msg.is_outbound && (
                     <div className="tgi-msg-avatar">
                       <AvatarCircle name={selectedDialog.title} url={selectedDialog.avatar_url} size={26} />
@@ -684,7 +720,16 @@ export default function TelegramInboxPage() {
                     </div>
                   )}
                 </div>
-              )) : (
+              )) : isLoading || syncing ? (
+                <div className="tgi-skel-msgs">
+                  {[{ out: false, w: 60 }, { out: true, w: 45 }, { out: false, w: 75 }, { out: true, w: 35 }, { out: false, w: 55 }].map((s, i) => (
+                    <div key={i} className={`tgi-skel-msg ${s.out ? 'out' : 'in'}`} style={{ animationDelay: `${i * 70}ms` }}>
+                      <div className="tgi-skel tgi-skel-avatar sm" />
+                      <div className="tgi-skel tgi-skel-bubble" style={{ width: `${s.w}%` }} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
                 <div className="tgi-empty center">Sync to mirror messages.</div>
               )}
               <div ref={bottomRef} />

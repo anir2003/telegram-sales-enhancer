@@ -4783,6 +4783,79 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 .tgi-reaction-picker button:hover { transform: scale(1.3); }
 
+/* Fade/slide in for messages */
+@keyframes tgiMsgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.tgi-msg-enter {
+  animation: tgiMsgIn 0.18s ease-out both;
+}
+
+/* Reaction picker pop-in */
+@keyframes tgiPop {
+  from { opacity: 0; transform: translateY(4px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tgi-reaction-picker { animation: tgiPop 0.14s ease-out; transform-origin: bottom right; }
+.tgi-msg.in .tgi-reaction-picker { transform-origin: bottom left; }
+
+/* Reaction chip pop */
+@keyframes tgiChipIn {
+  0% { opacity: 0; transform: scale(0.6); }
+  60% { transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.tgi-msg-reaction-chip { animation: tgiChipIn 0.22s ease-out; transition: border-color 0.15s ease, background 0.15s ease; }
+.tgi-msg-reaction-chip:hover { background: #1a1c1c; border-color: #2d3030; }
+
+/* Skeleton shimmer */
+@keyframes tgiShimmer {
+  0% { background-position: -300px 0; }
+  100% { background-position: 300px 0; }
+}
+@keyframes tgiSkelFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tgi-skel {
+  background: linear-gradient(90deg, #141515 0%, #1c1e1e 50%, #141515 100%);
+  background-size: 600px 100%;
+  animation: tgiShimmer 1.4s infinite linear;
+  border-radius: 6px;
+}
+.tgi-skel-list { padding: 4px 0; }
+.tgi-skel-conv {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  align-items: flex-start;
+  animation: tgiSkelFade 0.3s ease both;
+}
+.tgi-skel-avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; }
+.tgi-skel-avatar.sm { width: 26px; height: 26px; }
+.tgi-skel-body { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tgi-skel-line { height: 9px; border-radius: 4px; }
+.tgi-skel-line.w40 { width: 40%; }
+.tgi-skel-line.w60 { width: 60%; }
+.tgi-skel-line.w90 { width: 90%; }
+
+.tgi-skel-msgs { padding: 12px 4px; display: flex; flex-direction: column; gap: 10px; }
+.tgi-skel-msg { display: flex; gap: 6px; align-items: flex-end; animation: tgiSkelFade 0.3s ease both; }
+.tgi-skel-msg.out { flex-direction: row-reverse; }
+.tgi-skel-bubble { height: 34px; border-radius: 14px; min-width: 80px; max-width: 60%; }
+
+/* Conversation row hover polish */
+.tgi-conv { transition: background 0.12s ease; }
+.tgi-nav-item { transition: background 0.12s ease, color 0.12s ease; }
+.tgi-icon-btn { transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease; }
+.tgi-send-btn { transition: transform 0.1s ease, opacity 0.12s ease; }
+.tgi-send-btn:not(:disabled):hover { transform: translateY(-1px); }
+.tgi-send-btn:not(:disabled):active { transform: translateY(0) scale(0.97); }
+
+/* Subtle pulse for syncing icon button */
+.tgi-icon-btn:disabled { opacity: 0.55; }
+
 /* Composer */
 .tgi-composer {
   flex-shrink: 0;
