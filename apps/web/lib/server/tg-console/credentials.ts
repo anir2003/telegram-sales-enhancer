@@ -38,6 +38,8 @@ async function getDbSecret(workspaceId: string, label: string): Promise<string |
     .select('encrypted_value')
     .eq('workspace_id', workspaceId)
     .eq('label', label)
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (!data?.encrypted_value) return null;
   return decryptOrgSecret(data.encrypted_value);
@@ -65,4 +67,24 @@ export async function resolveWorkspaceTgCredentials(ctx: WorkspaceContext): Prom
   }
 
   return null;
+}
+
+export async function resolveTelegramConnectorMode(ctx: WorkspaceContext): Promise<{
+  mode: 'mock' | 'live';
+  credentials: { apiId: string; apiHash: string } | null;
+}> {
+  if (process.env.TELEGRAM_ADAPTER_MODE === 'mock') {
+    return { mode: 'mock', credentials: null };
+  }
+
+  const credentials = await resolveWorkspaceTgCredentials(ctx);
+  if (credentials) {
+    return { mode: 'live', credentials };
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    return { mode: 'mock', credentials: null };
+  }
+
+  return { mode: 'live', credentials: null };
 }

@@ -10,7 +10,7 @@ const labels: Record<string, { title: string; subtitle: string }> = {
   '/accounts': { title: 'Accounts', subtitle: 'Telegram sender availability, workload, and campaign coverage' },
   '/activity': { title: 'Activity', subtitle: 'Audit trail for sends, skips, and replies' },
   '/settings': { title: 'Settings', subtitle: 'Organization and bot linking' },
-  '/experimental/demo-guilds': { title: 'Demo Guilds', subtitle: 'Shared browser-demo traces with local-only video rendering' },
+  '/experimental/group-leads': { title: 'Group Leads', subtitle: 'Collect Telegram group members into lead lists' },
   '/experimental/telegram-checker': { title: 'Telegram Checker', subtitle: 'Look up any Telegram username using your personal API credentials' },
   '/experimental/telegram-scheduler': { title: 'TG Scheduler', subtitle: 'Platform-side scheduled Telegram sends with local timezone controls' },
   '/experimental/telegram-inbox': { title: 'TG Inbox', subtitle: 'Conversation review and approval queue for Telegram' },

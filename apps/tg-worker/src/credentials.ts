@@ -31,6 +31,8 @@ async function getDbSecret(supabase: SupabaseClient, workspaceId: string, label:
     .select('encrypted_value')
     .eq('workspace_id', workspaceId)
     .eq('label', label)
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) throw error;
   if (!data?.encrypted_value) return null;

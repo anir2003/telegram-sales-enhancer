@@ -64,15 +64,14 @@ function IconTgScheduler({ size = 16 }: { size?: number }) {
   );
 }
 
-function IconDemoGuilds({ size = 16 }: { size?: number }) {
+function IconGroupLeads({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 6h16" />
-      <path d="M4 12h10" />
-      <path d="M4 18h7" />
-      <path d="M17 10l3 2-3 2" />
-      <path d="M14 16l3 2-3 2" />
-      <path d="M13 4l3 2-3 2" />
+      <circle cx="8" cy="8" r="3" />
+      <circle cx="16" cy="8" r="3" />
+      <path d="M3.5 19c.8-3.2 2.6-5 5.1-5" />
+      <path d="M20.5 19c-.8-3.2-2.6-5-5.1-5" />
+      <path d="M9 19c.5-2.2 1.5-3.5 3-3.5s2.5 1.3 3 3.5" />
     </svg>
   );
 }
@@ -161,7 +160,7 @@ export function Sidebar() {
   const handleCancel = () => setShowModal(false);
 
   const experimentalItems = [
-    { href: '/experimental/demo-guilds', label: 'Demo Guilds', icon: IconDemoGuilds },
+    { href: '/experimental/group-leads', label: 'Group Leads', icon: IconGroupLeads },
     { href: '/experimental/telegram-scheduler', label: 'TG Scheduler', icon: IconTgScheduler },
     { href: '/experimental/telegram-inbox', label: 'TG Inbox', icon: IconTgInbox },
     { href: '/experimental/telegram-console', label: 'TG Setup', icon: IconTgSetup },
