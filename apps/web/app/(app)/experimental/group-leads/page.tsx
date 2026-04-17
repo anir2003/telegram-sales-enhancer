@@ -132,8 +132,8 @@ function IconChevron() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M8 10l4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function IconVerified() {
-  return <svg className="premium-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-label="Premium"><circle cx="12" cy="12" r="8.5" fill="currentColor" /><path d="M8.2 12.2l2.4 2.4 5.2-5.4" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+function IconPremium() {
+  return <svg className="premium-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-label="Premium"><path d="M12 3.6l2.5 5.4 5.8.6-4.4 4 1.3 5.8L12 16.6 6.8 19.4l1.3-5.8-4.4-4 5.8-.6L12 3.6z" fill="currentColor" /></svg>;
 }
 
 export default function GroupLeadsPage() {
@@ -507,6 +507,8 @@ function ResultsPanel({
   }, [leadFilter, results]);
   const cleanable = Boolean(job && job.status === 'completed' && results.length > 0);
   const pendingClean = Math.max(0, results.length - cleaned);
+  const savedCount = job?.saved_count ?? 0;
+  const alreadySaved = savedCount > 0 && savedCount >= saveableCleanLeads;
 
   const save = async () => {
     if (!job) return;
@@ -556,9 +558,13 @@ function ResultsPanel({
           </div>
         </div>
         <div className="btn-row">
-          <button className="btn-secondary" disabled={!cleanable || cleaning || pendingClean === 0} onClick={clean}>
-            {cleaning ? 'Cleaning...' : pendingClean === 0 ? 'Auto-cleaned' : 'Auto-clean'}
-          </button>
+          {pendingClean === 0 && results.length > 0 ? (
+            <span className="group-leads-status-chip">Auto-cleaned</span>
+          ) : (
+            <button className="btn-secondary" disabled={!cleanable || cleaning} onClick={clean}>
+              {cleaning ? 'Cleaning...' : 'Auto-clean'}
+            </button>
+          )}
           <button className="btn-secondary" disabled={!results.length} onClick={() => exportCsv(results, job)}><IconDownload /> CSV</button>
         </div>
       </div>
@@ -607,7 +613,9 @@ function ResultsPanel({
         )}
 
         <div className="group-leads-results-content">
-          {saveableCleanLeads > 0 ? (
+          {alreadySaved ? (
+            <div className="group-leads-saved-note">{savedCount} lead{savedCount === 1 ? '' : 's'} added to your main list.</div>
+          ) : saveableCleanLeads > 0 ? (
             <div className="group-leads-save-row">
               <input className="input" placeholder="Tag for clean leads" value={tag} onChange={(event) => setTag(event.target.value)} />
               <button className="btn" disabled={busy || !job || !tag.trim()} onClick={save}>
@@ -673,7 +681,7 @@ function ResultsPanel({
                 </span>
                 <span>
                   {result.premium ? (
-                    <IconVerified />
+                    <span className="group-leads-premium" title="Telegram Premium"><IconPremium /></span>
                   ) : (
                     <span className="muted">-</span>
                   )}
