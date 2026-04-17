@@ -366,7 +366,7 @@ async function updateCleanedResults(context: WorkspaceContext, rows: Array<Pick<
 }
 
 async function cleanCompanyBatch(apiKey: string, leads: Array<Pick<TgGroupLeadResultRecord, 'id' | 'name' | 'username' | 'bio'>>) {
-  const model = process.env.OPENAI_GROUP_LEAD_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-5.4-nano';
+  const model = process.env.OPENAI_GROUP_LEAD_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-5-nano';
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
