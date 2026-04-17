@@ -227,6 +227,12 @@ function IcoSetup() {
 function IcoMore() {
   return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>;
 }
+function IcoPause() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>;
+}
+function IcoPlay() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" {...ico}><polygon points="6 4 20 12 6 20 6 4"/></svg>;
+}
 
 /* ── Nav item ───────────────────────────────────────────── */
 function NavItem({ icon, label, count, active, collapsed, onClick }: {
@@ -257,6 +263,13 @@ export default function TelegramInboxPage() {
   const [localReactions, setLocalReactions] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncPaused, setSyncPaused] = useState(false);
+  useEffect(() => {
+    try { setSyncPaused(localStorage.getItem('tgi-sync-paused') === '1'); } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem('tgi-sync-paused', syncPaused ? '1' : '0'); } catch {}
+  }, [syncPaused]);
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -273,8 +286,8 @@ export default function TelegramInboxPage() {
   })}`;
 
   const { data, isLoading, mutate } = useSWR<ConsoleData>(key, swrFetcher, {
-    refreshInterval: 6000,
-    revalidateOnFocus: true,
+    refreshInterval: syncPaused ? 0 : 6000,
+    revalidateOnFocus: !syncPaused,
     keepPreviousData: true,
     dedupingInterval: 1500,
     revalidateIfStale: false,
@@ -366,7 +379,7 @@ export default function TelegramInboxPage() {
   // Periodic sync
   const activeSyncAccountId = selectedDialog?.account_id ?? selectedAccountId ?? accounts[0]?.id ?? null;
   useEffect(() => {
-    if (!activeSyncAccountId) return;
+    if (!activeSyncAccountId || syncPaused) return;
     let dead = false;
     const run = async () => {
       if (dead || document.visibilityState === 'hidden') return;
@@ -380,7 +393,7 @@ export default function TelegramInboxPage() {
     void run();
     const id = window.setInterval(run, 12_000);
     return () => { dead = true; clearInterval(id); };
-  }, [activeSyncAccountId]);
+  }, [activeSyncAccountId, syncPaused]);
 
   const countOf = (mode: RailMode) => dialogs.filter((d) => railMatches(d, mode)).length;
 
@@ -630,6 +643,13 @@ export default function TelegramInboxPage() {
                 </div>
               </div>
               <div className="tgi-chat-head-actions">
+                <button
+                  className={`tgi-icon-btn ${syncPaused ? 'is-paused' : ''}`}
+                  title={syncPaused ? 'Auto-sync paused — click to resume' : 'Pause auto-sync'}
+                  onClick={() => setSyncPaused((v) => !v)}
+                >
+                  {syncPaused ? <IcoPlay /> : <IcoPause />}
+                </button>
                 <button className="tgi-icon-btn" title="Sync now" disabled={syncing} onClick={() => {
                   if (!activeSyncAccountId) return;
                   setSyncing(true);
