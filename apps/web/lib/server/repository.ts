@@ -956,6 +956,54 @@ export async function setCampaignAccounts(
   return accountIds;
 }
 
+export async function updateCampaignAccountLimit(
+  campaignId: string,
+  accountId: string,
+  messageLimit: number | null,
+  context?: WorkspaceContext,
+) {
+  const active = resolveWorkspaceContext(context);
+  if (messageLimit !== null && (!Number.isInteger(messageLimit) || messageLimit < 1)) {
+    throw new Error('Campaign cap must be 1 or higher, or cleared to use the global cap.');
+  }
+
+  if (!isSupabaseConfigured()) {
+    const assignment = demoState.assignments.find(
+      (item) =>
+        item.workspace_id === active.workspaceId &&
+        item.campaign_id === campaignId &&
+        item.telegram_account_id === accountId,
+    );
+    if (!assignment) {
+      throw new Error('This account is not assigned to the campaign.');
+    }
+    assignment.message_limit = messageLimit;
+    return {
+      telegram_account_id: assignment.telegram_account_id,
+      message_limit: assignment.message_limit,
+    };
+  }
+
+  const supabase = getAdminSupabaseClient();
+  const { data, error } = await supabase!
+    .from('campaign_account_assignments')
+    .update({ message_limit: messageLimit })
+    .eq('workspace_id', active.workspaceId)
+    .eq('campaign_id', campaignId)
+    .eq('telegram_account_id', accountId)
+    .select('telegram_account_id, message_limit')
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    throw new Error('This account is not assigned to the campaign.');
+  }
+  return {
+    telegram_account_id: data.telegram_account_id as string,
+    message_limit: (data.message_limit as number | null) ?? null,
+  };
+}
+
 // Distribute accounts round-robin across ALL leads with no daily-limit cap.
 // The scheduler enforces daily limits each time it runs — capping here would
 // wrongly block overflow leads instead of queuing them for the next day.
