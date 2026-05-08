@@ -227,6 +227,10 @@ export default function CampaignDetailPage() {
   const [trackerDoneIds, setTrackerDoneIds] = useState<Set<string>>(new Set());
   const [inlineNoteItem, setInlineNoteItem] = useState<string | null>(null);
   const [inlineNoteText, setInlineNoteText] = useState('');
+  const [editingAccountCapId, setEditingAccountCapId] = useState<string | null>(null);
+  const [accountCapDraft, setAccountCapDraft] = useState('');
+  const [savingAccountCapId, setSavingAccountCapId] = useState<string | null>(null);
+  const [accountCapError, setAccountCapError] = useState<{ accountId: string; message: string } | null>(null);
 
   // ── Add More Leads state ─────────────────────────────────────────
   const [addLeadsMethod, setAddLeadsMethod] = useState<'upload' | 'tag'>('upload');
@@ -473,6 +477,47 @@ export default function CampaignDetailPage() {
       setStatusMessage(`Scheduler error: ${err?.message ?? 'Failed'}`);
     } finally {
       setRunningScheduler(false);
+    }
+  };
+
+  const beginAccountCapEdit = (accountId: string, currentLimit: number | null) => {
+    setEditingAccountCapId(accountId);
+    setAccountCapDraft(currentLimit === null ? '' : String(currentLimit));
+    setAccountCapError(null);
+  };
+
+  const cancelAccountCapEdit = () => {
+    setEditingAccountCapId(null);
+    setAccountCapDraft('');
+    setAccountCapError(null);
+  };
+
+  const saveAccountCap = async (accountId: string) => {
+    const trimmed = accountCapDraft.trim();
+    const messageLimit = trimmed === '' ? null : Number(trimmed);
+    if (messageLimit !== null && (!Number.isInteger(messageLimit) || messageLimit < 1)) {
+      setAccountCapError({ accountId, message: 'Use 1+ or clear for global.' });
+      return;
+    }
+
+    setSavingAccountCapId(accountId);
+    setAccountCapError(null);
+    setStatusMessage('');
+    try {
+      await fetchJson(`/api/campaigns/${campaignId}/accounts`, {
+        method: 'PATCH',
+        body: JSON.stringify({ accountId, messageLimit }),
+      });
+      const scheduler = await fetchJson<{ result?: { created?: number; blocked?: number; dueTasks?: number } }>('/api/scheduler/run', { method: 'POST' });
+      await mutate();
+      setEditingAccountCapId(null);
+      setAccountCapDraft('');
+      const created = scheduler.result?.created ?? 0;
+      setStatusMessage(created > 0 ? `Campaign cap updated. Scheduler created ${created} due tasks.` : 'Campaign cap updated. Scheduler ran.');
+    } catch (err: any) {
+      setAccountCapError({ accountId, message: err?.message ?? 'Failed to update cap.' });
+    } finally {
+      setSavingAccountCapId(null);
     }
   };
 
@@ -804,16 +849,96 @@ export default function CampaignDetailPage() {
                 const repliesFromAccount = accountLeads.filter((l: any) => l.status === 'replied').length;
                 const campaignAssignment = (detail?.accountAssignments ?? []).find((a: any) => a.telegram_account_id === account.id);
                 const campaignLimit = campaignAssignment?.message_limit ?? null;
+                const isEditingCap = editingAccountCapId === account.id;
+                const isSavingCap = savingAccountCapId === account.id;
+                const capError = accountCapError && accountCapError.accountId === account.id ? accountCapError.message : null;
+                const hasZeroCap = campaignLimit === 0;
                 const capLabel = campaignLimit !== null
                   ? `campaign cap ${campaignLimit}/day (global ${account.daily_limit})`
                   : `cap ${account.daily_limit}/day`;
                 return (
-                  <div key={account.id} className="metric-row">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div
+                    key={account.id}
+                    className="metric-row"
+                    style={hasZeroCap ? { borderColor: '#8f4b4b', background: 'rgba(143, 75, 75, 0.08)' } : undefined}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1, flexWrap: 'wrap' }}>
                       <AccountPill account={account} colorIndex={idx} />
-                      <div className="dim">@{account.telegram_username} · {sentFromAccount} sent · {repliesFromAccount} replies · {capLabel}</div>
+                      <div className="dim" style={{ minWidth: 0 }}>
+                        @{account.telegram_username} · {sentFromAccount} sent · {repliesFromAccount} replies ·{' '}
+                        {isEditingCap ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', verticalAlign: 'middle' }}>
+                            <span>campaign cap</span>
+                            <input
+                              className="input"
+                              type="number"
+                              min={1}
+                              placeholder={`global ${account.daily_limit}`}
+                              value={accountCapDraft}
+                              onChange={(e) => {
+                                setAccountCapDraft(e.target.value);
+                                setAccountCapError(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void saveAccountCap(account.id);
+                                if (e.key === 'Escape') cancelAccountCapEdit();
+                              }}
+                              disabled={isSavingCap}
+                              autoFocus
+                              style={{
+                                width: 84,
+                                padding: '4px 7px',
+                                fontSize: 11,
+                                background: 'var(--panel-strong)',
+                              }}
+                            />
+                            <span>/day</span>
+                            <button
+                              className="board-card-btn"
+                              type="button"
+                              title="Save campaign cap"
+                              onClick={() => void saveAccountCap(account.id)}
+                              disabled={isSavingCap}
+                              style={{ color: '#22c55e' }}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                            </button>
+                            <button
+                              className="board-card-btn"
+                              type="button"
+                              title="Cancel"
+                              onClick={cancelAccountCapEdit}
+                              disabled={isSavingCap}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M18 6L6 18M6 6l12 12" />
+                              </svg>
+                            </button>
+                            {capError && <span style={{ color: '#f2a6a6', fontSize: 10 }}>{capError}</span>}
+                          </span>
+                        ) : (
+                          <span style={hasZeroCap ? { color: '#f2a6a6' } : undefined}>{capLabel}</span>
+                        )}
+                      </div>
                     </div>
-                    <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      {!isEditingCap && (
+                        <button
+                          className="board-card-btn"
+                          type="button"
+                          title="Edit campaign cap"
+                          onClick={() => beginAccountCapEdit(account.id, campaignLimit)}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+                          </svg>
+                        </button>
+                      )}
+                      <span className="badge">{account.is_active ? 'active' : 'paused'}</span>
+                    </div>
                   </div>
                 );
               }) : <div className="empty-state">No accounts assigned yet.</div>}
